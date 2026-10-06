@@ -12,7 +12,7 @@ running server.
 
 <!-- gen-mcp-catalog:start - generated block; run `pnpm --filter @projektor/api gen:catalog` to refresh -->
 
-**122 tools across 22 domains.**
+**123 tools across 22 domains.**
 
 ## Coordination
 
@@ -116,6 +116,7 @@ running server.
 
 | Tool | Description | Kind |
 |------|-------------|------|
+| `list_issue_resolution_events` | List recorded issue completion, reopening, and cancellation events for a bounded UTC window (max 366 days). Returns {items,nextCursor}, ordered by occurred_at then sequence ascending. Events include issue title, number, project key, and ref. Timestamps are actual resolution transitions, not work start/end times. Only visible projects are included. | read-only |
 | `list_issues` | List issues in the workspace, optionally filtered by status, priority, project, or assignee. Items omit `body` by default — pass bodyChars:N (max 1000) for a preview, or includeBody:true for whole bodies. Pass includeRollups:true to attach a `rollup` (child status counts: total/byStatus/done/remaining) to each item (a zero rollup is omitted unless verbose:true). Omitted keys are null/empty/false; pass verbose:true for the raw shape. See /projektor/agents/response-conventions/. | read-only |
 | `get_issue` | Get a single issue by ID or project key + number (e.g. "PROJ-42"). `body` is returned up to 16000 chars; if it is longer the result has `bodyTruncated:true`, `bodyTotalChars` and `next` — pass `next` back as `cursor` for the rest. Omitted keys are null/empty/false; pass verbose:true for the raw shape. See /projektor/agents/response-conventions/. | read-only |
 | `get_issues` | Fetch up to 50 issues in one call, by ref (e.g. PROJ-42) and/or id. Cheaper than repeated get_issue calls for triage. Items carry customFields but no rollup/links/assignee_name, and omit `body` unless includeBody:true. Returned in the order refs/ids were given; `missing` lists (once each) any requested ref/id that didn't resolve or isn't visible to you. Omitted keys are null/empty/false; pass verbose:true for the raw shape. See /projektor/agents/response-conventions/. | read-only |
