@@ -37,20 +37,25 @@ export default function IssueList({ workspaceSlug }: Props) {
 	}, [view]);
 
 	const gate = useAccessGate(workspaceSlug);
-	const filters = useIssueFilters();
+	const filters = useIssueFilters(workspaceSlug);
 	const search = useIssueSearch(workspaceSlug);
-	const data = useIssueListData(workspaceSlug, view, {
-		filterStatuses: filters.filterStatuses,
-		filterPriorities: filters.filterPriorities,
-		filterProject: filters.filterProject,
-		filterType: filters.filterType,
-		filterEpicId: filters.filterEpicId,
-		filterSprintId: filters.filterSprintId,
-		hideEpics: filters.hideEpics,
-		filterDateField: filters.filterDateField,
-		filterDateFrom: filters.filterDateFrom,
-		filterDateTo: filters.filterDateTo,
-	});
+	const data = useIssueListData(
+		workspaceSlug,
+		view,
+		{
+			filterStatuses: filters.filterStatuses,
+			filterPriorities: filters.filterPriorities,
+			filterProject: filters.filterProject,
+			filterType: filters.filterType,
+			filterEpicId: filters.filterEpicId,
+			filterSprintId: filters.filterSprintId,
+			hideEpics: filters.hideEpics,
+			filterDateField: filters.filterDateField,
+			filterDateFrom: filters.filterDateFrom,
+			filterDateTo: filters.filterDateTo,
+		},
+		filters.projectScopeReady
+	);
 	const saved = useSavedViews(filters.filterProject, filters.filtersBundle, filters.applyFilters);
 	const createModal = useCreateIssueModal({
 		workspaceSlug,
@@ -67,13 +72,19 @@ export default function IssueList({ workspaceSlug }: Props) {
 	const filtered = sortIssues(data.issues, filters.sortBy, filters.sortDir);
 
 	if (gate.pending) return <AccessPending />;
-	if (data.loading && !data.hasLoadedOnce.current) return <p aria-live="polite">Loading issues…</p>;
+	if (filters.projectScopeError) {
+		return <p role="alert" class="text-danger-text">{filters.projectScopeError}</p>;
+	}
 	if (data.error) {
 		return (
 			<p role="alert" class="text-danger-text">
 				Failed to load issues: {data.error}
 			</p>
 		);
+	}
+
+	if (!filters.projectScopeReady || (data.loading && !data.hasLoadedOnce.current)) {
+		return <p aria-live="polite">Loading issues…</p>;
 	}
 
 	return (
