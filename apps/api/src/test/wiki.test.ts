@@ -12,6 +12,7 @@ import {
 	seedProject,
 	seedToken,
 	seedUser,
+	seedUserToken,
 	seedWorkspaceRoles,
 	toolError,
 } from "./helpers";
@@ -4813,7 +4814,7 @@ describe("Wiki page templates (PROJ-491)", () => {
 describe("Wiki built-in template seeding on workspace creation (PROJ-491)", () => {
 	it("seeds a Templates parent page plus runbook/adr/spec templates", async () => {
 		const fixture = await seedFixture({ role: "owner" });
-		const ownerHeaders = authHeaders(fixture.token, fixture.workspace.slug);
+		const ownerHeaders = authHeaders(await seedUserToken(fixture.user.id), fixture.workspace.slug);
 		const newSlug = `seed-test-${crypto.randomUUID().slice(0, 8)}`;
 
 		const created = mcpData<{ id: string; slug: string }>(
@@ -4864,7 +4865,7 @@ describe("Wiki built-in template seeding on workspace creation (PROJ-491)", () =
 	// search_wiki until someone happens to edit it.
 	it("the seeded Templates parent page is findable via search_wiki", async () => {
 		const fixture = await seedFixture({ role: "owner" });
-		const ownerHeaders = authHeaders(fixture.token, fixture.workspace.slug);
+		const ownerHeaders = authHeaders(await seedUserToken(fixture.user.id), fixture.workspace.slug);
 		const newSlug = `seed-fts-test-${crypto.randomUUID().slice(0, 8)}`;
 
 		const created = mcpData<{ id: string; slug: string }>(
