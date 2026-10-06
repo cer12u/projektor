@@ -1,7 +1,7 @@
 import type { WorkspaceBrand } from "@projektor/db";
 import { drizzle, schema } from "@projektor/db";
 import { buildMcpAddCommand } from "@projektor/types";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { IdSchema } from "../schemas/common";
 import {
 	CreateTokenSchema,
@@ -84,10 +84,32 @@ export async function createWorkspace(
 
 	const id = crypto.randomUUID();
 	const now = Math.floor(Date.now() / 1000);
-	await orm.insert(schema.workspaces).values({ id, name, slug, createdAt: now });
-	await orm
-		.insert(schema.workspaceMembers)
-		.values({ workspaceId: id, userId, role: "owner", joinedAt: now });
+	// The preflight read is not a lock: another first-login request can claim this
+	// slug before our insert. Resolve only that conflict atomically, preserving other
+	// database failures. The creator membership must commit with the workspace, or
+	// provisionAdmin's concurrent grantOwner can beat a separate membership INSERT.
+	const [created] = await orm.batch([
+		orm
+			.insert(schema.workspaces)
+			.values({ id, name, slug, createdAt: now })
+			.onConflictDoNothing({ target: schema.workspaces.slug })
+			.returning({ id: schema.workspaces.id }),
+		orm.insert(schema.workspaceMembers).select(
+			orm
+				.select({
+					workspaceId: schema.workspaces.id,
+					userId: sql<string>`${userId}`.as("user_id"),
+					role: sql<"owner">`'owner'`.as("role"),
+					joinedAt: sql<number>`${now}`.as("joined_at"),
+				})
+				.from(schema.workspaces)
+				// A slug-conflict loser owns no row at its new UUID and inserts nothing.
+				.where(eq(schema.workspaces.id, id))
+		),
+	]);
+	if (created.length === 0) throw new ConflictError("Slug already taken");
+	// Defaults are separate writes, as before. A later seed failure propagates;
+	// only the workspace/creator-membership pair above has atomic rollback.
 	await seedDefaultTaskTypes(db, id);
 	await seedDefaultTaskStatuses(db, id);
 	await seedDefaultCustomFields(db, id);
