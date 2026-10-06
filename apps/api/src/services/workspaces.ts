@@ -32,7 +32,11 @@ async function sha256hex(s: string): Promise<string> {
 		.join("");
 }
 
-export async function listWorkspaces(db: D1Database, userId: string) {
+export async function listWorkspaces(
+	db: D1Database,
+	userId: string,
+	tokenWorkspaceId?: string | null
+) {
 	const orm = drizzle(db, { schema });
 	return orm
 		.select({
@@ -47,11 +51,25 @@ export async function listWorkspaces(db: D1Database, userId: string) {
 			schema.workspaceMembers,
 			eq(schema.workspaceMembers.workspaceId, schema.workspaces.id)
 		)
-		.where(eq(schema.workspaceMembers.userId, userId))
+		.where(
+			and(
+				eq(schema.workspaceMembers.userId, userId),
+				tokenWorkspaceId != null ? eq(schema.workspaces.id, tokenWorkspaceId) : undefined
+			)
+		)
 		.orderBy(asc(schema.workspaces.name));
 }
 
-export async function createWorkspace(db: D1Database, userId: string, input: unknown) {
+export async function createWorkspace(
+	db: D1Database,
+	userId: string,
+	input: unknown,
+	tokenWorkspaceId?: string | null
+) {
+	// Creating a workspace is outside every workspace-confined credential's scope.
+	if (tokenWorkspaceId != null) {
+		throw new ForbiddenError("Workspace-scoped credentials cannot create another workspace");
+	}
 	const parsed = CreateWorkspaceSchema.safeParse(input);
 	if (!parsed.success) throw new ValidationError(parsed.error.flatten());
 	const { name, slug } = parsed.data;
