@@ -36,6 +36,10 @@ async function resolveWikiWorkspaceContext(
 		.bind(user.id, slug)
 		.first<{ id: string; name: string; slug: string; role: string | null }>();
 	if (!row?.role) return null;
+	// This resolver replaces workspaceMiddleware for browser navigation, so it must
+	// enforce the same token boundary before injecting metadata or redirecting.
+	const tokenWorkspaceId = c.get("tokenWorkspaceId");
+	if (tokenWorkspaceId != null && row.id !== tokenWorkspaceId) return null;
 
 	return { id: row.id, name: row.name, slug: row.slug, role: row.role };
 }
