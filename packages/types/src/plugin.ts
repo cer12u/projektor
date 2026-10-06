@@ -67,6 +67,8 @@ export interface PluginContext {
 	// PROJ-328: which auth path authenticated this request ("human" = Cloudflare Access
 	// JWT / dev bypass, "agent" = Bearer API token or OAuth grant).
 	authKind?: "human" | "agent";
+	// Credential confinement: null = personal token; undefined = human session.
+	tokenWorkspaceId?: string | null;
 	auth?: AuthInfo;
 	workspaceHub?: DurableObjectNamespace;
 	waitUntil?: (promise: Promise<unknown>) => void;
