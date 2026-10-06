@@ -1,4 +1,6 @@
-import { useState } from "preact/hooks";
+import { type StateUpdater, useState } from "preact/hooks";
+import { currentProject, selectProject, useCurrentProject } from "../../lib/project-context";
+import { readUrlProjectId } from "../../utils/resolve-project-id";
 import type { SortKey } from "../board-utils";
 import type { SavedViewFilters } from "../saved-views";
 import type { DateField } from "./FiltersPopover";
@@ -9,7 +11,6 @@ function readInitialFilters() {
 	return {
 		statuses: parseListParam(params.get("status")),
 		priorities: parseListParam(params.get("priority")),
-		project: params.get("project") ?? "",
 		epic: params.get("epic") ?? "",
 		sprintId: params.get("sprintId") ?? "",
 		hideEpics: params.get("hideEpics") === "1",
@@ -20,13 +21,24 @@ function readInitialFilters() {
 }
 
 /** Owns all issue-list filter/sort state, plus URL <-> state sync (PROJ-60/211/212). */
-export function useIssueFilters() {
+export function useIssueFilters(workspaceSlug?: string) {
+	const scope = useCurrentProject(
+		workspaceSlug,
+		readUrlProjectId() ?? (currentProject.value ? null : "")
+	);
+	const filterProject = scope.project?.key ?? "";
+	function setFilterProject(value: StateUpdater<string>) {
+		const key = typeof value === "function" ? value(filterProject) : value;
+		const project = key ? scope.projects.find((p) => p.key === key) : null;
+		// A deleted project in a saved view must never broaden into All silently.
+		if (project === undefined) return;
+		selectProject(project);
+	}
 	// PROJ-862: lazy initialisers read the URL on the first render, so the first
 	// issues request already carries the filters.
 	const [initial] = useState(readInitialFilters);
 	const [filterStatuses, setFilterStatuses] = useState<string[]>(initial.statuses);
 	const [filterPriorities, setFilterPriorities] = useState<string[]>(initial.priorities);
-	const [filterProject, setFilterProject] = useState(initial.project);
 	const [filterType, setFilterType] = useState("");
 	const [filterEpicId, setFilterEpicId] = useState(initial.epic);
 	const [hideEpics, setHideEpics] = useState(initial.hideEpics);
@@ -42,7 +54,6 @@ export function useIssueFilters() {
 		setFilterStatuses,
 		filterPriorities,
 		setFilterPriorities,
-		setFilterProject,
 		filterEpicId,
 		setFilterEpicId,
 		filterSprintId,
@@ -93,6 +104,8 @@ export function useIssueFilters() {
 	}
 
 	return {
+		projectScopeReady: scope.ready && !scope.error,
+		projectScopeError: scope.error,
 		filterStatuses,
 		setFilterStatuses,
 		filterPriorities,

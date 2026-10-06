@@ -14,14 +14,24 @@ type FilterInputs = FilterQueryFilters;
 export function useIssueListData(
 	workspaceSlug: string | undefined,
 	view: ViewMode,
-	filters: FilterInputs
+	filters: FilterInputs,
+	projectScopeReady = true
 ) {
-	const lookups = useIssueLookups(workspaceSlug, filters.filterProject, filters.filterSprintId);
+	const lookups = useIssueLookups(
+		workspaceSlug,
+		filters.filterProject,
+		filters.filterSprintId,
+		projectScopeReady
+	);
 	// PROJ-862: the list request waits for the lookups its filters depend on, so a
 	// `?project=KEY` load sends one filtered request instead of an unfiltered one first.
 	const needsTaskTypes =
 		filters.hideEpics || filters.filterEpicId === "none" || !!filters.filterType;
+	const projectExists =
+		!filters.filterProject || lookups.projects.some((p) => p.key === filters.filterProject);
 	const lookupsReady =
+		projectScopeReady &&
+		projectExists &&
 		(!filters.filterProject || lookups.projectsLoaded) &&
 		(!needsTaskTypes || lookups.taskTypesLoaded);
 	const fetching = useIssueFetching(
@@ -39,5 +49,10 @@ export function useIssueListData(
 		fetching.fetchIssues
 	);
 
-	return { ...lookups, ...fetching, ...mutations };
+	return {
+		...lookups,
+		...fetching,
+		...mutations,
+		error: lookups.projectsLoaded && !projectExists ? "Project not found" : fetching.error,
+	};
 }
