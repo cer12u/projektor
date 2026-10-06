@@ -10,6 +10,26 @@ interface Props {
 }
 
 const OPEN_CATEGORIES = new Set(["todo", "in_progress", "in_review"]);
+const PRIORITY_ORDER = ["urgent", "high", "medium", "low", "none"];
+// Bound faulty pagination without ever presenting a capped queue as complete.
+const MAX_ISSUE_PAGES = 100;
+
+interface IssuePage {
+	items: Issue[];
+	nextCursor: string | null;
+	total?: number | null;
+}
+
+interface IssueQueue {
+	workspaceSlug?: string;
+	issues: Issue[];
+	loading: boolean;
+	error: string | null;
+}
+
+function priorityGroup(issue: Issue): string {
+	return PRIORITY_ORDER.includes(issue.priority) ? issue.priority : "none";
+}
 
 function getStoryPoints(issue: Issue): string | null {
 	const field = (issue.customFields ?? []).find((f) => f.key === "story_points");
@@ -64,7 +84,14 @@ function groupIssuesByProject(visible: readonly Issue[]): {
 } {
 	const order: string[] = [];
 	const byProject = new Map<string, ProjectGroup>();
-	for (const issue of visible) {
+	// Stable project/issue order within each priority band, independent of page order.
+	const sorted = [...visible].sort(
+		(a, b) =>
+			(a.project_key ?? "__none__").localeCompare(b.project_key ?? "__none__") ||
+			a.number - b.number ||
+			a.id.localeCompare(b.id)
+	);
+	for (const issue of sorted) {
 		const key = issue.project_key ?? "__none__";
 		const name = issue.project_name ?? issue.project_key ?? "No project";
 		let group = byProject.get(key);
@@ -81,9 +108,9 @@ function groupIssuesByProject(visible: readonly Issue[]): {
 function ProjectIssuesSection({ name, issues }: { name: string; issues: Issue[] }) {
 	return (
 		<section>
-			<h2 class="text-sm font-semibold text-text-muted uppercase tracking-[0.05em] mb-2 pb-1 border-b border-border">
+			<h3 class="text-sm font-semibold text-text-muted uppercase tracking-[0.05em] mb-2 pb-1 border-b border-border">
 				{name}
-			</h2>
+			</h3>
 
 			{/* Desktop table */}
 			<div class="overflow-x-auto max-sm:hidden">
@@ -167,40 +194,82 @@ function ProjectIssuesSection({ name, issues }: { name: string; issues: Issue[] 
 }
 
 export default function MyIssues({ workspaceSlug }: Props) {
-	const [issues, setIssues] = useState<Issue[]>([]);
-	const [loading, setLoading] = useState(true);
-	const [error, setError] = useState<string | null>(null);
+	const [queue, setQueue] = useState<IssueQueue>({
+		workspaceSlug,
+		issues: [],
+		loading: true,
+		error: null,
+	});
 	const [includeDone, setIncludeDone] = useState(false);
 
 	useEffect(() => {
+		let active = true;
+		setQueue({ workspaceSlug, issues: [], loading: true, error: null });
 		(async () => {
-			setLoading(true);
-			setError(null);
 			try {
-				// PROJ-444: "me" resolves server-side to the calling user — no more
-				// /auth/me round trip before this fetch can even start.
-				const data = await apiFetch<{ items: Issue[] }>("/api/issues?assignee=me", {
-					workspaceSlug,
-				});
-				setIssues(Array.isArray(data.items) ? data.items : []);
+				const issues = new Map<string, Issue>();
+				const cursors = new Set<string>();
+				let cursor: string | null = null;
+				let total: number | null = null;
+				for (let page = 0; page < MAX_ISSUE_PAGES; page++) {
+					// "me" always resolves server-side to the calling user. Follow the
+					// cursor even if a server returns fewer than the requested 100 items.
+					const params = new URLSearchParams({ assignee: "me", limit: "100" });
+					if (cursor !== null) params.set("cursor", cursor);
+					const data = await apiFetch<IssuePage>(`/api/issues?${params}`, { workspaceSlug });
+					if (!active) return;
+					if (
+						!Array.isArray(data?.items) ||
+						(data.nextCursor !== null &&
+							(typeof data.nextCursor !== "string" || data.nextCursor.length === 0))
+					) {
+						throw new Error("The server returned an invalid issue page.");
+					}
+					if (page === 0 && typeof data.total === "number") total = data.total;
+					for (const issue of data.items) issues.set(issue.id, issue);
+					if (data.nextCursor === null) {
+						if (total !== null && issues.size < total) {
+							throw new Error("The issue queue changed or the server returned an incomplete list.");
+						}
+						setQueue({ workspaceSlug, issues: [...issues.values()], loading: false, error: null });
+						return;
+					}
+					if (data.items.length === 0) {
+						throw new Error("The server returned an empty issue page with another cursor.");
+					}
+					if (cursors.has(data.nextCursor)) {
+						throw new Error("The server repeated an issue-page cursor.");
+					}
+					cursors.add(data.nextCursor);
+					cursor = data.nextCursor;
+				}
+				throw new Error(`Issue pagination did not finish after ${MAX_ISSUE_PAGES} pages.`);
 			} catch (e) {
-				setError(String(e));
-			} finally {
-				setLoading(false);
+				if (active) setQueue({ workspaceSlug, issues: [], loading: false, error: String(e) });
 			}
 		})();
+		// apiFetch shares in-flight GETs; ignore old results rather than aborting
+		// a request that another island might still need.
+		return () => {
+			active = false;
+		};
 	}, [workspaceSlug]);
 
-	if (loading) return <p aria-live="polite">Loading…</p>;
-	if (error)
+	if (queue.workspaceSlug !== workspaceSlug || queue.loading) {
+		return <p aria-live="polite">Loading…</p>;
+	}
+	if (queue.error)
 		return (
 			<p role="alert" class="text-danger-text">
-				Failed to load issues: {error}
+				Failed to load issues: {queue.error} No partial queue is shown. Reload to try again.
 			</p>
 		);
 
-	const visible = issues.filter((i) => isVisible(i, includeDone));
-	const { order: projectOrder, byProject } = groupIssuesByProject(visible);
+	const visible = queue.issues.filter((i) => isVisible(i, includeDone));
+	const priorityGroups = PRIORITY_ORDER.map((priority) => ({
+		priority,
+		...groupIssuesByProject(visible.filter((issue) => priorityGroup(issue) === priority)),
+	}));
 	const hasAny = visible.length > 0;
 
 	return (
@@ -231,11 +300,20 @@ export default function MyIssues({ workspaceSlug }: Props) {
 				</div>
 			) : (
 				<div class="flex flex-col gap-8">
-					{projectOrder.map((key) => {
-						const group = byProject.get(key);
-						if (!group) return null;
-						return <ProjectIssuesSection key={key} name={group.name} issues={group.issues} />;
-					})}
+					{priorityGroups.map(({ priority, order, byProject }) =>
+						order.length === 0 ? null : (
+							<section key={priority} class="flex flex-col gap-4">
+								<h2 class="text-base font-semibold text-text-base capitalize">
+									{priority === "none" ? "No priority" : priority}
+								</h2>
+								{order.map((key) => {
+									const group = byProject.get(key);
+									if (!group) return null;
+									return <ProjectIssuesSection key={key} name={group.name} issues={group.issues} />;
+								})}
+							</section>
+						)
+					)}
 				</div>
 			)}
 		</div>
