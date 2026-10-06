@@ -880,4 +880,5 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 export { RateLimiter } from "./lib/rate-limiter-do";
+export { verifyAccessJwtIdentity } from "./middleware/auth";
 export { WorkspaceHub } from "./realtime/workspace-hub";
