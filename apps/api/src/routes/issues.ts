@@ -3,6 +3,7 @@ import { type Context, Hono } from "hono";
 import { jsonBody } from "../http/body";
 import { serviceErrToResponse } from "../http/error-adapter";
 import { claimIssue, listIssueLeases, releaseIssue } from "../services/issue-leases";
+import { listIssueResolutionEvents } from "../services/issue-resolution-query";
 import {
 	createIssue,
 	deleteIssue,
@@ -135,6 +136,19 @@ router.get("/batch", async (c) => {
 	const { refs, ids, includeBody } = c.req.query();
 	try {
 		return c.json(await getIssuesBatch(ctx, { refs, ids, includeBody }));
+	} catch (e) {
+		return serviceErrToResponse(c, e);
+	}
+});
+
+// Register this static route before /:id so it can never resolve as an issue ID.
+router.get("/resolution-events", async (c) => {
+	const ctx = ctxFromHono(c);
+	const { after, before, projectId, issueId, cursor, limit } = c.req.query();
+	try {
+		return c.json(
+			await listIssueResolutionEvents(ctx, { after, before, projectId, issueId, cursor, limit })
+		);
 	} catch (e) {
 		return serviceErrToResponse(c, e);
 	}

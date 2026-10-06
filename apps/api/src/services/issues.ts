@@ -43,6 +43,11 @@ import {
 } from "./issue-leases";
 import { createLink, listLinksForIssue } from "./issue-links";
 import { ISSUE_REF_PATTERN, resolveIssueIdParam } from "./issue-ref";
+import {
+	buildInitialResolutionStatement,
+	buildResolutionTransitionStatement,
+	recentResolutionHistory,
+} from "./issue-resolution";
 import { resolveProjectIdParam, resolveVisibleProjectIdParam } from "./projects";
 import { broadcastWorkspaceEvent } from "./realtime";
 import { inChunks, sanitizeFtsQuery } from "./sql";
@@ -295,10 +300,10 @@ async function addCustomFieldFilter(
 function addDateRangeFilters(conditions: Condition[], filters: ListIssuesFilters): void {
 	const { completedAfter, completedBefore, updatedAfter, updatedBefore } = filters;
 
-	if (completedAfter) conditions.push(gte(schema.issues.completedAt, completedAfter));
-	if (completedBefore) conditions.push(lte(schema.issues.completedAt, completedBefore));
-	if (updatedAfter) conditions.push(gte(schema.issues.updatedAt, updatedAfter));
-	if (updatedBefore) conditions.push(lte(schema.issues.updatedAt, updatedBefore));
+	if (completedAfter !== undefined) conditions.push(gte(schema.issues.completedAt, completedAfter));
+	if (completedBefore !== undefined) conditions.push(lte(schema.issues.completedAt, completedBefore));
+	if (updatedAfter !== undefined) conditions.push(gte(schema.issues.updatedAt, updatedAfter));
+	if (updatedBefore !== undefined) conditions.push(lte(schema.issues.updatedAt, updatedBefore));
 }
 
 async function buildListIssuesConditions(
@@ -641,9 +646,17 @@ export async function getIssue(ctx: ServiceCtx, raw: unknown) {
 
 	const { rollup, customFields } = await loadIssueExtras(ctx, orm, issueId);
 	const links = await listLinksForIssue(ctx, { issueId });
+	const history = await recentResolutionHistory(ctx, issueId);
 
 	const full: Record<string, unknown> = {
 		...issueRecord,
+		...history,
+		completed_at_source:
+			issue.completed_at == null
+				? null
+				: history.last_completed_at === issue.completed_at
+					? "observed"
+					: "legacy_unverified",
 		rollup,
 		links,
 		customFields,
@@ -841,10 +854,10 @@ function buildInsertIssueStatement(
 			`INSERT INTO issues
 			   (id, workspace_id, project_id, number, title, body, status, status_id,
 			    status_category, priority, assignee_id, labels, parent_id, type_id,
-			    created_by_id, author_kind, created_at, updated_at, dor_ready, dor_missing, ready_at)
+			    created_by_id, author_kind, created_at, updated_at, dor_ready, dor_missing, ready_at, completed_at, done_at)
 			 VALUES
 			   (?, ?, ?, (SELECT COALESCE(MAX(number), 0) + 1 FROM issues WHERE project_id = ?),
-			    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 			 RETURNING number`
 		)
 		.bind(
@@ -869,7 +882,9 @@ function buildInsertIssueStatement(
 			params.now,
 			params.now,
 			...dorColumns(params.resolvedBody),
-			params.readyAt
+			params.readyAt,
+			isDoneState(params.resolvedStatusCategory, params.resolvedStatusKey) ? params.now : null,
+			isDoneState(params.resolvedStatusCategory, params.resolvedStatusKey) ? params.now : null
 		);
 }
 
@@ -1000,6 +1015,10 @@ export async function createIssue(ctx: ServiceCtx, raw: unknown) {
 		}),
 	];
 
+	const initialResolution = buildInitialResolutionStatement(
+		ctx, id, resolvedStatusKey, resolvedStatusCategory, nowTs
+	);
+	if (initialResolution) statements.push(initialResolution);
 	const results = await ctx.db.batch(statements);
 	const number = (results[0]?.results as Array<{ number: number }> | undefined)?.[0]?.number;
 
@@ -1055,21 +1074,23 @@ function buildSimpleFields(data: UpdateIssueData): SetValues {
 	return setValues;
 }
 
-// PROJ-212: stamp completed_at when an issue first enters a done-category
-// status, clear it when it leaves. We keep the original completion time if
-// the issue was already done and is merely re-saved. Done is detected from
-// either the configured status category or the legacy `status` enum, so it
-// works whether or not the workspace uses custom task statuses.
+// Evaluate completion against the row at UPDATE time, inside the same batch as
+// its history event. A repeated/concurrent PATCH must not move a completion time.
 function buildCompletedAtTransition(
-	existing: ExistingIssue,
 	resolvedStatusKey: string,
 	newStatusCategory: string | undefined
 ): SetValues {
-	const wasDone = existing.statusCategory === "done" || existing.status === "done";
-	const isDone = newStatusCategory === "done" || resolvedStatusKey === "done";
-	if (isDone && !wasDone) return { completedAt: now() };
-	if (!isDone && wasDone) return { completedAt: null };
-	return {};
+	const isDone = isDoneState(newStatusCategory, resolvedStatusKey);
+	const eventTime = sql`(SELECT occurred_at FROM issue_resolution_events e WHERE e.issue_id = ${schema.issues.id} AND e.workspace_id = ${schema.issues.workspaceId} ORDER BY sequence DESC LIMIT 1)`;
+	const wasDone = sql`(${schema.issues.statusCategory} = 'done' OR ${schema.issues.status} = 'done')`;
+	return {
+		completedAt: isDone
+			? sql`CASE WHEN ${wasDone} THEN ${schema.issues.completedAt} ELSE ${eventTime} END`
+			: null,
+		doneAt: isDone
+			? sql`CASE WHEN ${wasDone} THEN ${schema.issues.doneAt} ELSE COALESCE(${schema.issues.doneAt}, ${eventTime}) END`
+			: sql`${schema.issues.doneAt}`,
+	};
 }
 
 // PROJ-252 flow metrics: stamp ready_at/claimed_at/done_at the first time an issue
@@ -1127,10 +1148,6 @@ function buildFlowTimestampTransitions(
 	);
 	const isClaimed = isClaimedState(newStatusCategory, resolvedStatusKey, newIsReviewStep);
 	if (isClaimed && !wasClaimed && existing.claimedAt == null) setValues.claimedAt = now();
-
-	const wasDone = isDoneState(existing.statusCategory, existing.status);
-	const isDone = isDoneState(newStatusCategory, resolvedStatusKey);
-	if (isDone && !wasDone && existing.doneAt == null) setValues.doneAt = now();
 
 	return setValues;
 }
@@ -1315,10 +1332,6 @@ async function applyStatusFields(
 		setValues.needsAudit = await computeNeedsAudit(ctx, data);
 	}
 
-	Object.assign(
-		setValues,
-		buildCompletedAtTransition(existing, resolvedStatusKey, newStatusCategory)
-	);
 	Object.assign(
 		setValues,
 		buildFlowTimestampTransitions(existing, resolvedStatusKey, newStatusCategory, newIsReviewStep)
@@ -1634,6 +1647,12 @@ export async function updateIssue(ctx: ServiceCtx, rawId: string, raw: unknown) 
 
 	const commentId = crypto.randomUUID();
 	const commentNow = now();
+	if (data.status !== undefined || "statusId" in data) {
+		Object.assign(
+			setValues,
+			buildCompletedAtTransition(setValues.status as string, setValues.statusCategory as string)
+		);
+	}
 	const diff = { ...buildUpdateDiffCore(data), ...buildUpdateDiffRefs(data) };
 
 	// PROJ-870: the issue UPDATE (status_category included, from resolveStatus), the FTS delete+insert, the custom-field upserts, the completion-report
@@ -1649,7 +1668,15 @@ export async function updateIssue(ctx: ServiceCtx, rawId: string, raw: unknown) 
 			.toSQL()
 	);
 
-	const statements: D1PreparedStatement[] = [updateStatement];
+	const statements: D1PreparedStatement[] = [];
+	if (data.status !== undefined || "statusId" in data) {
+		statements.push(
+			buildResolutionTransitionStatement(
+				ctx, id, setValues.status as string, setValues.statusCategory as string
+			)
+		);
+	}
+	statements.push(updateStatement);
 
 	if (data.title !== undefined || data.body !== undefined) {
 		statements.push(
@@ -1924,6 +1951,9 @@ export async function deleteIssue(ctx: ServiceCtx, rawId: string) {
 		.all<{ id: string }>();
 
 	const deleteStatements: D1PreparedStatement[] = [
+		ctx.db
+			.prepare("DELETE FROM issue_resolution_events WHERE issue_id = ? AND workspace_id = ?")
+			.bind(id, ctx.workspaceId),
 		toD1Statement(
 			ctx,
 			orm

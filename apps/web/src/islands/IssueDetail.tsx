@@ -24,6 +24,7 @@ import type {
 	TaskStatus,
 	TaskType,
 } from "./issue-detail-helpers";
+import { IssueResolutionHistory } from "./IssueResolutionHistory";
 
 interface Props {
 	issueId?: string;
@@ -632,6 +633,8 @@ function IssueDetailView(
 						attachments={props.attachments}
 						fetchAttachments={props.fetchAttachments}
 					/>
+
+					<IssueResolutionHistory issue={issue} />
 
 					<CommentsSection
 						issueId={issueId}

@@ -323,6 +323,7 @@ export async function revokeToken(ctx: ServiceCtx, tokenId: string) {
 const WS_PAGES = "SELECT id FROM wiki_pages WHERE workspace_id = ?1";
 const WS_GROUPS = "SELECT id FROM user_groups WHERE workspace_id = ?1";
 const WORKSPACE_CLEANUP_SQL: readonly string[] = [
+	"DELETE FROM issue_resolution_events WHERE workspace_id = ?1",
 	"DELETE FROM wiki_fts WHERE workspace_id = ?1",
 	"DELETE FROM issues_fts WHERE workspace_id = ?1",
 	"DELETE FROM share_tokens WHERE workspace_id = ?1",

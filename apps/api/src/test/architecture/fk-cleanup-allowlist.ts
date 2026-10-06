@@ -8,6 +8,12 @@
 export type FkCleanupEntry = { cleanedBy: readonly string[] } | { guarded: string };
 
 export const FK_CLEANUP_ALLOWLIST: Record<string, FkCleanupEntry> = {
+	"issue_resolution_events -> issues (CASCADE)": {
+		cleanedBy: ["services/issues.ts#deleteIssue", "services/projects.ts#PROJECT_CLEANUP_SQL"],
+	},
+	"issue_resolution_events -> workspaces (CASCADE)": {
+		cleanedBy: ["services/workspaces.ts#WORKSPACE_CLEANUP_SQL"],
+	},
 	"activity -> users (SET NULL)": {
 		guarded: "users are never deleted: removeMember only removes the workspace membership row",
 	},

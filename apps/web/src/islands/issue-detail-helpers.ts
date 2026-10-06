@@ -1,3 +1,4 @@
+import type { IssueResolutionEvent } from "../utils/issue-resolution";
 import type { CustomFieldValue, TaskStatus } from "./board-utils";
 
 export type { CustomFieldValue, TaskStatus };
@@ -40,11 +41,17 @@ export interface IssueData {
 	type_key: string | null;
 	type_name: string | null;
 	status_id: string | null;
+	status?: string;
 	status_key: string | null;
 	status_name: string | null;
 	status_category: string | null;
 	created_at: number;
 	updated_at: number;
+	completed_at?: number | null;
+	completed_at_source?: "observed" | "legacy_unverified" | null;
+	last_completed_at?: number | null;
+	resolution_history?: IssueResolutionEvent[];
+	resolution_history_has_more?: boolean;
 	customFields: CustomFieldValue[];
 	rollup?: { total: number; done: number; remaining: number; byStatus: Record<string, number> };
 }
