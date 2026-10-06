@@ -17,6 +17,7 @@ import {
 	seedFixture,
 	seedMember,
 	seedToken,
+	seedUserToken,
 	seedWorkspace,
 	seedWorkspaceRoles,
 	toolError,
@@ -979,13 +980,14 @@ describe("PROJ-79: GET /auth/me", () => {
 		expect(body.workspaces[0].id).toBe(fixture.workspace.id);
 	});
 
-	it("returns all workspaces the user belongs to", async () => {
+	it("returns all workspaces for a personal token", async () => {
 		const fixture = await seedFixture();
 		const ws2 = await seedWorkspace(`ws2-${crypto.randomUUID().slice(0, 8)}`);
 		await seedMember(ws2.id, fixture.user.id, "viewer");
+		const personal = await seedUserToken(fixture.user.id);
 
 		const res = await SELF.fetch("http://localhost/auth/me", {
-			headers: { Authorization: `Bearer ${fixture.token}` },
+			headers: { Authorization: `Bearer ${personal}` },
 		});
 		const body = (await res.json()) as { workspaces: Array<{ id: string }> };
 		const ids = body.workspaces.map((w) => w.id);
@@ -1151,7 +1153,7 @@ describe("PROJ-79: MCP error contract — serviceErr → tool error codes", () =
 		const fixture = await seedFixture({ role: "owner" });
 		workspaceId = fixture.workspace.id;
 		slug = fixture.workspace.slug;
-		ownerHeaders = authHeaders(fixture.token, slug);
+		ownerHeaders = authHeaders(await seedUserToken(fixture.user.id), slug);
 	});
 
 	async function mcp(name: string, args: unknown, headers = ownerHeaders, wsId = workspaceId) {

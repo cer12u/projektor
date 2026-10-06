@@ -19,6 +19,7 @@ export function ctxFromHono(c: Context<HonoEnv>): ServiceCtx {
 		userId: user.id,
 		role,
 		authKind,
+		tokenWorkspaceId: c.get("tokenWorkspaceId"),
 		auth: c.get("auth") as AuthInfo | undefined,
 		workspaceHub: c.env.WORKSPACE_HUB,
 		waitUntil: c.executionCtx?.waitUntil ? (p) => c.executionCtx.waitUntil(p) : undefined,

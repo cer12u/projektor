@@ -229,13 +229,16 @@ app.route("/auth", authRouter);
 // Workspace list + create — auth only, no workspace context
 app.get("/api/workspaces", authMiddleware, async (c) => {
 	const user = c.get("user") as { id: string };
-	return c.json(await listWorkspaces(c.env.DB, user.id));
+	return c.json(await listWorkspaces(c.env.DB, user.id, c.get("tokenWorkspaceId")));
 });
 
 app.post("/api/workspaces", authMiddleware, async (c) => {
 	const user = c.get("user") as { id: string };
 	try {
-		return c.json(await createWorkspace(c.env.DB, user.id, await jsonBody(c)), 201);
+		return c.json(
+			await createWorkspace(c.env.DB, user.id, await jsonBody(c), c.get("tokenWorkspaceId")),
+			201
+		);
 	} catch (e) {
 		return serviceErrToResponse(c, e);
 	}
@@ -251,7 +254,14 @@ app.get("/api/projects", authMiddleware, etagMiddleware, async (c) => {
 	const user = c.get("user") as { id: string };
 	const includeArchived = c.req.query("includeArchived") === "true";
 	try {
-		return c.json(await listProjectsAcrossWorkspaces(user.id, c.env.DB, includeArchived));
+		return c.json(
+			await listProjectsAcrossWorkspaces(
+				user.id,
+				c.env.DB,
+				includeArchived,
+				c.get("tokenWorkspaceId")
+			)
+		);
 	} catch (e) {
 		return serviceErrToResponse(c, e);
 	}
@@ -870,4 +880,5 @@ export default {
 } satisfies ExportedHandler<Env>;
 
 export { RateLimiter } from "./lib/rate-limiter-do";
+export { verifyAccessJwtIdentity } from "./middleware/auth";
 export { WorkspaceHub } from "./realtime/workspace-hub";

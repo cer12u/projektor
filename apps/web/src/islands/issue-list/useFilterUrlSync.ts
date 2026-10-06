@@ -16,7 +16,6 @@ interface UrlSyncState {
 	setFilterStatuses: Dispatch<StateUpdater<string[]>>;
 	filterPriorities: string[];
 	setFilterPriorities: Dispatch<StateUpdater<string[]>>;
-	setFilterProject: Dispatch<StateUpdater<string>>;
 	filterEpicId: string;
 	setFilterEpicId: Dispatch<StateUpdater<string>>;
 	filterSprintId: string;
@@ -60,7 +59,11 @@ export function useFilterUrlSync(state: UrlSyncState) {
 			filterDateFrom,
 			filterDateTo,
 		});
-		history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
+		history.replaceState(
+			history.state,
+			"",
+			`${window.location.pathname}${qs ? `?${qs}` : ""}${window.location.hash}`
+		);
 	}, [
 		filterStatuses,
 		filterPriorities,
@@ -70,5 +73,44 @@ export function useFilterUrlSync(state: UrlSyncState) {
 		filterDateField,
 		filterDateFrom,
 		filterDateTo,
+	]);
+
+	const {
+		setFilterStatuses,
+		setFilterPriorities,
+		setFilterEpicId,
+		setFilterSprintId,
+		setHideEpics,
+		setFilterDateField,
+		setFilterDateFrom,
+		setFilterDateTo,
+	} = state;
+	useEffect(() => {
+		const onNavigate = () => {
+			const params = new URLSearchParams(window.location.search);
+			setFilterStatuses(parseListParam(params.get("status")));
+			setFilterPriorities(parseListParam(params.get("priority")));
+			setFilterEpicId(params.get("epic") ?? "");
+			setFilterSprintId(params.get("sprintId") ?? "");
+			setHideEpics(params.get("hideEpics") === "1");
+			setFilterDateField(parseDateField(params.get("dateField")));
+			setFilterDateFrom(params.get("dateFrom") ?? "");
+			setFilterDateTo(params.get("dateTo") ?? "");
+		};
+		window.addEventListener("popstate", onNavigate);
+		document.addEventListener("astro:page-load", onNavigate);
+		return () => {
+			window.removeEventListener("popstate", onNavigate);
+			document.removeEventListener("astro:page-load", onNavigate);
+		};
+	}, [
+		setFilterStatuses,
+		setFilterPriorities,
+		setFilterEpicId,
+		setFilterSprintId,
+		setHideEpics,
+		setFilterDateField,
+		setFilterDateFrom,
+		setFilterDateTo,
 	]);
 }

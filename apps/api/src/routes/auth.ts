@@ -19,7 +19,11 @@ router.get("/login", (c) => {
 
 router.get("/me", authMiddleware, async (c) => {
 	const user = c.get("user") as { id: string; email: string; name: string };
-	const workspaces = await getUserWorkspaces({ db: c.env.DB, userId: user.id });
+	const workspaces = await getUserWorkspaces({
+		db: c.env.DB,
+		userId: user.id,
+		tokenWorkspaceId: c.get("tokenWorkspaceId"),
+	});
 	return c.json({ user, workspaces });
 });
 

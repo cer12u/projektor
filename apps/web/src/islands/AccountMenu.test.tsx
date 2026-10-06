@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/preact";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { draftKey, loadDraft, saveDraft } from "../utils/drafts";
 import { AccountMenu } from "./AccountMenu";
 
 function stubMeFetch(outcome: { ok: true; name: string; email: string } | { ok: false }) {
@@ -77,6 +78,41 @@ describe("AccountMenu — signed-in state", () => {
 		expect(menu.closest("[style]")?.parentElement).toBe(document.body);
 		const popover = menu.parentElement as HTMLElement;
 		expect(popover.style.position).toBe("fixed");
+	});
+
+	it("opts logout out of Astro prefetch and client routing each time the menu opens", async () => {
+		stubMeFetch({ ok: true, name: "Jane Doe", email: "jane@example.com" });
+		render(<AccountMenu />);
+		const trigger = await screen.findByRole("button", { name: /Jane Doe/ });
+
+		for (let opening = 0; opening < 2; opening++) {
+			fireEvent.click(trigger);
+			const logout = screen.getByRole("menuitem", { name: "Log out" });
+			expect(logout.getAttribute("href")).toBe("/cdn-cgi/access/logout");
+			expect(logout.getAttribute("data-astro-prefetch")).toBe("false");
+			expect(logout.hasAttribute("data-astro-reload")).toBe(true);
+
+			fireEvent.keyDown(document, { key: "Escape" });
+			expect(screen.queryByRole("menu")).toBeNull();
+		}
+	});
+
+	it("keeps drafts on logout hover or focus and clears them on explicit activation", async () => {
+		const key = draftKey(undefined, "issue:logout-test", "comment");
+		saveDraft(key, "Unsent comment");
+		stubMeFetch({ ok: true, name: "Jane Doe", email: "jane@example.com" });
+		render(<AccountMenu />);
+		fireEvent.click(await screen.findByRole("button", { name: /Jane Doe/ }));
+		const logout = screen.getByRole("menuitem", { name: "Log out" });
+
+		fireEvent.mouseOver(logout);
+		fireEvent.focus(logout);
+		expect(loadDraft(key)).toBe("Unsent comment");
+
+		// Exercise the existing click handler without navigating jsdom to Access.
+		logout.addEventListener("click", (event) => event.preventDefault(), { once: true });
+		fireEvent.click(logout);
+		expect(loadDraft(key)).toBeNull();
 	});
 
 	it("closes on Escape and returns focus to the trigger", async () => {

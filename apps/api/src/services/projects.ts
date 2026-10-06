@@ -82,7 +82,8 @@ export interface ProjectSummary {
 export async function listProjectsAcrossWorkspaces(
 	userId: string,
 	db: D1Database,
-	includeArchived = false
+	includeArchived = false,
+	tokenWorkspaceId?: string | null
 ): Promise<ProjectSummary[]> {
 	const rows = await db
 		.prepare(
@@ -115,11 +116,12 @@ export async function listProjectsAcrossWorkspaces(
               JOIN group_project_grants gpg ON gpg.group_id = ugm.group_id
               WHERE ugm.user_id = ? AND gpg.project_id = p.id))
         ${includeArchived ? "" : "AND p.archived_at IS NULL"}
+        AND (? IS NULL OR p.workspace_id = ?)
       GROUP BY p.id, p.name, p.key, p.slug, p.description, p.archived_at, p.created_at, p.updated_at,
                w.id, w.name, w.slug
       ORDER BY w.slug, p.name`
 		)
-		.bind(userId, userId)
+		.bind(userId, userId, tokenWorkspaceId ?? null, tokenWorkspaceId ?? null)
 		.all<ProjectSummary>();
 	return rows.results;
 }

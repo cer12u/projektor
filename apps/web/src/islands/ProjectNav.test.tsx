@@ -1,9 +1,9 @@
 // ProjectNav island — canonical mock-fetch test. ProjectNav reads the URL on mount and,
 // if a project id/key is in the query, fetches it — set the URL with history.pushState
 // first, stub fetch with vi.stubGlobal per case, then await findByText for the async update.
-import { fireEvent, render, screen } from "@testing-library/preact";
+import { fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { __resetProjectStoreForTests } from "../lib/project-context";
+import { __resetProjectStoreForTests, projectReady } from "../lib/project-context";
 import ProjectNav from "./ProjectNav";
 
 const PROJECT = { id: "p1", key: "PROJ", name: "Projektor", slug: "projektor" };
@@ -59,11 +59,13 @@ function stubNavMeasurements(containerWidth: number, tabWidth: number) {
 }
 
 describe("ProjectNav", () => {
-	it("renders nothing when there is no project in the URL", () => {
+	it("keeps a cold Issues entry workspace-wide after resolution", async () => {
 		window.history.pushState({}, "", "/issues");
+		mockFetchProject(PROJECT);
 		const { container } = render(<ProjectNav />);
-		// No id/project param → no fetch, component returns null.
+		await waitFor(() => expect(projectReady.value).toBe(true));
 		expect(container.innerHTML).toBe("");
+		expect(new URLSearchParams(window.location.search).get("project")).toBe("");
 	});
 
 	it("renders the project name and key badge once the fetch resolves", async () => {

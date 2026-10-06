@@ -140,6 +140,9 @@ function AccountMenuPopover({
 					role="menuitem"
 					class="account-menu-item"
 					href="/cdn-cgi/access/logout"
+					// Logout must only run on activation, as a full browser navigation.
+					data-astro-prefetch="false"
+					data-astro-reload
 					// PROJ-431: don't leave one user's unsent drafts on a shared device.
 					onClick={() => clearAllDrafts()}
 				>

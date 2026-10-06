@@ -1,10 +1,5 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
-import {
-	currentProject,
-	ensureProjectResolved,
-	type ProjectSummary,
-	projectError,
-} from "../lib/project-context";
+import { useCurrentProject } from "../lib/project-context";
 
 interface Props {
 	workspaceSlug?: string;
@@ -86,36 +81,23 @@ export default function ProjectNav({ workspaceSlug, pageLabel }: Props) {
 	const moreMenuId = useId();
 
 	useEffect(() => {
-		setActivePath(window.location.pathname);
+		const onNavigate = () => setActivePath(window.location.pathname);
+		onNavigate();
+		window.addEventListener("popstate", onNavigate);
+		document.addEventListener("astro:page-load", onNavigate);
+		return () => {
+			window.removeEventListener("popstate", onNavigate);
+			document.removeEventListener("astro:page-load", onNavigate);
+		};
 	}, []);
 
-	const hint =
-		typeof window === "undefined"
-			? null
-			: (() => {
-					const params = new URLSearchParams(window.location.search);
-					const slugMatch = window.location.pathname.match(/^\/projects\/view\/([^/]+)\/?$/);
-					return (
-						params.get("id") || params.get("projectId") || slugMatch?.[1] || params.get("project")
-					);
-				})();
-
-	const matchesHint = (p: ProjectSummary, h: string) => p.id === h || p.key === h || p.slug === h;
+	const { project, error } = useCurrentProject(workspaceSlug);
 
 	useEffect(() => {
-		let cancelled = false;
-		ensureProjectResolved(workspaceSlug, hint || null, matchesHint).then(() => {
-			if (!cancelled && pageLabel && currentProject.value) {
-				document.title = `${pageLabel} — ${currentProject.value.name}`;
-			}
-		});
-		return () => {
-			cancelled = true;
-		};
-	}, [workspaceSlug, hint, pageLabel]);
-
-	const project = currentProject.value;
-	const error = projectError.value;
+		if (pageLabel) {
+			document.title = project ? `${pageLabel} — ${project.name}` : `${pageLabel} — Projektor`;
+		}
+	}, [pageLabel, project]);
 
 	useLayoutEffect(() => {
 		if (!project) return;

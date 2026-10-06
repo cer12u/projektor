@@ -477,6 +477,55 @@ function preScreenCfAccessJwt(parts: readonly string[], env: Env): boolean {
 	);
 }
 
+// Deployment guard identity classification. This never authenticates a pk token;
+// the existing API-token path still enforces its hash, expiry, scopes and workspace.
+export async function verifyAccessJwtIdentity(
+	jwt: string,
+	env: Env
+): Promise<{ kind: "human" } | { kind: "service"; commonName: string } | null> {
+	if (jwt.length > 16384 || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(jwt))
+		return null;
+	const parts = jwt.split(".");
+	const decoded = decodeJwtFields(parts);
+	if (
+		!decoded ||
+		!jwtIdentityClaimsValid(
+			decoded.header,
+			decoded.payload,
+			env.CF_ACCESS_AUDIENCE,
+			`https://${env.CF_ACCESS_TEAM_DOMAIN}`
+		)
+	)
+		return null;
+	const claims = JSON.parse(base64urlDecode(parts[1])) as Record<string, unknown>;
+	const now = Math.floor(Date.now() / 1000);
+	if (decoded.payload.exp <= now || claims.type !== "app") return null;
+	for (const field of ["nbf", "iat"]) {
+		if (
+			claims[field] !== undefined &&
+			(typeof claims[field] !== "number" || !Number.isFinite(claims[field]) || claims[field] > now)
+		)
+			return null;
+	}
+	let identity: { kind: "human" } | { kind: "service"; commonName: string };
+	if (decoded.payload.email !== undefined) {
+		identity = { kind: "human" };
+	} else {
+		if (
+			claims.sub !== "" ||
+			typeof claims.common_name !== "string" ||
+			!claims.common_name ||
+			claims.common_name.length > 1024
+		)
+			return null;
+		identity = { kind: "service", commonName: claims.common_name };
+	}
+	const keys = await getCfAccessKeysOrUnavailable(env);
+	if (await verifySignatureAgainstKeys(parts, keys)) return identity;
+	const fresh = await getCfAccessKeysOrUnavailable(env, { forceRefresh: true });
+	return fresh !== keys && (await verifySignatureAgainstKeys(parts, fresh)) ? identity : null;
+}
+
 async function validateCfAccessJwt(jwt: string, env: Env): Promise<AuthUser | null> {
 	const parts = jwt.split(".");
 	if (parts.length !== 3) return null;
