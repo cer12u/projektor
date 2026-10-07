@@ -4,6 +4,7 @@ import {
 	ListIssueResolutionEventsSchema,
 	MAX_RESOLUTION_WINDOW_SECONDS,
 } from "../schemas/issue-resolution";
+import { recentResolutionHistory } from "../services/issue-resolution";
 import type { listIssueResolutionEvents } from "../services/issue-resolution-query";
 import {
 	authHeaders,
@@ -315,6 +316,36 @@ describe("Issue resolution event query", () => {
 		expect(await restPage(fixture)).toEqual({ items: [], nextCursor: null });
 	});
 
+	// Each filter is an independent case with its own fixture/rate window. Keep the
+	// normal limiter active: one case must not make 11 requests against the test cap of 5.
+	it.each(["project-id", "project-key", "unknown-project", "issue-id", "issue-ref", "unknown-issue"])(
+		"does not expose an ungranted project through %s", async (kind) => {
+			const viewer = await seedProjectFixture({ role: "viewer" });
+			const hiddenProject = await seedProject(viewer.workspaceId, "HIDDEN");
+			const hiddenIssue = await seedIssue(viewer.workspaceId, hiddenProject.id, viewer.userId);
+			await seedEvent(viewer, hiddenIssue.id, 2);
+			const filters: Record<string, QueryInput> = {
+				"project-id": { projectId: hiddenProject.id },
+				"project-key": { projectId: "HIDDEN" },
+				"unknown-project": { projectId: "UNKNOWN" },
+				"issue-id": { issueId: hiddenIssue.id },
+				"issue-ref": { issueId: `HIDDEN-${hiddenIssue.number}` },
+				"unknown-issue": { issueId: "HIDDEN-999" },
+			};
+			expect(await restPage(viewer, filters[kind])).toEqual({ items: [], nextCursor: null });
+		}
+	);
+
+	it("the exported history reader refuses hidden and foreign issues", async () => {
+		const viewer = await seedProjectFixture({ role: "viewer" });
+		const hiddenProject = await seedProject(viewer.workspaceId, "HIDDEN");
+		const hiddenIssue = await seedIssue(viewer.workspaceId, hiddenProject.id, viewer.userId);
+		await seedEvent(viewer, hiddenIssue.id, 2);
+		const ctx = { db: env.DB, kv: env.KV, r2: env.R2, workspaceId: viewer.workspaceId, userId: viewer.userId, role: "viewer" as const };
+		await expect(recentResolutionHistory(ctx, hiddenIssue.id)).rejects.toMatchObject({ kind: "not_found" });
+		await expect(recentResolutionHistory(ctx, issue.id)).rejects.toMatchObject({ kind: "not_found" });
+	});
+
 	it("applies default-deny group visibility and responds immediately to revocation", async () => {
 		const viewer = await seedProjectFixture({ role: "viewer" });
 		const publicIssue = await seedIssue(viewer.workspaceId, viewer.projectId, viewer.userId);
@@ -323,16 +354,6 @@ describe("Issue resolution event query", () => {
 		const visible = await seedEvent(viewer, publicIssue.id, 1);
 		const hidden = await seedEvent(viewer, hiddenIssue.id, 2);
 		expect((await restPage(viewer)).items.map((item) => item.id)).toEqual([visible]);
-		for (const filter of [
-			{ projectId: hiddenProject.id },
-			{ projectId: "HIDDEN" },
-			{ projectId: "UNKNOWN" },
-			{ issueId: hiddenIssue.id },
-			{ issueId: `HIDDEN-${hiddenIssue.number}` },
-			{ issueId: "HIDDEN-999" },
-		]) {
-			expect(await restPage(viewer, filter)).toEqual({ items: [], nextCursor: null });
-		}
 		const grant = await seedGroupGrant(viewer.workspaceId, viewer.userId, hiddenProject.id, "viewer");
 		expect((await restPage(viewer)).items.map((item) => item.id)).toEqual([visible, hidden]);
 		await env.DB.prepare("DELETE FROM user_group_members WHERE group_id = ? AND user_id = ?")

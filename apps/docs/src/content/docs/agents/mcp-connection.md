@@ -269,9 +269,30 @@ tokens can only be created or revoked from a signed-in browser session…"), so 
 can never mint a sibling credential (PROJ-917). Listing tokens (`GET`) works with any
 admin credential, since it returns no secrets.
 
-**Personal access tokens** (`POST /auth/tokens`) follow the same rule: signed-in browser
-sessions only, and they are not offered in the UI (PROJ-903). They have **no** `pk_` prefix: the response is `{"token": "<72 characters: two UUIDs run together>"}`.
-Agents should use a workspace token or the sign-in flow instead.
+**Fork machine actors.** The same REST workspace-token endpoint also accepts
+`machineActorId` for an existing member identity. Only an interactive workspace
+owner may provision this delegated credential. Explicit `read`/`write` scopes and
+`expiresInDays` are mandatory; wildcard scopes are rejected. The response also
+identifies `userId`, `issuedByUserId` and `workspaceId`. This option is currently a
+REST provisioning operation, not an additional picker in the existing dialog.
+
+The issuer remains distinct from the acting user. Routine REST/MCP operations use
+the member actor and its live project grants, capped at member access. Membership
+removal or promotion, grant revocation, expiry and credential revocation take effect
+without an owner login. Verify `/auth/me` before switching a client; issuing a new
+credential does not change an existing owner's token. Human Access sessions mixed
+with a bearer return 403, while Access service-token assertions plus a bearer stay
+supported.
+
+**Personal access tokens** (`POST /auth/tokens`) can also be used for machine
+operations after interactive issuance by the intended user. They are not offered
+in the UI (PROJ-903) and have no `pk_` prefix: the response contains two UUIDs joined
+together. Specify `workspaceId` and narrow scopes for a machine client; omitting
+`workspaceId` makes a PAT valid across the actor's workspace memberships. A member
+may issue its own workspace-scoped PAT, but cannot issue one for a different actor.
+Client software must accept the PAT format; the server checks its hash, scope,
+expiry and live identity rather than assigning privileges based on the prefix.
+Agents cannot mint or revoke either token type themselves.
 
 ## For operators
 

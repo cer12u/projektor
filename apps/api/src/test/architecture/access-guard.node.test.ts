@@ -24,7 +24,7 @@
 // This runs in node (reads source off disk) — hence the .node.test.ts suffix.
 
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 import { ACCESS_GUARD_ALLOWLIST } from "./access-guard-allowlist";
@@ -214,6 +214,45 @@ describe("PROJ-837: project-scoped service operations reach the access guard", (
 			return !fn || !isTarget(fn) || guarded.has(key);
 		});
 		expect(stale, "Remove these allowlist entries — they no longer need an exception").toEqual([]);
+	});
+
+	it("resolution batch builders are used only by guarded issue mutations", () => {
+		const builders = {
+			"issue-resolution:buildInitialResolutionStatement": "issues:createIssue",
+			"issue-resolution:buildResolutionTransitionStatement": "issues:updateIssue",
+		};
+		for (const [builder, caller] of Object.entries(builders)) {
+			const callers = [...fns.entries()]
+				.filter(([, fn]) => fn.calls.includes(builder))
+				.map(([key]) => key);
+			expect(callers).toEqual([caller]);
+			expect(guarded.has(caller)).toBe(true);
+		}
+		expect(guarded.has("issue-resolution:recentResolutionHistory")).toBe(true);
+	});
+
+	it("resolution mutation builders are imported only by the guarded issue service", () => {
+		const src = join(SERVICES, "..");
+		function sourceFiles(directory: string): string[] {
+			return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+				if (entry.name === "test") return [];
+				const path = join(directory, entry.name);
+				return entry.isDirectory() ? sourceFiles(path) : entry.name.endsWith(".ts") ? [path] : [];
+			});
+		}
+		const protectedBuilders = new Set(["buildInitialResolutionStatement", "buildResolutionTransitionStatement"]);
+		const importers = sourceFiles(src).filter((path) => {
+			const ast = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
+			return ast.statements.some((statement) => {
+				if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) ||
+					!statement.moduleSpecifier.text.endsWith("/issue-resolution")) return false;
+				const bindings = statement.importClause?.namedBindings;
+				if (!bindings) return false;
+				if (ts.isNamespaceImport(bindings)) return true;
+				return bindings.elements.some((element) => protectedBuilders.has((element.propertyName ?? element.name).text));
+			});
+		}).map((path) => relative(src, path));
+		expect(importers).toEqual(["services/issues.ts"]);
 	});
 
 	it("regression: share create/revoke are guarded (PROJ-792)", () => {

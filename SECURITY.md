@@ -4,15 +4,17 @@
 
 Please report security issues **privately** - do not open a public issue.
 
-Email the maintainer directly at **tajdickson@protonmail.com** with:
+For **upstream Projektor** vulnerabilities, email the upstream maintainer at
+**tajdickson@protonmail.com** with:
 
 - a description of the vulnerability and its impact,
 - steps to reproduce (a proof of concept if you have one),
 - the affected version or commit.
 
-You'll get an acknowledgement, and the fix or mitigation will take priority over
-other work. Please give a reasonable window to address the issue before any
-public disclosure.
+For **Fork-specific code or deployment** vulnerabilities, contact the Fork operator
+through an established private channel. No separate Fork disclosure address is
+documented here; do not assume the upstream maintainer operates this Fork. Please
+allow a reasonable window to address an issue before public disclosure.
 
 ## Scope
 

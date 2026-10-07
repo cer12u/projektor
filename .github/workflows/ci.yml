@@ -43,9 +43,9 @@ jobs:
           [ -z "$(git status --porcelain -- apps/docs/src/content/docs/agents/playbooks/)" ] \
             || { echo "::error::Generated playbook docs are stale. Run 'pnpm gen:docs' and commit the result."; exit 1; }
       - if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
-        run: pnpm lint
+        run: pnpm lint --reporter=github --max-diagnostics=50
       - if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
-        run: pnpm turbo type-check
+        run: node scripts/ci/source-diagnostics.mjs pnpm turbo type-check --log-prefix=none
       - if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: pnpm --filter @projektor/db test
       # Coverage subsumes the plain test run (same tests, plus threshold enforcement -

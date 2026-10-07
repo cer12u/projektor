@@ -1,13 +1,18 @@
 # projektor
 
-[![CI](https://github.com/TAJD/projektor/actions/workflows/ci.yml/badge.svg)](https://github.com/TAJD/projektor/actions/workflows/ci.yml)
-[![Latest release](https://img.shields.io/github/v/release/TAJD/projektor)](https://github.com/TAJD/projektor/releases)
+This is the [cer12u Fork](https://github.com/cer12u/projektor) of
+[TAJD/projektor](https://github.com/TAJD/projektor). The CI badge below reports this
+Fork; release, hosted documentation, demo and deployment-template links refer to
+upstream. Fork-specific machine credential behavior is documented in [SECURITY.md](./SECURITY.md).
+
+[![CI](https://github.com/cer12u/projektor/actions/workflows/ci.yml/badge.svg)](https://github.com/cer12u/projektor/actions/workflows/ci.yml)
+[![Upstream release](https://img.shields.io/github/v/release/TAJD/projektor)](https://github.com/TAJD/projektor/releases)
 [![License: MIT](https://img.shields.io/github/license/TAJD/projektor)](./LICENSE)
 
 > **AI-native project management, self-hosted on Cloudflare.**
 
-**[Docs](https://tajd.github.io/projektor/)** ·
-**[Live demo](https://projektor-demo.tajdickson.workers.dev)** ·
+**[Upstream docs](https://tajd.github.io/projektor/)** ·
+**[Upstream demo](https://projektor-demo.tajdickson.workers.dev)** ·
 **[Deploy your own](https://github.com/TAJD/projektor-deploy-example)**
 
 ![Projektor issue backlog - list view with projects sidebar, issue refs, status, priority, and assignees](docs/images/backlog.png)
@@ -16,7 +21,7 @@
 
 Projektor is an issue tracker and wiki that an AI coding agent runs as well as you do.
 Issues, boards, sprints and a wiki are exposed over MCP
-(<!-- gen-mcp-stats:start -->122 tools across 22 domains<!-- gen-mcp-stats:end -->), so the
+(<!-- gen-mcp-stats:start -->123 tools across 22 domains<!-- gen-mcp-stats:end -->), so the
 agent files the ticket, moves it and writes the page instead of asking you to. The whole thing is one
 Cloudflare Worker (Hono, D1, KV, R2) in your own account. No servers, no containers.
 

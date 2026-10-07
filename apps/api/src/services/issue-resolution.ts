@@ -1,3 +1,5 @@
+import { assertProjectAccess } from "./access";
+import { NotFoundError } from "./errors";
 import type { ServiceCtx } from "./types";
 
 // Deliberately matches the existing status category OR legacy-key contract.
@@ -57,8 +59,15 @@ export function buildInitialResolutionStatement(
 }
 
 export async function recentResolutionHistory(ctx: ServiceCtx, issueId: string) {
-	// Caller has already verified issue/project access. No KV cache: newly observed
-	// events must be visible immediately, including those from another API client.
+	// This helper is exported, so enforce its own boundary even when called outside
+	// getIssue. The issue and its project must both belong to this workspace.
+	const issue = await ctx.db
+		.prepare("SELECT project_id FROM issues WHERE id = ? AND workspace_id = ?")
+		.bind(issueId, ctx.workspaceId)
+		.first<{ project_id: string }>();
+	if (!issue) throw new NotFoundError("Issue not found");
+	await assertProjectAccess(ctx, issue.project_id, "read", { notFoundMessage: "Issue not found" });
+	// No KV cache: events and permission changes must be visible immediately.
 	const { results } = await ctx.db.prepare(`SELECT id, sequence, issue_id, occurred_at, kind,
 		actor_id, auth_kind, auth_method, from_status, to_status FROM issue_resolution_events
 		WHERE workspace_id = ? AND issue_id = ? ORDER BY occurred_at DESC, sequence DESC LIMIT 21`)
