@@ -1,7 +1,7 @@
 import type { WorkspaceBrand } from "@projektor/db";
 import { drizzle, schema } from "@projektor/db";
 import { buildMcpAddCommand } from "@projektor/types";
-import { and, asc, desc, eq } from "drizzle-orm";
+import { and, asc, desc, eq, sql } from "drizzle-orm";
 import { IdSchema } from "../schemas/common";
 import {
 	CreateTokenSchema,
@@ -32,7 +32,12 @@ async function sha256hex(s: string): Promise<string> {
 		.join("");
 }
 
-export async function listWorkspaces(db: D1Database, userId: string) {
+export async function listWorkspaces(
+	db: D1Database,
+	userId: string,
+	tokenWorkspaceId?: string | null,
+	machinePrincipal = false
+) {
 	const orm = drizzle(db, { schema });
 	return orm
 		.select({
@@ -47,11 +52,27 @@ export async function listWorkspaces(db: D1Database, userId: string) {
 			schema.workspaceMembers,
 			eq(schema.workspaceMembers.workspaceId, schema.workspaces.id)
 		)
-		.where(eq(schema.workspaceMembers.userId, userId))
+		.where(
+			and(
+				eq(schema.workspaceMembers.userId, userId),
+				tokenWorkspaceId != null ? eq(schema.workspaces.id, tokenWorkspaceId) : undefined,
+				machinePrincipal ? eq(schema.workspaceMembers.role, "member") : undefined,
+				machinePrincipal && !tokenWorkspaceId ? sql`0` : undefined
+			)
+		)
 		.orderBy(asc(schema.workspaces.name));
 }
 
-export async function createWorkspace(db: D1Database, userId: string, input: unknown) {
+export async function createWorkspace(
+	db: D1Database,
+	userId: string,
+	input: unknown,
+	tokenWorkspaceId?: string | null
+) {
+	// Creating a workspace is outside every workspace-confined credential's scope.
+	if (tokenWorkspaceId != null) {
+		throw new ForbiddenError("Workspace-scoped credentials cannot create another workspace");
+	}
 	const parsed = CreateWorkspaceSchema.safeParse(input);
 	if (!parsed.success) throw new ValidationError(parsed.error.flatten());
 	const { name, slug } = parsed.data;
@@ -66,10 +87,32 @@ export async function createWorkspace(db: D1Database, userId: string, input: unk
 
 	const id = crypto.randomUUID();
 	const now = Math.floor(Date.now() / 1000);
-	await orm.insert(schema.workspaces).values({ id, name, slug, createdAt: now });
-	await orm
-		.insert(schema.workspaceMembers)
-		.values({ workspaceId: id, userId, role: "owner", joinedAt: now });
+	// The preflight read is not a lock: another first-login request can claim this
+	// slug before our insert. Resolve only that conflict atomically, preserving other
+	// database failures. The creator membership must commit with the workspace, or
+	// provisionAdmin's concurrent grantOwner can beat a separate membership INSERT.
+	const [created] = await orm.batch([
+		orm
+			.insert(schema.workspaces)
+			.values({ id, name, slug, createdAt: now })
+			.onConflictDoNothing({ target: schema.workspaces.slug })
+			.returning({ id: schema.workspaces.id }),
+		orm.insert(schema.workspaceMembers).select(
+			orm
+				.select({
+					workspaceId: schema.workspaces.id,
+					userId: sql<string>`${userId}`.as("user_id"),
+					role: sql<"owner">`'owner'`.as("role"),
+					joinedAt: sql<number>`${now}`.as("joined_at"),
+				})
+				.from(schema.workspaces)
+				// A slug-conflict loser owns no row at its new UUID and inserts nothing.
+				.where(eq(schema.workspaces.id, id))
+		),
+	]);
+	if (created.length === 0) throw new ConflictError("Slug already taken");
+	// Defaults are separate writes, as before. A later seed failure propagates;
+	// only the workspace/creator-membership pair above has atomic rollback.
 	await seedDefaultTaskTypes(db, id);
 	await seedDefaultTaskStatuses(db, id);
 	await seedDefaultCustomFields(db, id);
@@ -212,10 +255,39 @@ export async function updateMemberRole(ctx: ServiceCtx, targetUserId: string, in
 }
 
 export async function createToken(ctx: ServiceCtx, input: unknown) {
-	if (ctx.role === "member" || ctx.role === "viewer") throw new ForbiddenError();
+	if (ctx.role !== "owner" && ctx.role !== "admin") throw new ForbiddenError();
 	const parsed = CreateTokenSchema.safeParse(input);
 	if (!parsed.success) throw new ValidationError(parsed.error.flatten());
-	const { name, scopes, expiresInDays } = parsed.data;
+	const { name, expiresInDays, machineActorId } = parsed.data;
+	const scopes = parsed.data.scopes ?? ["read", "write"];
+	const orm = drizzle(ctx.db, { schema });
+	const actorId = machineActorId ?? ctx.userId;
+	if (machineActorId) {
+		// Auth-bootstrap repair: provision once as an owner; routine issue operations
+		// then authenticate as the explicit member actor, without an owner login.
+		// This creates no user or grant and never rewrites an existing credential.
+		if (
+			ctx.role !== "owner" ||
+			ctx.authKind !== "human" ||
+			(ctx.auth?.method !== "access" && ctx.auth?.method !== "dev") ||
+			machineActorId === ctx.userId
+		)
+			throw new ForbiddenError("An interactive workspace owner must provision machine tokens");
+		const member = await orm
+			.select({ role: schema.workspaceMembers.role })
+			.from(schema.workspaceMembers)
+			.innerJoin(schema.users, eq(schema.users.id, schema.workspaceMembers.userId))
+			.where(
+				and(
+					eq(schema.workspaceMembers.workspaceId, ctx.workspaceId),
+					eq(schema.workspaceMembers.userId, machineActorId)
+				)
+			)
+			.get();
+		if (member?.role !== "member") {
+			throw new ForbiddenError("Machine actor must be an existing member of this workspace");
+		}
+	}
 
 	const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
 	const token =
@@ -229,11 +301,11 @@ export async function createToken(ctx: ServiceCtx, input: unknown) {
 	const now = Math.floor(Date.now() / 1000);
 	const expiresAt = expiresInDays ? now + expiresInDays * 86400 : null;
 
-	const orm = drizzle(ctx.db, { schema });
 	await orm.insert(schema.apiTokens).values({
 		id,
 		workspaceId: ctx.workspaceId,
-		userId: ctx.userId,
+		userId: actorId,
+		issuedByUserId: ctx.userId,
 		name,
 		tokenHash: hash,
 		scopes,
@@ -241,7 +313,16 @@ export async function createToken(ctx: ServiceCtx, input: unknown) {
 		createdAt: now,
 	});
 
-	return { id, token, name, scopes, expiresAt };
+	return {
+		id,
+		token,
+		name,
+		scopes,
+		expiresAt,
+		userId: actorId,
+		issuedByUserId: ctx.userId,
+		workspaceId: ctx.workspaceId,
+	};
 }
 
 export async function listTokens(ctx: ServiceCtx) {
@@ -250,6 +331,9 @@ export async function listTokens(ctx: ServiceCtx) {
 	return orm
 		.select({
 			id: schema.apiTokens.id,
+			userId: schema.apiTokens.userId,
+			issuedByUserId: schema.apiTokens.issuedByUserId,
+			workspaceId: schema.apiTokens.workspaceId,
 			name: schema.apiTokens.name,
 			scopes: schema.apiTokens.scopes,
 			lastUsedAt: schema.apiTokens.lastUsedAt,
@@ -283,6 +367,7 @@ export async function revokeToken(ctx: ServiceCtx, tokenId: string) {
 const WS_PAGES = "SELECT id FROM wiki_pages WHERE workspace_id = ?1";
 const WS_GROUPS = "SELECT id FROM user_groups WHERE workspace_id = ?1";
 const WORKSPACE_CLEANUP_SQL: readonly string[] = [
+	"DELETE FROM issue_resolution_events WHERE workspace_id = ?1",
 	"DELETE FROM wiki_fts WHERE workspace_id = ?1",
 	"DELETE FROM issues_fts WHERE workspace_id = ?1",
 	"DELETE FROM share_tokens WHERE workspace_id = ?1",

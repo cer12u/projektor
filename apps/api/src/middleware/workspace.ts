@@ -138,6 +138,10 @@ export async function workspaceMiddleware(c: Context<HonoEnv>, next: Next) {
 		return c.json({ error: "Forbidden" }, 403);
 	}
 	if (!row.role) return c.json({ error: "Forbidden" }, 403);
+	// Recheck after authentication: a concurrent promotion must never reach admin bypasses.
+	if (c.get("auth")?.principalKind === "machine" && row.role !== "member") {
+		return c.json({ error: "Machine token is no longer authorized" }, 403);
+	}
 
 	c.set("workspace", { id: row.id, name: row.name, slug: row.slug });
 	c.set("role", row.role);

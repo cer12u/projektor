@@ -8,7 +8,7 @@
 // vi.stubGlobal, then await findBy* for the async state update.
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/preact";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { __resetProjectStoreForTests } from "../lib/project-context";
+import { __resetProjectStoreForTests, ensureProjectResolved } from "../lib/project-context";
 import * as markdownUtils from "../utils/markdown";
 import WikiPage, { assignHeadingIds, type ServerDraft, type WikiPageData } from "./WikiPage";
 
@@ -223,15 +223,26 @@ describe("WikiPage — path-based routing (PROJ-487)", () => {
 	// jsdom's Location.prototype.replace is a non-configurable, non-writable own data
 	// property, so neither vi.spyOn nor a direct assignment (nor a Proxy — it trips the
 	// "must return the target's actual value" invariant for such properties) can shadow
-	// it. Swap `window.location` for an unrelated plain object instead (only the fields
-	// the code under test reads), restored in afterEach above.
+	// it. Swap `window.location` for a plain object with live URL getters instead,
+	// so history.replaceState canonicalization is reflected in every field. Restored
+	// in afterEach above.
 	function stubLocationReplace() {
 		const replace = vi.fn();
 		Object.defineProperty(window, "location", {
 			configurable: true,
 			value: {
-				pathname: realLocation.pathname,
-				search: realLocation.search,
+				get href() {
+					return realLocation.href;
+				},
+				get pathname() {
+					return realLocation.pathname;
+				},
+				get search() {
+					return realLocation.search;
+				},
+				get hash() {
+					return realLocation.hash;
+				},
 				origin: realLocation.origin,
 				hostname: realLocation.hostname,
 				host: realLocation.host,
@@ -276,6 +287,20 @@ describe("WikiPage — path-based routing (PROJ-487)", () => {
 		});
 	});
 
+	it.each(["projectId=p2", "scope=workspace"])(
+		"preserves %s and the anchor through a full canonical-slug redirect",
+		async (scope) => {
+			history.replaceState(null, "", `/wiki?slug=my-page&${scope}#details`);
+			const replace = stubLocationReplace();
+			mockFetchWiki(PAGE);
+			render(<WikiPage />);
+			await waitFor(() => {
+				expect(replace).toHaveBeenCalledWith(`/wiki/my-page?${scope}#details`);
+				expect(replace).toHaveBeenCalledTimes(1);
+			});
+		}
+	);
+
 	it("redirects to the current canonical slug, not the requested one (no redirect chain, PROJ-483)", async () => {
 		// The old/renamed slug was requested (e.g. via a stale bookmark that hit the
 		// Worker's pretty-URL fallback), but the API's live-then-redirect lookup
@@ -286,6 +311,27 @@ describe("WikiPage — path-based routing (PROJ-487)", () => {
 		await waitFor(() => {
 			expect(replace).toHaveBeenCalledWith("/wiki/new-slug");
 		});
+	});
+
+	it("canonicalizes cached project identity using the current location during a redirect", async () => {
+		vi.stubGlobal(
+			"fetch",
+			vi.fn().mockResolvedValue({
+				ok: true,
+				json: async () => [{ id: "p2", key: "OTHER", name: "Other", slug: "other" }],
+			})
+		);
+		await ensureProjectResolved(undefined, "p2");
+		// A plain in-project navigation inherits the store and adds the reload-safe id.
+		history.replaceState({ index: 2 }, "", "/wiki?slug=my-page#details");
+		const replace = stubLocationReplace();
+		mockFetchWiki(PAGE);
+		render(<WikiPage />);
+		await waitFor(() => {
+			expect(replace).toHaveBeenCalledWith("/wiki/my-page?projectId=p2#details");
+			expect(replace).toHaveBeenCalledTimes(1);
+		});
+		expect(history.state).toEqual({ index: 2 });
 	});
 
 	it("does not redirect once already on the canonical path", async () => {
@@ -1950,9 +1996,20 @@ describe("out-of-order page/revision responses (PROJ-801)", () => {
 		// A plain location object so the canonical-slug redirect can be observed (see the
 		// PROJ-487 block above for why jsdom's own Location can't be spied on).
 		const replace = vi.fn();
+		history.replaceState(null, "", "/wiki/page-a");
 		const loc = {
-			pathname: "/wiki/page-a",
-			search: "",
+			get href() {
+				return realLocation.href;
+			},
+			get pathname() {
+				return realLocation.pathname;
+			},
+			get search() {
+				return realLocation.search;
+			},
+			get hash() {
+				return realLocation.hash;
+			},
 			origin: realLocation.origin,
 			hostname: realLocation.hostname,
 			host: realLocation.host,
@@ -1962,7 +2019,7 @@ describe("out-of-order page/revision responses (PROJ-801)", () => {
 
 		render(<WikiPage slug="page-a" />);
 		// Navigate to B (Back/Forward path) before A has answered.
-		loc.pathname = "/wiki/page-b";
+		history.replaceState(null, "", "/wiki/page-b");
 		window.dispatchEvent(new PopStateEvent("popstate"));
 		expect(await screen.findByText("Page B")).toBeTruthy();
 

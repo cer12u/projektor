@@ -6,6 +6,8 @@ import { ForbiddenError, ValidationError } from "./errors";
 export interface UserCtx {
 	db: D1Database;
 	userId: string;
+	tokenWorkspaceId?: string | null;
+	machinePrincipal?: boolean;
 }
 
 async function hashToken(token: string): Promise<string> {
@@ -21,9 +23,16 @@ export async function getUserWorkspaces(ctx: UserCtx) {
 			`SELECT w.id, w.name, w.slug, wm.role
      FROM workspaces w
      JOIN workspace_members wm ON wm.workspace_id = w.id
-     WHERE wm.user_id = ?`
+     WHERE wm.user_id = ? AND (? IS NULL OR w.id = ?)
+       AND (? = 0 OR (wm.role = 'member' AND w.id = ?))`
 		)
-		.bind(ctx.userId)
+		.bind(
+			ctx.userId,
+			ctx.tokenWorkspaceId ?? null,
+			ctx.tokenWorkspaceId ?? null,
+			ctx.machinePrincipal ? 1 : 0,
+			ctx.tokenWorkspaceId ?? null
+		)
 		.all();
 	return results;
 }

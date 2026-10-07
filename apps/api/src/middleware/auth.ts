@@ -2,6 +2,7 @@ import type { Env, HonoEnv } from "@projektor/types";
 import type { Context, Next } from "hono";
 import { z } from "zod";
 import { unauthorizedChallenge } from "../auth/challenge";
+import { isMachineToken, machineTokenIsUsable } from "../auth/machine-token";
 import type { Capability } from "../auth/scopes";
 import {
 	capabilityForMethod,
@@ -170,6 +171,15 @@ async function tryCfAccessAuth(c: Context<HonoEnv>): Promise<AuthOutcome> {
 		};
 	}
 	if (!user) return { kind: "deny", response: c.json({ error: "Invalid Access token" }, 401) };
+	// Never let a human cookie/assertion silently replace a narrower machine bearer.
+	// Service-token assertions were handled above; interactive browsing without a
+	// bearer remains unchanged. An invalid bearer cannot fall back to this session.
+	if (c.req.header("Authorization")?.startsWith("Bearer ")) {
+		return {
+			kind: "deny",
+			response: c.json({ error: "Do not combine a human session with a bearer token" }, 403),
+		};
+	}
 
 	await ensureUserProvisioned(c.env, user);
 	c.set("user", user);
@@ -213,15 +223,18 @@ async function authenticateApiToken(c: Context<HonoEnv>, token: string): Promise
 	const hash = await hashToken(token);
 	const row = await c.env.DB.prepare(
 		`SELECT at.id, at.workspace_id, at.expires_at, at.scopes, at.last_used_at,
-              u.id as user_id, u.email, u.name
+              at.issued_by_user_id, u.id as user_id, u.email, u.name, wm.role as member_role
        FROM api_tokens at
        LEFT JOIN users u ON u.id = at.user_id
+       LEFT JOIN workspace_members wm ON wm.user_id = at.user_id AND wm.workspace_id = at.workspace_id
        WHERE at.token_hash = ?`
 	)
 		.bind(hash)
 		.first<{
 			id: string;
-			user_id: string;
+			user_id: string | null;
+			issued_by_user_id: string | null;
+			member_role: string | null;
 			email: string;
 			name: string;
 			workspace_id: string | null;
@@ -230,14 +243,21 @@ async function authenticateApiToken(c: Context<HonoEnv>, token: string): Promise
 			last_used_at: number | null;
 		}>();
 
-	if (!row) {
+	if (!row?.user_id) {
 		return { kind: "deny", response: await tooManyAuthFailuresResponse(c, "Unauthorized") };
 	}
-	if (row.expires_at && row.expires_at < Date.now() / 1000) {
+	if (row.expires_at !== null && row.expires_at <= Date.now() / 1000) {
 		return { kind: "deny", response: await tooManyAuthFailuresResponse(c, "Token expired") };
 	}
 
 	const scopes = parseScopes(row.scopes);
+	const machine = isMachineToken(row);
+	if (machine && !machineTokenIsUsable(row, scopes, Date.now() / 1000)) {
+		return {
+			kind: "deny",
+			response: c.json({ error: "Machine token is no longer authorized" }, 403),
+		};
+	}
 	const scopeError = checkTokenScope(c, scopes);
 	if (scopeError) return { kind: "deny", response: scopeError };
 
@@ -249,6 +269,8 @@ async function authenticateApiToken(c: Context<HonoEnv>, token: string): Promise
 		kind: "agent",
 		method: token.startsWith("pk_") ? "pk" : "pat",
 		credentialId: row.id,
+		principalKind: machine ? "machine" : "user",
+		issuedByUserId: row.issued_by_user_id ?? undefined,
 		scopes,
 	});
 
@@ -475,6 +497,55 @@ function preScreenCfAccessJwt(parts: readonly string[], env: Env): boolean {
 		env.CF_ACCESS_AUDIENCE,
 		`https://${env.CF_ACCESS_TEAM_DOMAIN}`
 	);
+}
+
+// Deployment guard identity classification. This never authenticates a pk token;
+// the existing API-token path still enforces its hash, expiry, scopes and workspace.
+export async function verifyAccessJwtIdentity(
+	jwt: string,
+	env: Env
+): Promise<{ kind: "human" } | { kind: "service"; commonName: string } | null> {
+	if (jwt.length > 16384 || !/^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(jwt))
+		return null;
+	const parts = jwt.split(".");
+	const decoded = decodeJwtFields(parts);
+	if (
+		!decoded ||
+		!jwtIdentityClaimsValid(
+			decoded.header,
+			decoded.payload,
+			env.CF_ACCESS_AUDIENCE,
+			`https://${env.CF_ACCESS_TEAM_DOMAIN}`
+		)
+	)
+		return null;
+	const claims = JSON.parse(base64urlDecode(parts[1])) as Record<string, unknown>;
+	const now = Math.floor(Date.now() / 1000);
+	if (decoded.payload.exp <= now || claims.type !== "app") return null;
+	for (const field of ["nbf", "iat"]) {
+		if (
+			claims[field] !== undefined &&
+			(typeof claims[field] !== "number" || !Number.isFinite(claims[field]) || claims[field] > now)
+		)
+			return null;
+	}
+	let identity: { kind: "human" } | { kind: "service"; commonName: string };
+	if (decoded.payload.email !== undefined) {
+		identity = { kind: "human" };
+	} else {
+		if (
+			claims.sub !== "" ||
+			typeof claims.common_name !== "string" ||
+			!claims.common_name ||
+			claims.common_name.length > 1024
+		)
+			return null;
+		identity = { kind: "service", commonName: claims.common_name };
+	}
+	const keys = await getCfAccessKeysOrUnavailable(env);
+	if (await verifySignatureAgainstKeys(parts, keys)) return identity;
+	const fresh = await getCfAccessKeysOrUnavailable(env, { forceRefresh: true });
+	return fresh !== keys && (await verifySignatureAgainstKeys(parts, fresh)) ? identity : null;
 }
 
 async function validateCfAccessJwt(jwt: string, env: Env): Promise<AuthUser | null> {

@@ -15,6 +15,7 @@ import {
 	SidebarPanel,
 	TitleSection,
 } from "./IssueDetailParts";
+import { IssueResolutionHistory } from "./IssueResolutionHistory";
 import type {
 	Attachment,
 	Comment,
@@ -632,6 +633,8 @@ function IssueDetailView(
 						attachments={props.attachments}
 						fetchAttachments={props.fetchAttachments}
 					/>
+
+					<IssueResolutionHistory issue={issue} />
 
 					<CommentsSection
 						issueId={issueId}

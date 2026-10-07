@@ -85,7 +85,9 @@ function IssueListTop({
 				setFilterDateFrom={filters.setFilterDateFrom}
 				filterDateTo={filters.filterDateTo}
 				setFilterDateTo={filters.setFilterDateTo}
-				uniqueProjects={deriveProjectOptions(data.issues)}
+				uniqueProjects={
+					data.projects.length > 0 ? data.projects : deriveProjectOptions(data.issues)
+				}
 				filterProject={filters.filterProject}
 				setFilterProject={filters.setFilterProject}
 				setFilterSprintId={filters.setFilterSprintId}
@@ -132,6 +134,19 @@ function IssueListMain({
 }: IssueListLayoutProps) {
 	return (
 		<>
+			{!search.isSearchActive && (data.loading || data.nextCursor !== null) && (
+				<p role="status" class="text-sm text-text-muted mb-3">
+					{view === "list" ? (
+						"Sorting applies to the rows loaded so far while results are loading or more pages remain."
+					) : (
+						<>
+							{data.loading || data.loadingMore ? "Loading more issues. " : ""}
+							Counts and sorting cover only {data.issues.length} loaded issues; this view is not
+							complete yet.
+						</>
+					)}
+				</p>
+			)}
 			<MainContent
 				isSearchActive={search.isSearchActive}
 				searchLoading={search.searchLoading}

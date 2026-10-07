@@ -2183,7 +2183,13 @@ function useLegacyQuerySlugRedirect(fetchedSlug: string | undefined, requestedSl
 		const hasLegacyQuery = params.has("slug");
 		const onCanonicalPath = window.location.pathname === `/wiki/${encodeURIComponent(fetchedSlug)}`;
 		if ((hasLegacyQuery || fetchedSlug !== requestedSlug) && !onCanonicalPath) {
-			window.location.replace(`/wiki/${encodeURIComponent(fetchedSlug)}`);
+			// This is a full navigation, so the in-memory project store will be lost.
+			// Preserve its URL boundary (and workspace scope/anchor), removing only
+			// the legacy page-slug parameter.
+			const target = new URL(window.location.href);
+			target.pathname = `/wiki/${encodeURIComponent(fetchedSlug)}`;
+			target.searchParams.delete("slug");
+			window.location.replace(`${target.pathname}${target.search}${target.hash}`);
 		}
 	}, [fetchedSlug, requestedSlug]);
 }

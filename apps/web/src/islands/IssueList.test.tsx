@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/preact";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { __resetProjectStoreForTests } from "../lib/project-context";
 import type { Issue, TaskStatus } from "./board-utils";
 import IssueList from "./IssueList";
 
@@ -145,6 +146,7 @@ function openFiltersPopover() {
 // ─── Setup / teardown ────────────────────────────────────────────────────────
 
 beforeEach(() => {
+	__resetProjectStoreForTests();
 	localStorage.clear();
 	history.replaceState(null, "", "/");
 	setupFetch();

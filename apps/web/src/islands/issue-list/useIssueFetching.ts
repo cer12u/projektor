@@ -46,10 +46,22 @@ export function useIssueFetching(
 	// List view paginates 30 at a time (PROJ-201). Board/backlog operate on the
 	// whole working set, so they request a larger page.
 	const pageSize = view === "list" ? 30 : 100;
+	const requestKey = `${workspaceSlug ?? ""}\0${filterQs}\0${view}`;
+	const [loadedKey, setLoadedKey] = useState<string | null>(null);
+	// Retained callbacks must not borrow a newer scope's sequence number.
+	const activeRequest = useRef({ key: requestKey, ready: lookupsReady });
+	activeRequest.current = { key: requestKey, ready: lookupsReady };
+	const isActiveRequest = useCallback(
+		() => activeRequest.current.key === requestKey && activeRequest.current.ready,
+		[requestKey]
+	);
 
 	const fetchIssues = useCallback(async () => {
+		if (!isActiveRequest()) return;
 		const seq = ++fetchSeq.current;
 		setLoading(true);
+		setLoadingMore(false);
+		setNextCursor(null);
 		setError(null);
 		try {
 			const qs = buildFilterParams();
@@ -61,7 +73,8 @@ export function useIssueFetching(
 			}>(`/api/issues?${qs.toString()}`, {
 				workspaceSlug,
 			});
-			if (seq !== fetchSeq.current) return; // superseded by a newer request
+			if (seq !== fetchSeq.current || !isActiveRequest()) return; // superseded by a newer request
+			setLoadedKey(requestKey);
 			setIssues(data.items);
 			setNextCursor(data.nextCursor ?? null);
 			setTotal(data.total ?? data.items.length);
@@ -73,12 +86,12 @@ export function useIssueFetching(
 				await loadRemainingPages(qs, data.nextCursor, seq);
 			}
 		} catch (e) {
-			if (seq !== fetchSeq.current) return;
+			if (seq !== fetchSeq.current || !isActiveRequest()) return;
 			setError(String(e));
 		} finally {
-			if (seq === fetchSeq.current) setLoading(false);
+			if (seq === fetchSeq.current && isActiveRequest()) setLoading(false);
 		}
-	}, [workspaceSlug, buildFilterParams, pageSize, view]);
+	}, [workspaceSlug, buildFilterParams, pageSize, view, requestKey, isActiveRequest]);
 
 	async function loadRemainingPages(base: URLSearchParams, first: string | number, seq: number) {
 		setLoadingMore(true);
@@ -91,18 +104,27 @@ export function useIssueFetching(
 					`/api/issues?${qs.toString()}`,
 					{ workspaceSlug }
 				);
-				if (seq !== fetchSeq.current) return;
+				if (seq !== fetchSeq.current || !isActiveRequest()) return;
 				setIssues((prev) => [...prev, ...data.items]);
 				cursor = data.nextCursor ?? null;
 				setNextCursor(cursor);
 			}
 		} finally {
-			if (seq === fetchSeq.current) setLoadingMore(false);
+			if (seq === fetchSeq.current && isActiveRequest()) setLoadingMore(false);
 		}
 	}
 
 	const loadMore = useCallback(async () => {
-		if (nextCursor == null || loadingMore) return;
+		if (
+			!isActiveRequest() ||
+			nextCursor == null ||
+			loadingMore ||
+			loading ||
+			!lookupsReady ||
+			loadedKey !== requestKey
+		)
+			return;
+		const seq = fetchSeq.current;
 		setLoadingMore(true);
 		setError(null);
 		try {
@@ -116,31 +138,47 @@ export function useIssueFetching(
 			}>(`/api/issues?${qs.toString()}`, {
 				workspaceSlug,
 			});
+			if (seq !== fetchSeq.current || !isActiveRequest()) return;
 			setIssues((prev) => [...prev, ...data.items]);
 			setNextCursor(data.nextCursor ?? null);
 			// PROJ-857: later pages return total: null — keep the first page's count.
 			setTotal((prev) => data.total ?? prev);
 		} catch (e) {
-			setError(String(e));
+			if (seq === fetchSeq.current && isActiveRequest()) setError(String(e));
 		} finally {
-			setLoadingMore(false);
+			if (seq === fetchSeq.current && isActiveRequest()) setLoadingMore(false);
 		}
-	}, [workspaceSlug, buildFilterParams, pageSize, nextCursor, loadingMore]);
+	}, [
+		workspaceSlug,
+		buildFilterParams,
+		pageSize,
+		nextCursor,
+		loadingMore,
+		loading,
+		lookupsReady,
+		loadedKey,
+		requestKey,
+		isActiveRequest,
+	]);
 
 	useEffect(() => {
 		if (!lookupsReady) return;
 		fetchIssues();
+		return () => {
+			fetchSeq.current++;
+		};
 	}, [fetchIssues, lookupsReady]);
 
+	const currentResult = lookupsReady && loadedKey === requestKey;
 	return {
-		issues,
+		issues: currentResult ? issues : [],
 		setIssues,
-		loading,
+		loading: loading || !currentResult,
 		hasLoadedOnce,
 		error,
-		nextCursor,
+		nextCursor: currentResult ? nextCursor : null,
 		loadingMore,
-		total,
+		total: currentResult ? total : 0,
 		fetchIssues,
 		loadMore,
 	};

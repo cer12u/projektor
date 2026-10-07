@@ -4,7 +4,7 @@ description: "Architecture contract and conventions for working on the Projektor
 sidebar:
   order: 1
 ---
-> **Note:** this page is generated from [`AGENTS.md`](https://github.com/TAJD/projektor/blob/main/AGENTS.md)
+> **Note:** this page is generated from [`AGENTS.md`](https://github.com/cer12u/projektor/blob/main/AGENTS.md)
 > in the repo root by `scripts/gen-conventions-page.ts`. Edit that file, not this page — it is
 > overwritten on every generate.
 
@@ -77,14 +77,24 @@ gates) live in exactly one place, the [workflow spec](https://tajd.github.io/pro
 
 Design records, implementation plans, and specs belong in the projektor wiki (`create_wiki_page`/`update_wiki_page`), not in a repo `docs/` folder. Keeping them in the wiki makes them discoverable and searchable (`search_wiki`) instead of buried in git history. Root-level user-facing docs (`README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `SECURITY.md`) are the only docs that belong in the repo itself.
 
-## Human-authored files
+## Documentation editing in this Fork
 
-Most docs may be generated or written by agents, but these paths are human-authored (Tom's decision, PROJ-915):
+The Fork owner authorizes agents to correct and maintain repository documentation,
+including `README.md` and `apps/docs/src/content/docs/philosophy/**`. This replaces
+the inherited upstream-only editorial restriction (PROJ-915); it does not change
+upstream's policy.
 
-- `README.md`
-- `apps/docs/src/content/docs/philosophy/**`
+Preserve the author's intent and historical attribution. Correct factual claims
+against current source or verified behavior, keep changes within the requested
+scope, and distinguish upstream behavior from this Fork. Ask when the intended
+meaning cannot be established. Do not change license or authorship records as part
+of an ordinary documentation correction.
 
-Agents must not edit these files, not even to fix a typo or a stale fact. When your work makes one of them inaccurate, add a comment to the current editorial issue (PROJ-914 or its successor) that quotes the affected line and states the fact that changed. Docs checks may still scan these files and report drift, but the fix goes to the editorial issue, never into an agent's diff. `.github/CODEOWNERS` requires @TAJD's review on both paths.
+Generated sections, including README's `gen-mcp-stats` block, must follow their
+existing generator contract. Regenerate committed mirrors and verify freshness;
+do not hand-maintain counts or suppress drift checks. `.github/CODEOWNERS` still
+contains inherited review ownership entries; this editing permission does not
+change GitHub review rules or grant publishing, merging or deployment permission.
 
 ## Architecture: the service-layer contract (most important)
 
@@ -292,6 +302,11 @@ as that user (a member of the seeded `projektor` workspace), and the islands loa
 
 **Before opening a PR:** `pnpm lint`, `pnpm turbo type-check`, `pnpm --filter @projektor/db test`, `pnpm --filter @projektor/api test:coverage`, `pnpm --filter @projektor/web test:coverage`, `pnpm --filter @projektor/web build`, and `pnpm --filter @projektor/docs build` must all be green, and `pnpm gen:docs` must produce no diff. CI runs these plus the island API and design system convention checks (`.github/workflows/ci.yml`).
 
+**Explicit Draft-CI exception for this Fork:** when the owner expressly approves
+using a Draft PR to run CI because the local dependency environment is unavailable,
+open it as WIP and list every unverified gate. This does not waive checks: the exact
+commit's canonical gates must pass before marking it ready or merging.
+
 ## E2E testing (`apps/web/e2e`, Playwright)
 
 Targets a **deployed dev instance** (`E2E_BASE_URL`), not local dev — see `apps/web/e2e/README.md` for the full setup, fixtures, and per-spec breakdown. Not run in CI (no live deployment there); run manually or on a schedule.
@@ -311,7 +326,7 @@ pnpm --filter @projektor/web exec playwright test --project=mobile-webkit
 
 - **pre-commit** — `pnpm turbo type-check` (fast; leverages turbo's cache, near-instant on unchanged packages) and `pnpm biome check --changed --no-errors-on-unmatched` (lint, changed files only).
 
-There is deliberately no `pre-push` hook — CI (`.github/workflows/ci.yml`) is the authoritative gate before merge (main is PR-protected; direct pushes are rejected), so a local pre-push copy of the same checks was pure redundant overhead. It was also a source of real bugs: under concurrent local load its test step could fail while a backgrounded `git push` still reported exit code 0, masking a rejected push. It was removed for these reasons; don't re-add one without addressing both.
+There is deliberately no `pre-push` hook — CI (`.github/workflows/ci.yml`) is the authoritative gate before merge (upstream assumes PR-protected main; verify this Fork's actual protection rules rather than relying on that assumption), so a local pre-push copy of the same checks was pure redundant overhead. It was also a source of real bugs: under concurrent local load its test step could fail while a backgrounded `git push` still reported exit code 0, masking a rejected push. It was removed for these reasons; don't re-add one without addressing both.
 
 CI runs a superset of the pre-commit checks: the generated-docs freshness check, `pnpm lint`, `pnpm turbo type-check`, `pnpm --filter @projektor/db test`, coverage-enforced test runs for `@projektor/api` and `@projektor/web`, and both the web and docs builds. New contributors get the pre-commit hook automatically after `pnpm install`. See **Before opening a PR** above for the full local command set to run before pushing.
 
@@ -431,7 +446,7 @@ own the same island file. Assign each island to exactly one agent per batch.
 builds the artifact and the config-only deploy repo (`projektor-deploy-example`) picks
 it up. See the [deploy guide](https://tajd.github.io/projektor/guides/deploying/).
 
-**CI commands** (must all pass before opening a PR):
+**CI commands** (must all pass before opening a PR, except the explicitly approved Draft-CI path above):
 ```bash
 pnpm gen:docs   # must produce no diff
 pnpm lint

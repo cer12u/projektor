@@ -9,6 +9,7 @@ import {
 	seedProject,
 	seedToken,
 	seedUser,
+	seedUserToken,
 	seedWorkspace,
 	toolError,
 } from "./helpers";
@@ -48,7 +49,8 @@ describe("Workspaces MCP", () => {
 		workspaceId = fixture.workspace.id;
 		slug = fixture.workspace.slug;
 		userId = fixture.user.id;
-		userToken = fixture.token;
+		// Cross-workspace operations require a personal credential.
+		userToken = await seedUserToken(userId);
 		userHeaders = authHeaders(userToken, slug);
 	});
 

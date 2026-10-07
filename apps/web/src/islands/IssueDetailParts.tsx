@@ -3,10 +3,12 @@ import { formatIssueRef, isValidIssueRef, normalizeIssueRef } from "../lib/issue
 import { parseStoryPoints } from "../lib/story-points";
 import { apiFetch } from "../utils/api-client";
 import { clearDraft, draftKey, loadDraft, saveDraft } from "../utils/drafts";
+import { isIssueCompleted } from "../utils/issue-resolution";
 import { issueUrl } from "../utils/issue-url";
 import { PRIORITY_OPTIONS } from "../utils/issue-utils";
 import { renderMd, renderMermaidDiagrams } from "../utils/markdown";
 import { categoryColor } from "./board-utils";
+import { IssueCompletionTimestamp, IssueTimestamp } from "./IssueResolutionHistory";
 import type {
 	Attachment,
 	Comment,
@@ -2063,12 +2065,24 @@ export function SidebarPanel({
 				)}
 
 				<SidebarField label="Created">
-					<span class="text-sm text-text-base">{formatDate(issue.created_at)}</span>
+					<span class="text-sm text-text-base">
+						<IssueTimestamp value={issue.created_at} />
+					</span>
 				</SidebarField>
 
 				<SidebarField label="Updated">
-					<span class="text-sm text-text-base">{formatDate(issue.updated_at)}</span>
+					<span class="text-sm text-text-base">
+						<IssueTimestamp value={issue.updated_at} />
+					</span>
 				</SidebarField>
+
+				{isIssueCompleted(issue) && (
+					<SidebarField label="Completed">
+						<span class="text-sm text-text-base">
+							<IssueCompletionTimestamp issue={issue} />
+						</span>
+					</SidebarField>
+				)}
 			</div>
 		</div>
 	);

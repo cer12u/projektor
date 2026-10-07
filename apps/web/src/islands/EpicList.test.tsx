@@ -6,7 +6,7 @@
 // The pattern: set the URL, override the stub, await findBy*.
 import { fireEvent, render, screen } from "@testing-library/preact";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { __resetProjectStoreForTests } from "../lib/project-context";
+import { __resetProjectStoreForTests, currentProject } from "../lib/project-context";
 import EpicList from "./EpicList";
 
 interface Issue {
@@ -174,7 +174,10 @@ describe("EpicList", () => {
 		expect(calledUrls.some((u) => u.includes("/api/issues") && u.includes("project=p1"))).toBe(
 			true
 		);
-		expect(localStorage.getItem("projektor-last-project-id")).toBe("p1");
+		// Identity is shared in memory and persisted to the URL, never localStorage.
+		expect(currentProject.value?.id).toBe("p1");
+		expect(new URLSearchParams(window.location.search).get("projectId")).toBe("p1");
+		expect(localStorage.getItem("projektor-last-project-id")).toBe("stale-deleted-project");
 	});
 
 	it("renders epic rows after fetch resolves", async () => {

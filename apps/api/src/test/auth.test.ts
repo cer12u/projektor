@@ -17,6 +17,7 @@ import {
 	seedFixture,
 	seedMember,
 	seedToken,
+	seedUserToken,
 	seedWorkspace,
 	seedWorkspaceRoles,
 	toolError,
@@ -979,13 +980,14 @@ describe("PROJ-79: GET /auth/me", () => {
 		expect(body.workspaces[0].id).toBe(fixture.workspace.id);
 	});
 
-	it("returns all workspaces the user belongs to", async () => {
+	it("returns all workspaces for a personal token", async () => {
 		const fixture = await seedFixture();
 		const ws2 = await seedWorkspace(`ws2-${crypto.randomUUID().slice(0, 8)}`);
 		await seedMember(ws2.id, fixture.user.id, "viewer");
+		const personal = await seedUserToken(fixture.user.id);
 
 		const res = await SELF.fetch("http://localhost/auth/me", {
-			headers: { Authorization: `Bearer ${fixture.token}` },
+			headers: { Authorization: `Bearer ${personal}` },
 		});
 		const body = (await res.json()) as { workspaces: Array<{ id: string }> };
 		const ids = body.workspaces.map((w) => w.id);
@@ -1151,7 +1153,7 @@ describe("PROJ-79: MCP error contract — serviceErr → tool error codes", () =
 		const fixture = await seedFixture({ role: "owner" });
 		workspaceId = fixture.workspace.id;
 		slug = fixture.workspace.slug;
-		ownerHeaders = authHeaders(fixture.token, slug);
+		ownerHeaders = authHeaders(await seedUserToken(fixture.user.id), slug);
 	});
 
 	async function mcp(name: string, args: unknown, headers = ownerHeaders, wsId = workspaceId) {
@@ -1521,4 +1523,59 @@ describe("PROJ-979: Access service-token JWT alongside a pk_ token", () => {
 		});
 		expect(res.status).toBe(401);
 	});
+});
+
+// The CF service-token + bearer path above remains supported. A human session
+// and bearer must never silently authenticate as the more privileged human.
+describe("human Access sessions cannot override a bearer actor", () => {
+	it.each(["assertion", "cookie"])(
+		"rejects valid and invalid bearers combined with a human %s",
+		async (transport) => {
+			const previous = { domain: env.CF_ACCESS_TEAM_DOMAIN, audience: env.CF_ACCESS_AUDIENCE };
+			const fixture = await seedFixture({ role: "owner" });
+			try {
+				resetAuthCachesForTests();
+				env.CF_ACCESS_TEAM_DOMAIN = "machine-mixed.example.com";
+				env.CF_ACCESS_AUDIENCE = "machine-mixed";
+				const keys = (await crypto.subtle.generateKey(
+					{
+						name: "RSASSA-PKCS1-v1_5",
+						modulusLength: 2048,
+						publicExponent: new Uint8Array([1, 0, 1]),
+						hash: "SHA-256",
+					},
+					true,
+					["sign", "verify"]
+				)) as CryptoKeyPair;
+				await env.KV.put(
+					"cf-access-certs",
+					JSON.stringify([await crypto.subtle.exportKey("jwk", keys.publicKey)])
+				);
+				const jwt = await signTestJwt(keys.privateKey, {
+					exp: Math.floor(Date.now() / 1000) + 3600,
+					aud: env.CF_ACCESS_AUDIENCE,
+					iss: `https://${env.CF_ACCESS_TEAM_DOMAIN}`,
+					email: fixture.user.email,
+				});
+				const session: Record<string, string> =
+					transport === "assertion"
+						? { "Cf-Access-Jwt-Assertion": jwt }
+						: { Cookie: `CF_Authorization=${jwt}` };
+				for (const bearer of [fixture.token, "pk_invalid"]) {
+					const response = await SELF.fetch("http://localhost/auth/me", {
+						headers: { ...session, Authorization: `Bearer ${bearer}` },
+					});
+					expect(response.status).toBe(403);
+				}
+				// The same browser session remains usable on its own.
+				expect((await SELF.fetch("http://localhost/auth/me", { headers: session })).status).toBe(
+					200
+				);
+			} finally {
+				env.CF_ACCESS_TEAM_DOMAIN = previous.domain;
+				env.CF_ACCESS_AUDIENCE = previous.audience;
+				resetAuthCachesForTests();
+			}
+		}
+	);
 });

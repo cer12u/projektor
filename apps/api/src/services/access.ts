@@ -71,7 +71,10 @@ export async function effectiveProjectRole(
 	// role a group grant carries — publishing a project to the "Public viewers" group with
 	// the grant picker's default (`member`) must never let the internet write to it.
 	if (ctx.auth?.method === "public") return "viewer";
-	return strongestGrant(rows.map((r) => r.role));
+	const role = strongestGrant(rows.map((r) => r.role));
+	// A machine credential can operate assigned projects but cannot administer them,
+	// even if its actor later receives an admin-level group grant.
+	return ctx.auth?.principalKind === "machine" && role === "admin" ? "member" : role;
 }
 
 /**

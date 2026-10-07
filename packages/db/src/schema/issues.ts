@@ -258,3 +258,39 @@ export const issueGateRejections = sqliteTable(
 		),
 	})
 );
+
+// Persistent observed resolution events, separate from retention-limited activity.
+export const issueResolutionEvents = sqliteTable(
+	"issue_resolution_events",
+	{
+		sequence: integer("sequence").primaryKey({ autoIncrement: true }),
+		id: text("id").notNull().unique(),
+		workspaceId: text("workspace_id")
+			.notNull()
+			.references(() => workspaces.id, { onDelete: "cascade" }),
+		issueId: text("issue_id")
+			.notNull()
+			.references(() => issues.id, { onDelete: "cascade" }),
+		occurredAt: integer("occurred_at").notNull(),
+		kind: text("kind", { enum: ["completed", "reopened", "cancelled"] }).notNull(),
+		// Authenticated principal; no caller-supplied agent display name.
+		actorId: text("actor_id"),
+		authKind: text("auth_kind"),
+		authMethod: text("auth_method"),
+		fromStatus: text("from_status"),
+		toStatus: text("to_status").notNull(),
+	},
+	(t) => ({
+		workspaceTimeIdx: index("idx_issue_resolution_workspace_time").on(
+			t.workspaceId,
+			t.occurredAt,
+			t.sequence
+		),
+		issueTimeIdx: index("idx_issue_resolution_issue_time").on(
+			t.workspaceId,
+			t.issueId,
+			t.occurredAt,
+			t.sequence
+		),
+	})
+);

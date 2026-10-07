@@ -10,6 +10,7 @@ import {
 import { statusDisplayName } from "../lib/status";
 import { apiFetch } from "../utils/api-client";
 import { usePublicViewer } from "../utils/public-viewer";
+import { readUrlProjectId } from "../utils/resolve-project-id";
 import ProjectFlowCharts from "./ProjectFlowCharts";
 import { Button } from "./ui/Button";
 
@@ -360,19 +361,10 @@ function RecentWikiSection({ pages }: { pages: RecentWikiPage[] }) {
 const matchesHint = (p: ProjectSummary, h: string) => p.id === h || p.key === h || p.slug === h;
 
 export default function ProjectLanding({ workspaceSlug }: Props) {
-	const hint =
-		typeof window === "undefined"
-			? null
-			: (() => {
-					const params = new URLSearchParams(window.location.search);
-					const slugMatch = window.location.pathname.match(/^\/projects\/view\/([^/]+)\/?$/);
-					return (
-						params.get("id") || params.get("projectId") || slugMatch?.[1] || params.get("project")
-					);
-				})();
+	const hint = readUrlProjectId();
 
 	useEffect(() => {
-		ensureProjectResolved(workspaceSlug, hint || null, matchesHint);
+		ensureProjectResolved(workspaceSlug, hint, matchesHint);
 	}, [workspaceSlug, hint]);
 
 	const projectId = projectReady.value ? (currentProject.value?.id ?? null) : undefined;

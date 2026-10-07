@@ -19,8 +19,13 @@ router.get("/login", (c) => {
 
 router.get("/me", authMiddleware, async (c) => {
 	const user = c.get("user") as { id: string; email: string; name: string };
-	const workspaces = await getUserWorkspaces({ db: c.env.DB, userId: user.id });
-	return c.json({ user, workspaces });
+	const workspaces = await getUserWorkspaces({
+		db: c.env.DB,
+		userId: user.id,
+		tokenWorkspaceId: c.get("tokenWorkspaceId"),
+		machinePrincipal: c.get("auth")?.principalKind === "machine",
+	});
+	return c.json({ user, workspaces, auth: c.get("auth") });
 });
 
 // PROJ-903: personal access tokens are minted and revoked only from an interactive

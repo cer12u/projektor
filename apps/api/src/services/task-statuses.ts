@@ -5,6 +5,7 @@ import { IdSchema } from "../schemas/common";
 import { CreateTaskStatusSchema, UpdateTaskStatusSchema } from "../schemas/task-statuses";
 import * as cache from "./cache";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "./errors";
+import { buildCategoryResolutionStatements } from "./issue-resolution";
 import type { ServiceCtx } from "./types";
 
 const WS_META_TTL = 60;
@@ -129,7 +130,7 @@ export async function updateTaskStatus(ctx: ServiceCtx, id: string, raw: unknown
 	// status_id — re-sync issues.status_category for every issue on this status in the
 	// same batch as the status update, so the two never drift (open/backlog tile counts
 	// and anything else reading status_category depend on it staying in sync).
-	const categoryChanged = setObj.category !== undefined && setObj.category !== existing.category;
+	const categoryProvided = setObj.category !== undefined;
 
 	const statusUpdate = orm
 		.update(schema.taskStatuses)
@@ -138,12 +139,17 @@ export async function updateTaskStatus(ctx: ServiceCtx, id: string, raw: unknown
 			and(eq(schema.taskStatuses.id, id), eq(schema.taskStatuses.workspaceId, ctx.workspaceId))
 		);
 
-	if (categoryChanged) {
-		const issuesResync = orm
-			.update(schema.issues)
-			.set({ statusCategory: setObj.category as string })
-			.where(and(eq(schema.issues.statusId, id), eq(schema.issues.workspaceId, ctx.workspaceId)));
-		await orm.batch([statusUpdate, issuesResync]);
+	if (categoryProvided) {
+		const query = statusUpdate.toSQL();
+		await ctx.db.batch([
+			ctx.db.prepare(query.sql).bind(...query.params),
+			...buildCategoryResolutionStatements(
+				ctx,
+				id,
+				setObj.category as string,
+				Math.floor(Date.now() / 1000)
+			),
+		]);
 	} else {
 		await statusUpdate;
 	}

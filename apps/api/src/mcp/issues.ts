@@ -1,5 +1,6 @@
 import type { MCPTool } from "@projektor/types";
 import { ValidationError } from "../services/errors";
+import { listIssueResolutionEvents } from "../services/issue-resolution-query";
 import {
 	createIssue,
 	deleteIssue,
@@ -62,6 +63,41 @@ function withBodyPreview(
 }
 
 export const issuesTools: MCPTool[] = [
+	{
+		name: "list_issue_resolution_events",
+		description:
+			"List recorded issue completion, reopening, and cancellation events for a bounded UTC " +
+			"window (max 366 days). Returns {items,nextCursor}, ordered by occurred_at then sequence " +
+			"ascending. Events include issue title, number, project key, and ref. Timestamps are " +
+			"actual resolution transitions, not work start/end times. Only visible projects are included.",
+		inputSchema: {
+			type: "object",
+			properties: {
+				after: {
+					type: "integer",
+					minimum: 0,
+					description: "Inclusive window start, in Unix UTC seconds",
+				},
+				before: {
+					type: "integer",
+					minimum: 0,
+					description: "Exclusive window end, in Unix UTC seconds; must be after the start",
+				},
+				projectId: { type: "string", description: "Project UUID or key, e.g. PROJ" },
+				issueId: { type: "string", description: "Issue UUID or ref, e.g. PROJ-42" },
+				cursor: {
+					type: "string",
+					description: "Pass nextCursor (occurred_at:sequence) unchanged with the same filters",
+				},
+				limit: { type: "integer", default: 100, minimum: 1, maximum: 200 },
+			},
+			required: ["after", "before"],
+		},
+		annotations: READ,
+		async handler(input, ctx) {
+			return listIssueResolutionEvents(ctx, input);
+		},
+	},
 	{
 		name: "list_issues",
 		description:

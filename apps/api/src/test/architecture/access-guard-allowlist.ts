@@ -5,6 +5,10 @@
 // needs a reason a security reviewer would accept. This file is owned via CODEOWNERS —
 // adding an entry is a security decision, not a way to get CI green.
 export const ACCESS_GUARD_ALLOWLIST: Record<string, string> = {
+	"issue-resolution:buildInitialResolutionStatement":
+		"Non-executing batch builder called only by createIssue after its workspace/project guard; the new issue id is generated there. Callers are enforced by access-guard.node.test.ts.",
+	"issue-resolution:buildResolutionTransitionStatement":
+		"Non-executing batch builder called only by updateIssue after its workspace/project guard; the SQL independently scopes issue id by workspace. Callers are enforced by access-guard.node.test.ts.",
 	"groups:removeGroupGrant":
 		"Workspace owner/admin only (requireAdmin); admins bypass project access by design, and the group is workspace-checked.",
 	"projects:deleteProject":

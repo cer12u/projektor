@@ -82,7 +82,9 @@ export interface ProjectSummary {
 export async function listProjectsAcrossWorkspaces(
 	userId: string,
 	db: D1Database,
-	includeArchived = false
+	includeArchived = false,
+	tokenWorkspaceId?: string | null,
+	machinePrincipal = false
 ): Promise<ProjectSummary[]> {
 	const rows = await db
 		.prepare(
@@ -109,17 +111,27 @@ export async function listProjectsAcrossWorkspaces(
       LEFT JOIN issues i        ON i.project_id = p.id
       -- PROJ-311: in each workspace the user sees all projects if owner/admin there,
       -- otherwise only projects their groups grant (indexed EXISTS).
-      WHERE (wm.role IN ('owner','admin')
+      WHERE ((? = 0 AND wm.role IN ('owner','admin'))
          OR EXISTS (
               SELECT 1 FROM user_group_members ugm
               JOIN group_project_grants gpg ON gpg.group_id = ugm.group_id
               WHERE ugm.user_id = ? AND gpg.project_id = p.id))
         ${includeArchived ? "" : "AND p.archived_at IS NULL"}
+        AND (? IS NULL OR p.workspace_id = ?)
+        AND (? = 0 OR (wm.role = 'member' AND p.workspace_id = ?))
       GROUP BY p.id, p.name, p.key, p.slug, p.description, p.archived_at, p.created_at, p.updated_at,
                w.id, w.name, w.slug
       ORDER BY w.slug, p.name`
 		)
-		.bind(userId, userId)
+		.bind(
+			userId,
+			machinePrincipal ? 1 : 0,
+			userId,
+			tokenWorkspaceId ?? null,
+			tokenWorkspaceId ?? null,
+			machinePrincipal ? 1 : 0,
+			tokenWorkspaceId ?? null
+		)
 		.all<ProjectSummary>();
 	return rows.results;
 }
@@ -308,6 +320,7 @@ const PAGES_OF_PROJECT = "SELECT id FROM wiki_pages WHERE project_id = ?1 AND wo
 // deleteIssue's per-issue list (PROJ-922) and the wiki purge's per-page list.
 const PROJECT_CLEANUP_SQL: readonly string[] = [
 	// Issue dependents.
+	`DELETE FROM issue_resolution_events WHERE workspace_id = ?2 AND issue_id IN (${ISSUES_OF_PROJECT})`,
 	`DELETE FROM issues_fts WHERE workspace_id = ?2 AND issue_id IN (${ISSUES_OF_PROJECT})`,
 	`DELETE FROM issue_comments WHERE issue_id IN (${ISSUES_OF_PROJECT})`,
 	`DELETE FROM issue_links WHERE source_issue_id IN (${ISSUES_OF_PROJECT}) OR target_issue_id IN (${ISSUES_OF_PROJECT})`,

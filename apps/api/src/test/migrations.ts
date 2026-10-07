@@ -71,6 +71,9 @@ import m0067 from "../../../../packages/db/migrations/0067_agent_session_credent
 import m0068 from "../../../../packages/db/migrations/0068_issue_link_follows_from.sql?raw";
 import m0069 from "../../../../packages/db/migrations/0069_project_epic_auto_close.sql?raw";
 
+import m0070 from "../../../../packages/db/migrations/0070_issue_resolution_events.sql?raw";
+import m0071 from "../../../../packages/db/migrations/0071_machine_token_issuer.sql?raw";
+
 export const MIGRATIONS = [
 	m0000,
 	m0001,
@@ -142,4 +145,6 @@ export const MIGRATIONS = [
 	m0067,
 	m0068,
 	m0069,
+	m0070,
+	m0071,
 ];
