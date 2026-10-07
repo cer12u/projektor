@@ -46,7 +46,6 @@ import { ISSUE_REF_PATTERN, resolveIssueIdParam } from "./issue-ref";
 import {
 	buildInitialResolutionStatement,
 	buildResolutionTransitionStatement,
-	recentResolutionHistory,
 } from "./issue-resolution";
 import { resolveProjectIdParam, resolveVisibleProjectIdParam } from "./projects";
 import { broadcastWorkspaceEvent } from "./realtime";
@@ -513,7 +512,11 @@ async function fetchIssueById(orm: ReturnType<typeof drizzle>, ctx: ServiceCtx, 
 			.leftJoin(schema.projects, eq(schema.issues.projectId, schema.projects.id))
 			.leftJoin(schema.taskTypes, eq(schema.issues.typeId, schema.taskTypes.id))
 			.leftJoin(schema.taskStatuses, eq(schema.issues.statusId, schema.taskStatuses.id))
-			.where(and(eq(schema.issues.id, id), eq(schema.issues.workspaceId, ctx.workspaceId)))
+			.where(and(
+				eq(schema.issues.id, id),
+				eq(schema.issues.workspaceId, ctx.workspaceId),
+				eq(schema.projects.workspaceId, ctx.workspaceId)
+			))
 			.get()) ?? null
 	);
 }
@@ -541,7 +544,8 @@ async function fetchIssueByRef(orm: ReturnType<typeof drizzle>, ctx: ServiceCtx,
 				and(
 					eq(schema.projects.key, m[1]),
 					eq(schema.issues.number, parseInt(m[2], 10)),
-					eq(schema.issues.workspaceId, ctx.workspaceId)
+					eq(schema.issues.workspaceId, ctx.workspaceId),
+					eq(schema.projects.workspaceId, ctx.workspaceId)
 				)
 			)
 			.get()) ?? null
@@ -630,6 +634,28 @@ async function loadIssueExtras(
 	return extras;
 }
 
+// Private to the issue service: getIssue already performs its live project check.
+// Keeping history behind that guarded entry point avoids duplicate authorization
+// queries on a cache hit without caching or carrying grants across requests.
+async function loadIssueResolutionHistory(ctx: ServiceCtx, issueId: string) {
+	// No KV cache: events and permission changes must be visible immediately.
+	const { results } = await ctx.db.prepare(`SELECT id, sequence, issue_id, occurred_at, kind,
+		actor_id, auth_kind, auth_method, from_status, to_status FROM issue_resolution_events
+		WHERE workspace_id = ? AND issue_id = ? ORDER BY occurred_at DESC, sequence DESC LIMIT 21`)
+		.bind(ctx.workspaceId, issueId).all();
+	const lastCompleted = await ctx.db
+		.prepare(`SELECT occurred_at FROM issue_resolution_events
+			WHERE workspace_id = ? AND issue_id = ? AND kind = 'completed'
+			ORDER BY sequence DESC LIMIT 1`)
+		.bind(ctx.workspaceId, issueId)
+		.first<{ occurred_at: number }>();
+	return {
+		resolution_history: results.slice(0, 20),
+		resolution_history_has_more: results.length > 20,
+		last_completed_at: lastCompleted?.occurred_at ?? null,
+	};
+}
+
 export async function getIssue(ctx: ServiceCtx, raw: unknown) {
 	const result = GetIssueSchema.safeParse(raw);
 	if (!result.success) throw new ValidationError(result.error.flatten());
@@ -646,7 +672,7 @@ export async function getIssue(ctx: ServiceCtx, raw: unknown) {
 
 	const { rollup, customFields } = await loadIssueExtras(ctx, orm, issueId);
 	const links = await listLinksForIssue(ctx, { issueId });
-	const history = await recentResolutionHistory(ctx, issueId);
+	const history = await loadIssueResolutionHistory(ctx, issueId);
 
 	const full: Record<string, unknown> = {
 		...issueRecord,

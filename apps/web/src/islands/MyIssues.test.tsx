@@ -250,7 +250,7 @@ function deferred<T>() {
 	return { promise, resolve, reject };
 }
 
-function desktopTitles(container: HTMLElement): (string | null)[] {
+function desktopTitles(container: Element): (string | null)[] {
 	return Array.from(container.querySelectorAll("tbody tr td:nth-child(2) a")).map(
 		(link) => link.textContent
 	);

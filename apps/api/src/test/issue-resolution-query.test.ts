@@ -4,7 +4,7 @@ import {
 	ListIssueResolutionEventsSchema,
 	MAX_RESOLUTION_WINDOW_SECONDS,
 } from "../schemas/issue-resolution";
-import { recentResolutionHistory } from "../services/issue-resolution";
+import { getIssue } from "../services/issues";
 import type { listIssueResolutionEvents } from "../services/issue-resolution-query";
 import {
 	authHeaders,
@@ -336,14 +336,50 @@ describe("Issue resolution event query", () => {
 		}
 	);
 
-	it("the exported history reader refuses hidden and foreign issues", async () => {
+	it("issue history stays behind guarded reads without extra authorization queries", async () => {
 		const viewer = await seedProjectFixture({ role: "viewer" });
 		const hiddenProject = await seedProject(viewer.workspaceId, "HIDDEN");
 		const hiddenIssue = await seedIssue(viewer.workspaceId, hiddenProject.id, viewer.userId);
 		await seedEvent(viewer, hiddenIssue.id, 2);
 		const ctx = { db: env.DB, kv: env.KV, r2: env.R2, workspaceId: viewer.workspaceId, userId: viewer.userId, role: "viewer" as const };
-		await expect(recentResolutionHistory(ctx, hiddenIssue.id)).rejects.toMatchObject({ kind: "not_found" });
-		await expect(recentResolutionHistory(ctx, issue.id)).rejects.toMatchObject({ kind: "not_found" });
+		for (const lookup of [{ id: hiddenIssue.id }, { ref: `HIDDEN-${hiddenIssue.number}` }, { id: `HIDDEN-${hiddenIssue.number}` }]) {
+			await expect(getIssue(ctx, lookup)).rejects.toMatchObject({ kind: "not_found" });
+		}
+		await expect(getIssue(ctx, { id: issue.id })).rejects.toMatchObject({ kind: "not_found" });
+		const inconsistent = await seedIssue(fixture.workspaceId, hiddenProject.id, fixture.userId);
+		const ownerCtx = { ...ctx, workspaceId: fixture.workspaceId, userId: fixture.userId, role: "owner" as const };
+		for (const lookup of [{ id: inconsistent.id }, { ref: `HIDDEN-${inconsistent.number}` }]) {
+			await expect(getIssue(ownerCtx, lookup)).rejects.toMatchObject({ kind: "not_found" });
+		}
+	});
+
+	it.each(["group-membership", "project-grant"])("cached issue history obeys next-request %s revocation", async (kind) => {
+		const viewer = await seedProjectFixture({ role: "viewer" });
+		const ownedIssue = await seedIssue(viewer.workspaceId, viewer.projectId, viewer.userId);
+		await seedEvent(viewer, ownedIssue.id, 2);
+		const ctx = { db: env.DB, kv: env.KV, r2: env.R2, workspaceId: viewer.workspaceId, userId: viewer.userId, role: "viewer" as const };
+		for (const lookup of [{ id: ownedIssue.id }, { ref: `PROJ-${ownedIssue.number}` }]) {
+			expect(await getIssue(ctx, lookup)).toMatchObject({ id: ownedIssue.id });
+		}
+		if (kind === "group-membership") {
+			await env.DB.prepare("DELETE FROM user_group_members WHERE user_id = ?").bind(viewer.userId).run();
+		} else {
+			await env.DB.prepare("DELETE FROM group_project_grants WHERE project_id = ?").bind(viewer.projectId).run();
+		}
+		for (const lookup of [{ id: ownedIssue.id }, { ref: `PROJ-${ownedIssue.number}` }]) {
+			await expect(getIssue(ctx, lookup)).rejects.toMatchObject({ kind: "not_found" });
+		}
+	});
+
+	it("workspace removal blocks a warmed issue read before history is returned", async () => {
+		const viewer = await seedProjectFixture({ role: "viewer" });
+		const ownedIssue = await seedIssue(viewer.workspaceId, viewer.projectId, viewer.userId);
+		const url = `http://localhost/api/issues/${ownedIssue.id}`;
+		const headers = authHeaders(viewer.token, viewer.slug);
+		expect((await SELF.fetch(url, { headers })).status).toBe(200);
+		await env.DB.prepare("DELETE FROM workspace_members WHERE workspace_id = ? AND user_id = ?")
+			.bind(viewer.workspaceId, viewer.userId).run();
+		expect((await SELF.fetch(url, { headers })).status).toBe(403);
 	});
 
 	it("applies default-deny group visibility and responds immediately to revocation", async () => {

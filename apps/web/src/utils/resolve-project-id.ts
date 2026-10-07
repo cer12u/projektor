@@ -33,7 +33,7 @@ export function readUrlProjectId(): string | null {
 	// and allows same-project ClientRouter links to inherit the shared store.
 	return (
 		params.get("projectId") ??
-		(slug ?? null) ??
+		slug ??
 		params.get("project") ??
 		(acceptsLegacyProjectId() ? params.get("id") : null)
 	);

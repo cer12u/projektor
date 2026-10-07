@@ -228,7 +228,15 @@ describe("PROJ-837: project-scoped service operations reach the access guard", (
 			expect(callers).toEqual([caller]);
 			expect(guarded.has(caller)).toBe(true);
 		}
-		expect(guarded.has("issue-resolution:recentResolutionHistory")).toBe(true);
+		// History has no exported service entry point: it is private to the same
+		// guarded issue read, with no cached authorization carried across requests.
+		const history = fns.get("issues:loadIssueResolutionHistory");
+		expect(history?.exported).toBe(false);
+		const historyCallers = [...fns.entries()]
+			.filter(([, fn]) => fn.calls.includes("issues:loadIssueResolutionHistory"))
+			.map(([key]) => key);
+		expect(historyCallers).toEqual(["issues:getIssue"]);
+		expect(guarded.has("issues:getIssue")).toBe(true);
 	});
 
 	it("resolution mutation builders are imported only by the guarded issue service", () => {

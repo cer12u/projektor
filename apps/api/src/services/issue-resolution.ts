@@ -1,5 +1,3 @@
-import { assertProjectAccess } from "./access";
-import { NotFoundError } from "./errors";
 import type { ServiceCtx } from "./types";
 
 // Deliberately matches the existing status category OR legacy-key contract.
@@ -56,33 +54,6 @@ export function buildInitialResolutionStatement(
 		VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`).bind(
 		crypto.randomUUID(), ctx.workspaceId, issueId, occurredAt, state, ctx.userId ?? null, status, ctx.auth?.kind ?? ctx.authKind ?? null, ctx.auth?.method ?? null
 	);
-}
-
-export async function recentResolutionHistory(ctx: ServiceCtx, issueId: string) {
-	// This helper is exported, so enforce its own boundary even when called outside
-	// getIssue. The issue and its project must both belong to this workspace.
-	const issue = await ctx.db
-		.prepare("SELECT project_id FROM issues WHERE id = ? AND workspace_id = ?")
-		.bind(issueId, ctx.workspaceId)
-		.first<{ project_id: string }>();
-	if (!issue) throw new NotFoundError("Issue not found");
-	await assertProjectAccess(ctx, issue.project_id, "read", { notFoundMessage: "Issue not found" });
-	// No KV cache: events and permission changes must be visible immediately.
-	const { results } = await ctx.db.prepare(`SELECT id, sequence, issue_id, occurred_at, kind,
-		actor_id, auth_kind, auth_method, from_status, to_status FROM issue_resolution_events
-		WHERE workspace_id = ? AND issue_id = ? ORDER BY occurred_at DESC, sequence DESC LIMIT 21`)
-		.bind(ctx.workspaceId, issueId).all();
-	const lastCompleted = await ctx.db
-		.prepare(`SELECT occurred_at FROM issue_resolution_events
-			WHERE workspace_id = ? AND issue_id = ? AND kind = 'completed'
-			ORDER BY sequence DESC LIMIT 1`)
-		.bind(ctx.workspaceId, issueId)
-		.first<{ occurred_at: number }>();
-	return {
-		resolution_history: results.slice(0, 20),
-		resolution_history_has_more: results.length > 20,
-		last_completed_at: lastCompleted?.occurred_at ?? null,
-	};
 }
 
 // Taxonomy edits reclassify every issue using that custom status. Keep the bulk
