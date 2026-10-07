@@ -8,21 +8,31 @@ import { seedIssueFixture, seedTaskStatus } from "./helpers";
 async function fixture() {
 	const f = await seedIssueFixture({ role: "owner" });
 	const ctx: ServiceCtx = {
-		db: env.DB, kv: env.KV, r2: env.R2,
-		workspaceId: f.workspaceId, userId: f.userId, role: "owner",
+		db: env.DB,
+		kv: env.KV,
+		r2: env.R2,
+		workspaceId: f.workspaceId,
+		userId: f.userId,
+		role: "owner",
 		auth: { kind: "agent", method: "pk" },
 	};
 	return { ...f, ctx };
 }
 
 async function events(ctx: ServiceCtx, id: string) {
-	return (await env.DB.prepare("SELECT * FROM issue_resolution_events WHERE workspace_id = ? AND issue_id = ? ORDER BY sequence")
-		.bind(ctx.workspaceId, id).all()).results;
+	return (
+		await env.DB.prepare(
+			"SELECT * FROM issue_resolution_events WHERE workspace_id = ? AND issue_id = ? ORDER BY sequence"
+		)
+			.bind(ctx.workspaceId, id)
+			.all()
+	).results;
 }
 
 async function times(id: string) {
 	return env.DB.prepare("SELECT completed_at, done_at FROM issues WHERE id = ?")
-		.bind(id).first<{ completed_at: number | null; done_at: number | null }>();
+		.bind(id)
+		.first<{ completed_at: number | null; done_at: number | null }>();
 }
 
 describe("durable issue resolution", () => {
@@ -44,7 +54,9 @@ describe("durable issue resolution", () => {
 
 	it("does not fabricate legacy unknown completion time or history on a repeat", async () => {
 		const { ctx, issueId } = await fixture();
-		await env.DB.prepare("UPDATE issues SET status = 'done', status_category = 'done' WHERE id = ?").bind(issueId).run();
+		await env.DB.prepare("UPDATE issues SET status = 'done', status_category = 'done' WHERE id = ?")
+			.bind(issueId)
+			.run();
 		await updateIssue(ctx, issueId, { status: "done" });
 		expect(await times(issueId)).toEqual({ completed_at: null, done_at: null });
 		expect(await events(ctx, issueId)).toHaveLength(0);
@@ -57,7 +69,11 @@ describe("durable issue resolution", () => {
 		await updateIssue(ctx, issueId, { status: "cancelled" });
 		expect((await times(issueId))?.completed_at).toBeNull();
 		await updateIssue(ctx, issueId, { status: "todo" });
-		expect((await events(ctx, issueId)).map((e) => e.kind)).toEqual(["completed", "cancelled", "reopened"]);
+		expect((await events(ctx, issueId)).map((e) => e.kind)).toEqual([
+			"completed",
+			"cancelled",
+			"reopened",
+		]);
 	});
 
 	it("records terminal creation and rejects client-invented completion fields", async () => {
@@ -106,5 +122,4 @@ describe("durable issue resolution", () => {
 		expect(issue.resolution_history_has_more).toBe(true);
 		expect(issue.resolution_history).toHaveLength(20);
 	});
-
 });

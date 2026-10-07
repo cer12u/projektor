@@ -45,9 +45,21 @@ jobs:
       - id: lint
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: pnpm lint --reporter=github --max-diagnostics=50
-      - name: Bounded public source formatting preview
+      - name: Bounded public source formatting preview 1
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' && steps.lint.outcome == 'failure' }}
-        run: node scripts/ci/lint-with-format-diagnostics.mjs --preview-only
+        env:
+          FORMAT_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/ci/lint-with-format-diagnostics.mjs --preview-only --notice-window=0
+      - name: Bounded public source formatting preview 2
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' && steps.lint.outcome == 'failure' }}
+        env:
+          FORMAT_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/ci/lint-with-format-diagnostics.mjs --preview-only --notice-window=1
+      - name: Bounded public source formatting preview 3
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' && steps.lint.outcome == 'failure' }}
+        env:
+          FORMAT_SOURCE_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: node scripts/ci/lint-with-format-diagnostics.mjs --preview-only --notice-window=2
       - if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: node scripts/ci/source-diagnostics.mjs pnpm turbo type-check --log-prefix=none
       - if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}

@@ -15,6 +15,7 @@ import {
 	SidebarPanel,
 	TitleSection,
 } from "./IssueDetailParts";
+import { IssueResolutionHistory } from "./IssueResolutionHistory";
 import type {
 	Attachment,
 	Comment,
@@ -24,7 +25,6 @@ import type {
 	TaskStatus,
 	TaskType,
 } from "./issue-detail-helpers";
-import { IssueResolutionHistory } from "./IssueResolutionHistory";
 
 interface Props {
 	issueId?: string;

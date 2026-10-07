@@ -6,6 +6,7 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { gzipSync } from "node:zlib";
 
 const MAX_PATCH_BYTES = 192 * 1024;
 function git(root, args) {
@@ -70,25 +71,29 @@ function escapeAnnotation(value) {
 	return String(value).replaceAll("%", "%25").replaceAll("\r", "%0D").replaceAll("\n", "%0A");
 }
 
-export function publishPreview(preview, emit = console.log) {
+export function publishPreview(preview, emit = console.log, metadata, window = 0) {
 	if (!preview) {
 		emit("::notice title=Formatting preview::No eligible tracked source targets");
 		return;
 	}
-	const checksum = createHash("sha256").update(preview.patch).digest("hex");
-	const chunks = [];
-	let chunk = "";
-	let size = 0;
-	for (const character of preview.patch) {
-		const bytes = Buffer.byteLength(character);
-		if (size + bytes > 45000) { chunks.push(chunk); chunk = ""; size = 0; }
-		chunk += character;
-		size += bytes;
+	if (!/^[a-f0-9]{40}$/.test(metadata?.head ?? "") || !/^\d+\.\d+\.\d+$/.test(metadata?.biome ?? "")) {
+		throw new Error("Invalid source provenance");
 	}
-	if (chunk || chunks.length === 0) chunks.push(chunk);
-	chunks.forEach((part, index) => {
-		const header = `SOURCE_FORMAT_PATCH v1 part=${index + 1}/${chunks.length} sha256=${checksum} bytes=${Buffer.byteLength(preview.patch)} truncated=${preview.truncated}`;
-		emit(`::notice title=Source formatting patch ${index + 1} of ${chunks.length}::${escapeAnnotation(`${header}\n${part}`)}`);
+	if (!Number.isInteger(window) || window < 0 || window > 2) throw new Error("Invalid notice window");
+	const raw = Buffer.from(preview.patch);
+	const checksum = createHash("sha256").update(raw).digest("hex");
+	const compressed = gzipSync(raw);
+	const encoded = compressed.toString("base64");
+	const chunks = encoded.match(/.{1,1500}/g) ?? [""];
+	// Three separate steps expose at most eight sub-2KiB notices each. This is
+	// below GitHub's per-step annotation limits and the observed public UI cap.
+	if (chunks.length > 24) throw new Error("Compressed formatting preview exceeds notice budget");
+	chunks.slice(window * 8, window * 8 + 8).forEach((part, offset) => {
+		const index = window * 8 + offset;
+		const header = `SOURCE_FORMAT_PATCH_GZIP v2 part=${index + 1}/${chunks.length} head=${metadata.head} biome=${metadata.biome} raw_bytes=${raw.length} source_bytes=${preview.bytes} gzip_bytes=${compressed.length} sha256=${checksum} truncated=${preview.truncated}`;
+		const body = `${header}\n${part}`;
+		if (Buffer.byteLength(body) > 2000) throw new Error("Annotation body limit exceeded");
+		emit(`::notice title=Source formatting patch ${index + 1} of ${chunks.length}::${escapeAnnotation(body)}`);
 	});
 }
 
@@ -115,7 +120,9 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
 			const formatted = spawnSync(binary, ["check", "--write", "--linter-enabled=false", ...paths], { cwd, stdio: "ignore" });
 			if (formatted.error) throw formatted.error;
 		});
-		publishPreview(result);
+		const head = process.env.FORMAT_SOURCE_HEAD ?? git(root, ["rev-parse", "HEAD"]).trim();
+		const option = process.argv.find((value) => value.startsWith("--notice-window="));
+		publishPreview(result, console.log, { head, biome: actual }, option ? Number(option.split("=")[1]) : 0);
 	};
 	if (process.argv.includes("--preview-only")) {
 		try { preview(); } catch (error) {

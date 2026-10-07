@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import { createHash, randomBytes } from "node:crypto";
+import { gunzipSync } from "node:zlib";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -49,16 +51,27 @@ test("truncation is explicit and successful lint does not run a preview", () => 
 });
 
 
-test("public patch notices are bounded, escaped and losslessly reconstructable", () => {
-	const patch = "line%value\n".repeat(9000) + "end";
+test("compressed public source notices survive the UI cap and verify byte/hash provenance", () => {
+	const patch = randomBytes(18000).toString("base64") + "\nsource-only%value\n".repeat(1000);
 	const notices = [];
-	publishPreview({ patch, bytes: Buffer.byteLength(patch), truncated: false }, (line) => notices.push(line));
-	assert.ok(notices.length > 1 && notices.length <= 5);
-	const recovered = notices.map((line) => {
+	for (let window = 0; window < 3; window++) {
+		publishPreview({ patch, bytes: Buffer.byteLength(patch), truncated: false }, (line) => notices.push(line), { head: "a".repeat(40), biome: "2.5.8" }, window);
+	}
+	const payloads = notices.map((line) => {
 		const body = line.slice(line.indexOf("::", 2) + 2).replaceAll("%0D", "\r").replaceAll("%0A", "\n").replaceAll("%25", "%");
-		assert.ok(Buffer.byteLength(body) < 46000);
-		assert.match(body, /truncated=false/);
-		return body.slice(body.indexOf("\n") + 1);
-	}).join("");
-	assert.equal(recovered, patch);
+		assert.ok(Buffer.byteLength(body) <= 2000);
+		assert.equal(body.slice(0, 4096), body);
+		const header = body.slice(0, body.indexOf("\n"));
+		assert.match(header, /truncated=false/);
+		assert.match(header, /biome=2\.5\.8/);
+		return { header, data: body.slice(body.indexOf("\n") + 1) };
+	});
+	const count = Number(payloads[0].header.match(/part=1\/(\d+)/)[1]);
+	assert.equal(payloads.length, count);
+	const compressed = Buffer.from(payloads.map((p) => p.data).join(""), "base64");
+	assert.equal(compressed.length, Number(payloads[0].header.match(/gzip_bytes=(\d+)/)[1]));
+	const recovered = gunzipSync(compressed);
+	assert.equal(recovered.length, Number(payloads[0].header.match(/raw_bytes=(\d+)/)[1]));
+	assert.equal(createHash("sha256").update(recovered).digest("hex"), payloads[0].header.match(/sha256=([a-f0-9]+)/)[1]);
+	assert.equal(recovered.toString(), patch);
 });
