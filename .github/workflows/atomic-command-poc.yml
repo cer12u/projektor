@@ -1,0 +1,37 @@
+name: Atomic command PoC
+
+on:
+  pull_request:
+    paths:
+      - 'experiments/atomic-command-poc/**'
+      - '.github/workflows/atomic-command-poc.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: atomic-command-poc-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  sqlite-contract:
+    name: SQLite atomic command contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+      - name: Verify runtime and source
+        run: |
+          node --version
+          git rev-parse HEAD
+      - name: Test real SQLite with independent worker connections
+        working-directory: experiments/atomic-command-poc
+        run: node --test test/*.test.mjs
+      - name: Verify tests leave tracked files unchanged
+        run: git diff --exit-code

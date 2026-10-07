@@ -1,0 +1,16 @@
+import { spawnSync } from 'node:child_process';
+import { readFileSync,writeFileSync,readdirSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
+const root=fileURLToPath(new URL('..',import.meta.url));
+const run=spawnSync(process.execPath,['--test','--test-reporter=tap','test/command.test.mjs'],{cwd:root,encoding:'utf8'});
+writeFileSync(root+'/evidence/final-test.tap',run.stdout+run.stderr);
+const field=name=>Number(run.stdout.match(new RegExp('^# '+name+' (\\d+)','m'))?.[1]??0);
+const db=new DatabaseSync(':memory:');const sqlite=db.prepare('SELECT sqlite_version() version').get().version;db.close();
+const result={generatedAt:new Date().toISOString(),node:process.version,sqlite,command:'node scripts/verify.mjs',exitCode:run.status,tests:field('tests'),pass:field('pass'),fail:field('fail'),cancelled:field('cancelled'),skipped:field('skipped'),concurrency:{requests:100,workerThreads:100,connections:100,barrier:'all connections ready before start message',sqliteTransaction:'BEGIN IMMEDIATE; busy_timeout=15000',notProven:['Cloudflare DO scheduling','cross-host distributed races','production load/SLO']},storage:{actualSQLite:true,journalMode:'WAL',synchronous:'FULL (2)',integrityCheck:'ok in test',verified:'fresh connection reads committed data; all eight in-transaction mutation fault points roll back; synthetic COMMIT/ROLLBACK wrappers distinguish original operation unknown from attemptOutcome',notProven:['power failure','OS/hardware durability','Cloudflare output gates','DO storage.sync','disk full']},notRun:['DO/workerd','actual authentication provider','browser','migration/restore','capacity/cost','production','GitHub CI']};
+writeFileSync(root+'/TEST-RESULTS.json',JSON.stringify(result,null,2)+'\n');
+const walk=dir=>readdirSync(root+'/'+dir,{withFileTypes:true}).flatMap(e=>e.isDirectory()?walk((dir?dir+'/':'')+e.name):[(dir?dir+'/':'')+e.name]);
+const files=walk('').filter(p=>p!=='SHA256SUMS'&&!p.includes('db-')).sort();
+writeFileSync(root+'/SHA256SUMS',files.map(p=>createHash('sha256').update(readFileSync(root+'/'+p)).digest('hex')+'  '+p).join('\n')+'\n');
+console.log(JSON.stringify(result,null,2));if(run.status!==0)console.error(run.stdout+run.stderr);process.exitCode=run.status??1;
