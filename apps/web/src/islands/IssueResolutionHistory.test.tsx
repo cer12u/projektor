@@ -1,9 +1,9 @@
 import { render, screen, within } from "@testing-library/preact";
 import { describe, expect, it } from "vitest";
 import type { IssueResolutionEvent } from "../utils/issue-resolution";
-import type { IssueData } from "./issue-detail-helpers";
 import { SidebarPanel } from "./IssueDetailParts";
 import { IssueResolutionHistory, IssueTimestamp } from "./IssueResolutionHistory";
+import type { IssueData } from "./issue-detail-helpers";
 
 const BEFORE_MIDNIGHT = Date.parse("2026-10-06T14:59:00Z") / 1000;
 const AFTER_MIDNIGHT = Date.parse("2026-10-06T15:05:00Z") / 1000;
@@ -255,7 +255,11 @@ describe("IssueResolutionHistory", () => {
 			from_status: "done",
 			to_status: "todo",
 		};
-		const completedAgain = { ...COMPLETED, id: "completed-again", occurred_at: AFTER_MIDNIGHT + 60 };
+		const completedAgain = {
+			...COMPLETED,
+			id: "completed-again",
+			occurred_at: AFTER_MIDNIGHT + 60,
+		};
 		rerender(
 			<IssueResolutionHistory
 				issue={{

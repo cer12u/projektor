@@ -3,8 +3,8 @@ import { useEffect } from "preact/hooks";
 import {
 	fetchProjects,
 	matchProjectId,
-	persistProjectId,
 	type ProjectIdCandidate,
+	persistProjectId,
 	readUrlProjectId,
 } from "../utils/resolve-project-id";
 

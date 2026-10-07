@@ -9,8 +9,8 @@ import {
 } from "../lib/project-context";
 import { statusDisplayName } from "../lib/status";
 import { apiFetch } from "../utils/api-client";
-import { readUrlProjectId } from "../utils/resolve-project-id";
 import { usePublicViewer } from "../utils/public-viewer";
+import { readUrlProjectId } from "../utils/resolve-project-id";
 import ProjectFlowCharts from "./ProjectFlowCharts";
 import { Button } from "./ui/Button";
 

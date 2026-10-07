@@ -73,7 +73,11 @@ export default function IssueList({ workspaceSlug }: Props) {
 
 	if (gate.pending) return <AccessPending />;
 	if (filters.projectScopeError) {
-		return <p role="alert" class="text-danger-text">{filters.projectScopeError}</p>;
+		return (
+			<p role="alert" class="text-danger-text">
+				{filters.projectScopeError}
+			</p>
+		);
 	}
 	if (data.error) {
 		return (

@@ -282,10 +282,15 @@ export const issueResolutionEvents = sqliteTable(
 	},
 	(t) => ({
 		workspaceTimeIdx: index("idx_issue_resolution_workspace_time").on(
-			t.workspaceId, t.occurredAt, t.sequence
+			t.workspaceId,
+			t.occurredAt,
+			t.sequence
 		),
 		issueTimeIdx: index("idx_issue_resolution_issue_time").on(
-			t.workspaceId, t.issueId, t.occurredAt, t.sequence
+			t.workspaceId,
+			t.issueId,
+			t.occurredAt,
+			t.sequence
 		),
 	})
 );

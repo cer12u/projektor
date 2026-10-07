@@ -102,7 +102,6 @@ describe("resolveProjectId", () => {
 	});
 });
 
-
 describe("project identity URL boundaries", () => {
 	it("recognizes legacy project keys, pretty slugs, and explicit All", () => {
 		history.replaceState(null, "", "/issues?project=OTHER");
@@ -140,7 +139,6 @@ describe("project identity URL boundaries", () => {
 		expect(new URLSearchParams(window.location.search).get("project")).toBe("");
 	});
 });
-
 
 it("does not throw when a pretty project slug contains malformed escapes", () => {
 	history.replaceState(null, "", "/projects/view/%ZZ");

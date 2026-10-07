@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
 	formatIssueTimestamp,
-	isIssueCompleted,
 	type IssueResolutionEvent,
+	isIssueCompleted,
 	issueTimestampDate,
 	latestCompletionTime,
 	newestResolutionEvents,
@@ -26,8 +26,12 @@ function event(
 
 describe("issue resolution timestamps", () => {
 	it("recognizes legacy done without joined status metadata", () => {
-		expect(isIssueCompleted({ status: "done", status_key: null, status_category: null })).toBe(true);
-		expect(isIssueCompleted({ status: "todo", status_key: null, status_category: null })).toBe(false);
+		expect(isIssueCompleted({ status: "done", status_key: null, status_category: null })).toBe(
+			true
+		);
+		expect(isIssueCompleted({ status: "todo", status_key: null, status_category: null })).toBe(
+			false
+		);
 	});
 
 	it("uses Tokyo's calendar day and 24-hour time across midnight", () => {

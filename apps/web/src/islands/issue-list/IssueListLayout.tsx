@@ -136,15 +136,15 @@ function IssueListMain({
 		<>
 			{!search.isSearchActive && (data.loading || data.nextCursor !== null) && (
 				<p role="status" class="text-sm text-text-muted mb-3">
-					{view === "list"
-						? "Sorting applies to the rows loaded so far while results are loading or more pages remain."
-						: (
-							<>
-								{data.loading || data.loadingMore ? "Loading more issues. " : ""}
-								Counts and sorting cover only {data.issues.length} loaded issues; this view is
-								not complete yet.
-							</>
-						)}
+					{view === "list" ? (
+						"Sorting applies to the rows loaded so far while results are loading or more pages remain."
+					) : (
+						<>
+							{data.loading || data.loadingMore ? "Loading more issues. " : ""}
+							Counts and sorting cover only {data.issues.length} loaded issues; this view is not
+							complete yet.
+						</>
+					)}
 				</p>
 			)}
 			<MainContent

@@ -122,7 +122,8 @@ export function useIssueFetching(
 			loading ||
 			!lookupsReady ||
 			loadedKey !== requestKey
-		) return;
+		)
+			return;
 		const seq = fetchSeq.current;
 		setLoadingMore(true);
 		setError(null);
