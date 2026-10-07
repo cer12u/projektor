@@ -11,12 +11,26 @@ import { inspectProjectKeys } from './project-key-preflight.mjs';
 
 const migrations = new URL('../packages/db/migrations/', import.meta.url);
 const uniqueSql = readFileSync(new URL('0072_project_key_unique.sql', migrations), 'utf8');
+let reportedFixtureFailure = false;
 function database({ baseline = false, file = ':memory:' } = {}) {
   const db = new DatabaseSync(file);
   db.exec('PRAGMA foreign_keys = ON');
   for (const name of readdirSync(migrations).filter(n => n.endsWith('.sql')).sort()) {
     if (baseline && name === '0072_project_key_unique.sql') continue;
-    db.exec(readFileSync(new URL(name, migrations), 'utf8'));
+    try {
+      db.exec(readFileSync(new URL(name, migrations), 'utf8'));
+    } catch (error) {
+      // Public diagnostic is bounded to a known fixture error and runtime versions.
+      // Never dump runner environment, credentials, production data, or arbitrary logs.
+      if (process.env.GITHUB_ACTIONS === 'true' && !reportedFixtureFailure) {
+        reportedFixtureFailure = true;
+        const version = db.prepare('SELECT sqlite_version() AS version').get().version;
+        const reason = error.message === 'no such module: fts5' ? error.message : 'Unclassified migration fixture failure';
+        console.error(`::error file=scripts/project-key-integrity.test.mjs,title=Project SQL fixture::${name}: ${reason}. Node ${process.versions.node}, SQLite ${version}. Original failure is preserved.`);
+      }
+      db.close();
+      throw error;
+    }
   }
   db.exec(`INSERT INTO workspaces (id,name,slug,created_at) VALUES ('w1','One','one',1),('w2','Two','two',1);
            INSERT INTO users (id,email,name,created_at) VALUES ('u','fixture@example.invalid','Fixture',1);`);

@@ -680,10 +680,12 @@ describe("Project write atomicity", () => {
 		expect((await update(second.headers, a.id, { key: "HIDDEN" })).status).toBe(404);
 		expect(await auditCount(second.roles.workspace.id, "updated")).toBe(0);
 		expect(
-			(await SELF.fetch(`http://localhost/api/projects/${a.id}`, {
-				method: "DELETE",
-				headers: first.headers,
-			})).status
+			(
+				await SELF.fetch(`http://localhost/api/projects/${a.id}`, {
+					method: "DELETE",
+					headers: first.headers,
+				})
+			).status
 		).toBe(200);
 		expect((await create(first.headers, "kept")).status).toBe(201);
 	});
@@ -699,7 +701,9 @@ describe("Project write atomicity", () => {
 		).run();
 		try {
 			expect((await create(headers, "FAILED")).status).toBe(500);
-			expect((await update(headers, project.id, { key: "AFTER", name: "Changed" })).status).toBe(500);
+			expect((await update(headers, project.id, { key: "AFTER", name: "Changed" })).status).toBe(
+				500
+			);
 			const row = await env.DB.prepare("SELECT key, name FROM projects WHERE id = ?")
 				.bind(project.id)
 				.first();
@@ -729,10 +733,15 @@ describe("Project write atomicity", () => {
 		const { roles, headers } = await fixture();
 		await create(headers, "TAKEN");
 		const other = (await (await create(headers, "OTHER")).json()) as { id: string };
-		const result = await mcpCall(roles.workspace.id, "update_project", {
-			id: other.id,
-			key: "taken",
-		}, headers);
+		const result = await mcpCall(
+			roles.workspace.id,
+			"update_project",
+			{
+				id: other.id,
+				key: "taken",
+			},
+			headers
+		);
 		expect(toolError(result)?.code).toBe("conflict");
 		expect(toolError(result)?.message).toBe("Project key TAKEN already exists");
 	});

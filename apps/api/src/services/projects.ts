@@ -275,7 +275,9 @@ function rethrowProjectWriteError(error: unknown, key: string | undefined): neve
 		) {
 			throw new ConflictError(`Project key ${key} already exists`);
 		}
-		if (/UNIQUE constraint failed: projects\.workspace_id, projects\.slug(?=$|:)/.test(cause.message)) {
+		if (
+			/UNIQUE constraint failed: projects\.workspace_id, projects\.slug(?=$|:)/.test(cause.message)
+		) {
 			throw new ConflictError("Project URL slug was taken by another creation. Retry the request.");
 		}
 		cause = cause.cause;
