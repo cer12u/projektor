@@ -27,6 +27,9 @@ jobs:
         run: pnpm install --frozen-lockfile
       # Run every check after a successful install, even if an earlier check fails.
       # Failed steps still fail the job; no continue-on-error or suppressed failures.
+      - name: Docs publishing safety tests
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: node --test apps/docs/scripts/submit-indexnow.test.mjs
       - name: Generated docs are fresh
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: |
