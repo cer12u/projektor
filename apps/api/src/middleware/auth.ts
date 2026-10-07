@@ -175,7 +175,10 @@ async function tryCfAccessAuth(c: Context<HonoEnv>): Promise<AuthOutcome> {
 	// Service-token assertions were handled above; interactive browsing without a
 	// bearer remains unchanged. An invalid bearer cannot fall back to this session.
 	if (c.req.header("Authorization")?.startsWith("Bearer ")) {
-		return { kind: "deny", response: c.json({ error: "Do not combine a human session with a bearer token" }, 403) };
+		return {
+			kind: "deny",
+			response: c.json({ error: "Do not combine a human session with a bearer token" }, 403),
+		};
 	}
 
 	await ensureUserProvisioned(c.env, user);
@@ -250,7 +253,10 @@ async function authenticateApiToken(c: Context<HonoEnv>, token: string): Promise
 	const scopes = parseScopes(row.scopes);
 	const machine = isMachineToken(row);
 	if (machine && !machineTokenIsUsable(row, scopes, Date.now() / 1000)) {
-		return { kind: "deny", response: c.json({ error: "Machine token is no longer authorized" }, 403) };
+		return {
+			kind: "deny",
+			response: c.json({ error: "Machine token is no longer authorized" }, 403),
+		};
 	}
 	const scopeError = checkTokenScope(c, scopes);
 	if (scopeError) return { kind: "deny", response: scopeError };

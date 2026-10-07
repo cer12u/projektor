@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { formattingPreview, lintWithPreview } from "./lint-with-format-diagnostics.mjs";
+import { formattingPreview, lintWithPreview, publishPreview } from "./lint-with-format-diagnostics.mjs";
 
 function fixture() {
 	const directory = mkdtempSync(join(tmpdir(), "format-preview-test-"));
@@ -46,4 +46,19 @@ test("truncation is explicit and successful lint does not run a preview", () => 
 		assert.match(readFileSync(f.summary, "utf8"), /TRUNCATED at 25 bytes/);
 		assert.equal(lintWithPreview(() => 0, () => { throw new Error("must not run"); }), 0);
 	} finally { f.clean(); }
+});
+
+
+test("public patch notices are bounded, escaped and losslessly reconstructable", () => {
+	const patch = "line%value\n".repeat(9000) + "end";
+	const notices = [];
+	publishPreview({ patch, bytes: Buffer.byteLength(patch), truncated: false }, (line) => notices.push(line));
+	assert.ok(notices.length > 1 && notices.length <= 5);
+	const recovered = notices.map((line) => {
+		const body = line.slice(line.indexOf("::", 2) + 2).replaceAll("%0D", "\r").replaceAll("%0A", "\n").replaceAll("%25", "%");
+		assert.ok(Buffer.byteLength(body) < 46000);
+		assert.match(body, /truncated=false/);
+		return body.slice(body.indexOf("\n") + 1);
+	}).join("");
+	assert.equal(recovered, patch);
 });

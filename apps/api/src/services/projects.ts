@@ -123,8 +123,15 @@ export async function listProjectsAcrossWorkspaces(
                w.id, w.name, w.slug
       ORDER BY w.slug, p.name`
 		)
-		.bind(userId, machinePrincipal ? 1 : 0, userId, tokenWorkspaceId ?? null, tokenWorkspaceId ?? null,
-			machinePrincipal ? 1 : 0, tokenWorkspaceId ?? null)
+		.bind(
+			userId,
+			machinePrincipal ? 1 : 0,
+			userId,
+			tokenWorkspaceId ?? null,
+			tokenWorkspaceId ?? null,
+			machinePrincipal ? 1 : 0,
+			tokenWorkspaceId ?? null
+		)
 		.all<ProjectSummary>();
 	return rows.results;
 }

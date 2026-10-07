@@ -49,11 +49,23 @@ export function buildInitialResolutionStatement(
 ): D1PreparedStatement | null {
 	const state = resolutionState(category, status);
 	if (state === "open") return null;
-	return ctx.db.prepare(`INSERT INTO issue_resolution_events
+	return ctx.db
+		.prepare(
+			`INSERT INTO issue_resolution_events
 		(id, workspace_id, issue_id, occurred_at, kind, actor_id, from_status, to_status, auth_kind, auth_method)
-		VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`).bind(
-		crypto.randomUUID(), ctx.workspaceId, issueId, occurredAt, state, ctx.userId ?? null, status, ctx.auth?.kind ?? ctx.authKind ?? null, ctx.auth?.method ?? null
-	);
+		VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`
+		)
+		.bind(
+			crypto.randomUUID(),
+			ctx.workspaceId,
+			issueId,
+			occurredAt,
+			state,
+			ctx.userId ?? null,
+			status,
+			ctx.auth?.kind ?? ctx.authKind ?? null,
+			ctx.auth?.method ?? null
+		);
 }
 
 // Taxonomy edits reclassify every issue using that custom status. Keep the bulk
@@ -69,21 +81,33 @@ export function buildCategoryResolutionStatements(
 	const newState = `(CASE WHEN ?1 = 'done' OR status = 'done' THEN 'completed'
 		WHEN ?1 = 'cancelled' OR status = 'cancelled' THEN 'cancelled' ELSE 'open' END)`;
 	return [
-		ctx.db.prepare(`INSERT INTO issue_resolution_events
+		ctx.db
+			.prepare(
+				`INSERT INTO issue_resolution_events
 			(id, workspace_id, issue_id, occurred_at, kind, actor_id, auth_kind, auth_method, from_status, to_status)
 			SELECT lower(hex(randomblob(16))), workspace_id, id, unixepoch(),
 			CASE WHEN ${newState} = 'open' THEN 'reopened' ELSE ${newState} END,
 			?2, ?3, ?4, status, status FROM issues
-			WHERE status_id = ?5 AND workspace_id = ?6 AND ${oldState} <> ${newState}`)
-			.bind(category, ctx.userId ?? null, ctx.auth?.kind ?? ctx.authKind ?? null,
-				ctx.auth?.method ?? null, statusId, ctx.workspaceId),
-		ctx.db.prepare(`UPDATE issues SET
+			WHERE status_id = ?5 AND workspace_id = ?6 AND ${oldState} <> ${newState}`
+			)
+			.bind(
+				category,
+				ctx.userId ?? null,
+				ctx.auth?.kind ?? ctx.authKind ?? null,
+				ctx.auth?.method ?? null,
+				statusId,
+				ctx.workspaceId
+			),
+		ctx.db
+			.prepare(
+				`UPDATE issues SET
 			completed_at = CASE WHEN ${newState} = 'completed'
 				THEN CASE WHEN ${oldState} = 'completed' THEN completed_at ELSE (SELECT occurred_at FROM issue_resolution_events e WHERE e.issue_id = issues.id AND e.workspace_id = issues.workspace_id ORDER BY sequence DESC LIMIT 1) END ELSE NULL END,
 			done_at = CASE WHEN ${newState} = 'completed' AND ${oldState} <> 'completed'
 				THEN COALESCE(done_at, (SELECT occurred_at FROM issue_resolution_events e WHERE e.issue_id = issues.id AND e.workspace_id = issues.workspace_id ORDER BY sequence DESC LIMIT 1)) ELSE done_at END,
 			updated_at = CASE WHEN status_category <> ?1 THEN ?2 ELSE updated_at END,
-			status_category = ?1 WHERE status_id = ?3 AND workspace_id = ?4`)
+			status_category = ?1 WHERE status_id = ?3 AND workspace_id = ?4`
+			)
 			.bind(category, occurredAt, statusId, ctx.workspaceId),
 	];
 }

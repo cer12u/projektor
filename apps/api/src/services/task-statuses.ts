@@ -5,8 +5,8 @@ import { IdSchema } from "../schemas/common";
 import { CreateTaskStatusSchema, UpdateTaskStatusSchema } from "../schemas/task-statuses";
 import * as cache from "./cache";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "./errors";
-import type { ServiceCtx } from "./types";
 import { buildCategoryResolutionStatements } from "./issue-resolution";
+import type { ServiceCtx } from "./types";
 
 const WS_META_TTL = 60;
 const WS_META_LOCAL_TTL_MS = 5000;
@@ -143,7 +143,12 @@ export async function updateTaskStatus(ctx: ServiceCtx, id: string, raw: unknown
 		const query = statusUpdate.toSQL();
 		await ctx.db.batch([
 			ctx.db.prepare(query.sql).bind(...query.params),
-			...buildCategoryResolutionStatements(ctx, id, setObj.category as string, Math.floor(Date.now() / 1000)),
+			...buildCategoryResolutionStatements(
+				ctx,
+				id,
+				setObj.category as string,
+				Math.floor(Date.now() / 1000)
+			),
 		]);
 	} else {
 		await statusUpdate;

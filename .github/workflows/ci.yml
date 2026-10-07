@@ -42,8 +42,12 @@ jobs:
           # right check here, not `git diff` (which misses untracked additions).
           [ -z "$(git status --porcelain -- apps/docs/src/content/docs/agents/playbooks/)" ] \
             || { echo "::error::Generated playbook docs are stale. Run 'pnpm gen:docs' and commit the result."; exit 1; }
-      - if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
-        run: node scripts/ci/lint-with-format-diagnostics.mjs
+      - id: lint
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        run: pnpm lint --reporter=github --max-diagnostics=50
+      - name: Bounded public source formatting preview
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' && steps.lint.outcome == 'failure' }}
+        run: node scripts/ci/lint-with-format-diagnostics.mjs --preview-only
       - if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: node scripts/ci/source-diagnostics.mjs pnpm turbo type-check --log-prefix=none
       - if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}

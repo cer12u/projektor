@@ -35,7 +35,12 @@ export const workspacesTools: MCPTool[] = [
 		inputSchema: { type: "object", properties: {} },
 		annotations: READ,
 		async handler(_input, ctx) {
-			return listWorkspaces(ctx.db, ctx.userId, ctx.tokenWorkspaceId, ctx.auth?.principalKind === "machine");
+			return listWorkspaces(
+				ctx.db,
+				ctx.userId,
+				ctx.tokenWorkspaceId,
+				ctx.auth?.principalKind === "machine"
+			);
 		},
 	},
 	{

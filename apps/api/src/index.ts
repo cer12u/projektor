@@ -229,7 +229,14 @@ app.route("/auth", authRouter);
 // Workspace list + create — auth only, no workspace context
 app.get("/api/workspaces", authMiddleware, async (c) => {
 	const user = c.get("user") as { id: string };
-	return c.json(await listWorkspaces(c.env.DB, user.id, c.get("tokenWorkspaceId"), c.get("auth")?.principalKind === "machine"));
+	return c.json(
+		await listWorkspaces(
+			c.env.DB,
+			user.id,
+			c.get("tokenWorkspaceId"),
+			c.get("auth")?.principalKind === "machine"
+		)
+	);
 });
 
 app.post("/api/workspaces", authMiddleware, async (c) => {

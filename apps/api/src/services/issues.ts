@@ -512,11 +512,13 @@ async function fetchIssueById(orm: ReturnType<typeof drizzle>, ctx: ServiceCtx, 
 			.leftJoin(schema.projects, eq(schema.issues.projectId, schema.projects.id))
 			.leftJoin(schema.taskTypes, eq(schema.issues.typeId, schema.taskTypes.id))
 			.leftJoin(schema.taskStatuses, eq(schema.issues.statusId, schema.taskStatuses.id))
-			.where(and(
-				eq(schema.issues.id, id),
-				eq(schema.issues.workspaceId, ctx.workspaceId),
-				eq(schema.projects.workspaceId, ctx.workspaceId)
-			))
+			.where(
+				and(
+					eq(schema.issues.id, id),
+					eq(schema.issues.workspaceId, ctx.workspaceId),
+					eq(schema.projects.workspaceId, ctx.workspaceId)
+				)
+			)
 			.get()) ?? null
 	);
 }
@@ -639,14 +641,20 @@ async function loadIssueExtras(
 // queries on a cache hit without caching or carrying grants across requests.
 async function loadIssueResolutionHistory(ctx: ServiceCtx, issueId: string) {
 	// No KV cache: events and permission changes must be visible immediately.
-	const { results } = await ctx.db.prepare(`SELECT id, sequence, issue_id, occurred_at, kind,
+	const { results } = await ctx.db
+		.prepare(
+			`SELECT id, sequence, issue_id, occurred_at, kind,
 		actor_id, auth_kind, auth_method, from_status, to_status FROM issue_resolution_events
-		WHERE workspace_id = ? AND issue_id = ? ORDER BY occurred_at DESC, sequence DESC LIMIT 21`)
-		.bind(ctx.workspaceId, issueId).all();
+		WHERE workspace_id = ? AND issue_id = ? ORDER BY occurred_at DESC, sequence DESC LIMIT 21`
+		)
+		.bind(ctx.workspaceId, issueId)
+		.all();
 	const lastCompleted = await ctx.db
-		.prepare(`SELECT occurred_at FROM issue_resolution_events
+		.prepare(
+			`SELECT occurred_at FROM issue_resolution_events
 			WHERE workspace_id = ? AND issue_id = ? AND kind = 'completed'
-			ORDER BY sequence DESC LIMIT 1`)
+			ORDER BY sequence DESC LIMIT 1`
+		)
 		.bind(ctx.workspaceId, issueId)
 		.first<{ occurred_at: number }>();
 	return {
@@ -1042,7 +1050,11 @@ export async function createIssue(ctx: ServiceCtx, raw: unknown) {
 	];
 
 	const initialResolution = buildInitialResolutionStatement(
-		ctx, id, resolvedStatusKey, resolvedStatusCategory, nowTs
+		ctx,
+		id,
+		resolvedStatusKey,
+		resolvedStatusCategory,
+		nowTs
 	);
 	if (initialResolution) statements.push(initialResolution);
 	const results = await ctx.db.batch(statements);
@@ -1698,7 +1710,10 @@ export async function updateIssue(ctx: ServiceCtx, rawId: string, raw: unknown) 
 	if (data.status !== undefined || "statusId" in data) {
 		statements.push(
 			buildResolutionTransitionStatement(
-				ctx, id, setValues.status as string, setValues.statusCategory as string
+				ctx,
+				id,
+				setValues.status as string,
+				setValues.statusCategory as string
 			)
 		);
 	}

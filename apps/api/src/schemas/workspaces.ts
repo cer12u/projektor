@@ -36,10 +36,18 @@ export const CreateTokenSchema = z
 	.superRefine((value, ctx) => {
 		if (!value.machineActorId) return;
 		if (!value.scopes || value.scopes.includes("*")) {
-			ctx.addIssue({ code: "custom", path: ["scopes"], message: "Machine tokens require explicit read/write scopes" });
+			ctx.addIssue({
+				code: "custom",
+				path: ["scopes"],
+				message: "Machine tokens require explicit read/write scopes",
+			});
 		}
 		if (!value.expiresInDays) {
-			ctx.addIssue({ code: "custom", path: ["expiresInDays"], message: "Machine tokens require an expiry" });
+			ctx.addIssue({
+				code: "custom",
+				path: ["expiresInDays"],
+				message: "Machine tokens require an expiry",
+			});
 		}
 	});
 
