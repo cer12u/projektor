@@ -1065,7 +1065,7 @@ describe("Issues API", () => {
 	});
 
 	it("filters by projectId", async () => {
-		const project2 = await seedProject(workspaceId);
+		const project2 = await seedProject(workspaceId, "OTHER");
 
 		await SELF.fetch("http://localhost/api/issues", {
 			method: "POST",
