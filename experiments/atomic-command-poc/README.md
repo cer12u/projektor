@@ -2,24 +2,25 @@
 
 ## 結果と位置づけ
 
-ゼロベース設計 v0.3 から新規に書いた、単一 synthetic workspace の原子的 command 境界のローカル検証。既存の業務コードは流用していない。REST 形 / MCP 形 adapter は共通 executeCommand を呼び、実際の Node SQLite ファイルを更新する。HTTP server や実際の MCP server を起動した統合試験ではなく、protocol shape の契約試験である。
+ゼロベース設計 v0.3 から新規に書いた、単一 synthetic workspace の原子的 command 境界のローカル検証。既存の業務コードは流用していない。REST 形 / MCP 形 adapter は共通 executeCommand を呼び、実際の Node SQLite ファイルを更新する。Node suite の REST/MCP adapter 試験は protocol shape の契約試験である。追加の workerd suite は local HTTP→DO RPC を通す実 runtime 試験（後述）。実際の MCP wire protocol と production HTTP/authentication は未検証。
 
 ## 再現
 
-Node 24.19.0 以上で、リポジトリーのルートから実行する。追加依存は不要。
+Node 24.19.0 以上で、リポジトリーのルートから実行する。Node SQLite 試験だけなら追加依存は不要。workerd 試験は lockfile 固定の Miniflare を使う。
 
 ```sh
 cd experiments/atomic-command-poc
-node --test test/*.test.mjs
+npm ci
+npm run test:all
 ```
 
-`node:sqlite` / `node:test` / `worker_threads` のみを使う。テストは synthetic
+Node suite は `node:sqlite` / `node:test` / `worker_threads` を使い、追加 package は不要。workerd suite は Miniflare と実 workerd runtime を使う。Node テストは synthetic
 fixture を `evidence/` 下に作成して終了時に削除する。SQLite experimental
 warning はテスト失敗ではない。既存アプリ、DB、production build には接続しない。
 
 任意で `node scripts/verify.mjs` を実行すると、ローカルの `TEST-RESULTS.json`、
-`evidence/final-test.tap`、`SHA256SUMS` を生成する。これらは実行ごとに変わるため
-コミットしない。このスクリプトの `notRun` はローカル試験の範囲を示し、GitHub CI
+`evidence/node.tap`、`evidence/workerd.tap`、`SHA256SUMS` を生成する。これらは実行ごとに変わるため
+コミットしない。このスクリプトの `limitations` はローカル試験の範囲を示し、GitHub CI
 の実行結果は各 PR のチェックで確認する。
 
 PR 用の専用 CI は変更パスを限定し、Node 24.19.0 で同じ `node --test` を実行する。
@@ -38,7 +39,7 @@ PR 用の専用 CI は変更パスを限定し、Node 24.19.0 で同じ `node --
 - workspace、fresh-incarnation 一致、active fence、current credential expiry/revocation、membership を transaction 内で確認
 - 同じ principal の既存 receipt は現在の read/operations:read_own 権限、元 project と現在 project を検査後に返す。write 権限は replay に再要求しない
 - 新規 command は current write + read grant と CAS を確認。typed 拒否は receipt のみ commit。予期しない例外は全 rollback
-- canonical issue/version、workspace changeSeq、Activity、FTS DELETE→INSERT、outbox、committed receipt が同一 BEGIN IMMEDIATE transaction
+- canonical issue/version、workspace changeSeq、Activity、FTS DELETE→INSERT、outbox、committed receipt が同一 transaction（Node は BEGIN IMMEDIATE、DO は storage.transactionSync）
 - success receipt は過去の committedVersion を表す。最新 GET の version と混同しない
 - response loss は outcome=unknown。rollback 成功を確認した例外は今回試行の attemptOutcome=not_committed を別記するが、元操作の outcome は unknown のまま。rollback まで失敗した場合は attemptOutcome も unknown
 - operation_get の not_observed は永続的未実行証明ではない
@@ -67,9 +68,31 @@ transaction で新たに確定した rejected receipt だけ outcome=rejected �
 
 ## 検証限界と次の gate
 
-node:sqlite は実 DB だが正式採用候補の SQLite-backed DO / workerd ではない。Cloudflare output gate / storage.sync、provider 認証、browser、負荷/容量/料金、disk-full、OS/hardware power loss、本番、migration/restore、旧 writer fence は未検証。WAL/FULL の設定と正常な接続間可視性しか durability に関して主張しない。
+Node 試験に加え、下記の actual workerd SQLite 試験を実行した。provider 認証、browser、負荷/容量/料金、disk-full、OS/hardware power loss、本番、migration/restore、旧 writer fence は未検証。WAL/FULL は Node 側のみの設定。DO の durability は clean restart 後の再読取りまでで、Cloudflare 本番の分散永続性を実証したとはしない。
 
 receipt はこの PoC では削除・期限切れさせない。90日 compaction、長期 retention、backup/restore 時の独立 incarnation 発行と現認可再構築は未実装。outbox は pending 行を原子的に作るだけで配信しない。検索は FTS projection 一致を検証するだけで製品検索 API、短語 byte bound、rebuild は未実装。DDL は初期 schema migration のみ。
 
-本番置換の完成ではない。SQLite の契約試験に限定した実験であり、次の runtime gate は
-SQLite-backed Durable Object / workerd 上で同じ契約を実証すること。
+本番置換の完成ではない。Node とローカル workerd の狭い契約試験であり、必須 capability 全体、認証境界、UI、移行・本番切替の gate は残る。
+
+
+## SQLite-backed Durable Object / workerd adapter
+
+- `src/shared-core.mjs` が両 runtime 共通の validation/fingerprint/domain/CAS/ACL/receipt ロジック。`src/core.mjs` は Node SQLite の開き方・migration だけを追加する
+- `workerd/adapter.mjs` は実 `storage.sql.exec` を使う statement adapter と DO class。`storage.transactionSync` の synchronous callback 内で全 read/write を完結し、await・外部 I/O を入れない
+- DO DDL は同じ `schema.sql`。Node 専用 PRAGMA は Node entrypoint に分離した。DO は SQLite foreign key enforcement を使い、BEGIN/COMMIT SQL を送らない
+- `rowsWritten` は index 等の内部書込みも数えるため、業務 row-count invariant には `SELECT changes()` を使う
+- callback exception の rollback 保証だけ `attemptOutcome=not_committed`。それ以外の storage transaction 例外は unknown。どちらも元 operation の outcome は unknown のまま
+- `workerd/harness.mjs` は synthetic identity、SQL fixture 管理、fault injection だけの TEST ONLY entrypoint。production fetch/authentication/deployment config は存在しない。これを production 公開してはならない
+- stable Miniflare `4.20260730.0` を exact pin。調査時 latest tag は `5.20261006.0-alpha` だったため採用しなかった。lockfile と実 binary の SHA は verification evidence に記録する
+
+20 workerd tests は Node `node:test` から Miniflare の actual workerd process を起動する。DO storage mock は使わない。8 mutation fault points の全 snapshot rollback、16 concurrent HTTP→RPC 同 ID 配信の effect 一回、別 ID CAS 競合、typed rejection receipt、receipt ACL、current query 非開示、commit 後 storage.sync 完了から RPC exception を注入した応答喪失、同 ID retry の receipt 読取り前 rollback、clean process restart 後 replay を含む。
+
+16 concurrent delivery はローカル HTTP と DO RPC scheduling の範囲である。production network retry、packet loss、跨 host race の検証ではない。response-loss fixture は意図的な post-commit exception であり、実際の packet drop ではない。clean restart は abrupt kill や power failure の試験ではない。ストレージ本体が callback 外で失敗する経路は actual runtime で未注入。
+
+この adapter は既存 title PoC の project ACL に限定する。v0.4 resource ACL / immutable revision / historical audience / no-op semantics の全実装を主張しない。Activity はこの title command の before/after 履歴であり、一般 ContentRevision 機構ではない。
+
+現行公式資料（2026-10-07 閲覧）:
+- https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/ （transactionSync、cursor、sync）
+- https://developers.cloudflare.com/workers/testing/miniflare/ （actual workerd の local testing）
+- https://developers.cloudflare.com/workers/testing/vitest-integration/write-your-first-test/ （現行 Vitest integration。今回の runner は Node＋Miniflare）
+- https://developers.cloudflare.com/durable-objects/examples/testing-with-durable-objects/

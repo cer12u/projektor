@@ -1,1 +1,17 @@
-{"name":"projektor-atomic-command-poc","private":true,"type":"module","engines":{"node":">=24.19.0"},"scripts":{"test":"node --test test/*.test.mjs","verify":"node scripts/verify.mjs"}}
+{
+  "name": "projektor-atomic-command-poc",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.19.0"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "verify": "node scripts/verify.mjs",
+    "test:workerd": "node --test workerd/*.test.mjs",
+    "test:all": "npm test && npm run test:workerd"
+  },
+  "devDependencies": {
+    "miniflare": "4.20260730.0"
+  }
+}

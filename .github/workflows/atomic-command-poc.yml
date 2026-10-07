@@ -35,3 +35,28 @@ jobs:
         run: node --test test/*.test.mjs
       - name: Verify tests leave tracked files unchanged
         run: git diff --exit-code
+
+  workerd-contract:
+    name: workerd SQLite DO atomic command contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+      - name: Install locked local test runtime
+        working-directory: experiments/atomic-command-poc
+        run: npm ci
+      - name: Test actual workerd SQLite (no deployment)
+        working-directory: experiments/atomic-command-poc
+        run: |
+          node --version
+          node_modules/.bin/workerd --version
+          git rev-parse HEAD
+          npm run test:workerd
+      - name: Verify tests leave tracked files unchanged
+        run: git diff --exit-code

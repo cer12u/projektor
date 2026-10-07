@@ -1,4 +1,4 @@
-import { executeCommand, failure, operationGet, StorageFailure } from './core.mjs';
+import { executeCommand, failure, operationGet, StorageFailure } from './shared-core.mjs';
 // ActorContext is supplied by a trusted fixture authenticator, never request JSON.
 const status={VALIDATION:400,SCHEMA_UNSUPPORTED:400,TITLE_EMPTY:400,PRECONDITION_REQUIRED:428,UNAUTHENTICATED:401,EXPIRED:401,FORBIDDEN:403,NOT_FOUND:404,VERSION_CONFLICT:409,KEY_REUSE:409,EPOCH_MISMATCH:409,STORE_FENCED:503,WORKSPACE_MISMATCH:400,UNAVAILABLE:503,RESPONSE_LOST:503};
 function invoke(db,actor,c,options){

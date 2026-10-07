@@ -1,4 +1,3 @@
-PRAGMA foreign_keys=ON;
 CREATE TABLE workspace(id TEXT PRIMARY KEY, epoch TEXT NOT NULL, active INTEGER NOT NULL CHECK(active IN (0,1)), change_seq INTEGER NOT NULL DEFAULT 0);
 CREATE UNIQUE INDEX workspace_singleton ON workspace((1));
 CREATE TABLE membership(principal_id TEXT PRIMARY KEY, kind TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0, read_own INTEGER NOT NULL DEFAULT 1);
@@ -9,4 +8,3 @@ CREATE TABLE activity(change_seq INTEGER PRIMARY KEY, issue_id TEXT NOT NULL REF
 CREATE VIRTUAL TABLE issue_fts USING fts5(issue_id UNINDEXED, title, tokenize='trigram');
 CREATE TABLE outbox(event_id TEXT PRIMARY KEY, change_seq INTEGER NOT NULL REFERENCES activity(change_seq), payload TEXT NOT NULL, state TEXT NOT NULL CHECK(state='pending'));
 CREATE TABLE operation(workspace_id TEXT NOT NULL REFERENCES workspace(id), principal_id TEXT NOT NULL, operation_id TEXT NOT NULL, hash_version TEXT NOT NULL, payload_hash TEXT NOT NULL, entity_id TEXT NOT NULL, project_at_commit TEXT, result_json TEXT NOT NULL, PRIMARY KEY(workspace_id,principal_id,operation_id));
-PRAGMA user_version=1;
