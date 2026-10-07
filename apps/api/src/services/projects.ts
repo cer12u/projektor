@@ -233,6 +233,58 @@ async function generateUniqueSlug(
 	}
 }
 
+// PTORDEV-6: D1 batch is one transaction, as in issue creation. Build the audit
+// write without executing it. changes() refers to the immediately preceding
+// project INSERT/UPDATE, so a raced deletion cannot leave an orphan update audit.
+function buildProjectActivityStatement(
+	ctx: ServiceCtx,
+	id: string,
+	action: "created" | "updated",
+	now: number,
+	diff?: Record<string, unknown>
+): D1PreparedStatement {
+	return ctx.db
+		.prepare(
+			`INSERT INTO activity
+			   (id, workspace_id, entity_type, entity_id, actor_id, action, diff, created_at)
+			 SELECT ?, ?, 'project', ?, ?, ?, ?, ? WHERE changes() = 1`
+		)
+		.bind(
+			crypto.randomUUID(),
+			ctx.workspaceId,
+			id,
+			ctx.userId,
+			action,
+			diff === undefined ? null : JSON.stringify(diff),
+			now
+		);
+}
+
+// D1 may wrap SQLite's error in `cause`. Translate only these known project
+// uniqueness constraints, never an activity/FK/primary-key or infrastructure error.
+function rethrowProjectWriteError(error: unknown, key: string | undefined): never {
+	const seen = new Set<unknown>();
+	let cause = error;
+	while (cause instanceof Error && !seen.has(cause)) {
+		seen.add(cause);
+		if (
+			key !== undefined &&
+			/UNIQUE constraint failed: (?:projects\.workspace_id, projects\.key|index 'idx_projects_ws_key_unique')(?=$|:)/.test(
+				cause.message
+			)
+		) {
+			throw new ConflictError(`Project key ${key} already exists`);
+		}
+		if (
+			/UNIQUE constraint failed: projects\.workspace_id, projects\.slug(?=$|:)/.test(cause.message)
+		) {
+			throw new ConflictError("Project URL slug was taken by another creation. Retry the request.");
+		}
+		cause = cause.cause;
+	}
+	throw error;
+}
+
 export async function createProject(ctx: ServiceCtx, input: unknown) {
 	if (ctx.role === "member" || ctx.role === "viewer") throw new ForbiddenError();
 
@@ -242,30 +294,35 @@ export async function createProject(ctx: ServiceCtx, input: unknown) {
 	const { name, key, description, agentWipLimit } = parsed.data;
 
 	const orm = drizzle(ctx.db, { schema });
-	const existing = await orm
-		.select({ id: schema.projects.id })
-		.from(schema.projects)
-		.where(and(eq(schema.projects.workspaceId, ctx.workspaceId), eq(schema.projects.key, key)))
-		.get();
-	if (existing) throw new ConflictError(`Project key ${key} already exists`);
-
 	const id = crypto.randomUUID();
 	const now = Math.floor(Date.now() / 1000);
 	const slug = await generateUniqueSlug(orm, ctx.workspaceId, name);
 
-	await orm.insert(schema.projects).values({
-		id,
-		workspaceId: ctx.workspaceId,
-		name,
-		key,
-		slug,
-		description: description ?? null,
-		agentWipLimit: agentWipLimit ?? null,
-		createdAt: now,
-		updatedAt: now,
-	});
+	const insert = orm
+		.insert(schema.projects)
+		.values({
+			id,
+			workspaceId: ctx.workspaceId,
+			name,
+			key,
+			slug,
+			description: description ?? null,
+			agentWipLimit: agentWipLimit ?? null,
+			createdAt: now,
+			updatedAt: now,
+		})
+		.toSQL();
 
-	await recordActivity(ctx, { entityType: "project", entityId: id, action: "created" });
+	try {
+		// The database constraint arbitrates concurrent creates and key changes.
+		// Both rows commit together or neither does; no read-then-write key lock.
+		await ctx.db.batch([
+			ctx.db.prepare(insert.sql).bind(...insert.params),
+			buildProjectActivityStatement(ctx, id, "created", now),
+		]);
+	} catch (error) {
+		rethrowProjectWriteError(error, key);
+	}
 	await invalidateProjectsCache(ctx);
 	return { id, name, key, slug };
 }
@@ -292,21 +349,24 @@ export async function updateProject(ctx: ServiceCtx, id: string, input: unknown)
 	setObj.updatedAt = now;
 
 	const orm = drizzle(ctx.db, { schema });
-	const existing = await orm
-		.select({ id: schema.projects.id })
-		.from(schema.projects)
-		.where(and(eq(schema.projects.id, id), eq(schema.projects.workspaceId, ctx.workspaceId)))
-		.get();
-	if (!existing) throw new NotFoundError("Project not found");
-
-	await orm
+	const update = orm
 		.update(schema.projects)
 		.set(setObj)
-		.where(and(eq(schema.projects.id, id), eq(schema.projects.workspaceId, ctx.workspaceId)));
+		.where(and(eq(schema.projects.id, id), eq(schema.projects.workspaceId, ctx.workspaceId)))
+		.returning({ id: schema.projects.id })
+		.toSQL();
 
 	const diff: Record<string, unknown> = { ...setObj };
 	delete diff.updatedAt;
-	await recordActivity(ctx, { entityType: "project", entityId: id, action: "updated", diff });
+	try {
+		const results = await ctx.db.batch([
+			ctx.db.prepare(update.sql).bind(...update.params),
+			buildProjectActivityStatement(ctx, id, "updated", now, diff),
+		]);
+		if (results[0].results.length === 0) throw new NotFoundError("Project not found");
+	} catch (error) {
+		rethrowProjectWriteError(error, parsed.data.key);
+	}
 	await invalidateProjectsCache(ctx);
 
 	return { ok: true };

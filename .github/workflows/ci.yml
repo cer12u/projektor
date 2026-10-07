@@ -90,6 +90,18 @@ jobs:
         run: pnpm bundle-budget
       - if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: pnpm --filter @projektor/docs build
+      # PTORDEV-6: Node 22.12's SQLite lacks FTS5 (confirmed in CI), while this
+      # additional SQL suite deliberately applies every migration, including FTS.
+      # Keep all existing gates above on Node 22.12. Do not skip FTS migrations.
+      - name: Set up SQLite integrity runtime
+        id: project_sql_runtime
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+      - name: Project key SQL integrity
+        if: ${{ !cancelled() && steps.dependencies.outcome == 'success' && steps.project_sql_runtime.outcome == 'success' }}
+        run: pnpm --filter @projektor/db test:project-integrity
 # E2E tests: run manually with 'pnpm --filter @projektor/web test:e2e'
 # Long-running freeze regression tests (PROJ-310): 'pnpm --filter @projektor/web test:e2e:long'
 # Requires: E2E_BASE_URL pointing at a dev deployment with ENVIRONMENT=development and DEV_USER_EMAIL set.

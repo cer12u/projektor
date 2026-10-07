@@ -1,4 +1,4 @@
-import { SELF } from "cloudflare:test";
+import { env, SELF } from "cloudflare:test";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
 	authHeaders,
@@ -595,5 +595,154 @@ describe("GET /api/projects cross-workspace", () => {
 		const proj = projects.find((p) => p.key === "ICNT");
 		expect(proj).toBeTruthy();
 		expect(proj!.open_issue_count).toBe(2);
+	});
+});
+
+// PTORDEV-6: exercise the shared service through REST and MCP on real local D1.
+describe("Project write atomicity", () => {
+	async function fixture() {
+		const roles = await seedWorkspaceRoles();
+		return {
+			roles,
+			headers: authHeaders(roles.owner.token, roles.workspace.slug),
+		};
+	}
+
+	function create(headers: Record<string, string>, key: string, name = key) {
+		return SELF.fetch("http://localhost/api/projects", {
+			method: "POST",
+			headers,
+			body: JSON.stringify({ name, key }),
+		});
+	}
+
+	function update(headers: Record<string, string>, id: string, input: unknown) {
+		return SELF.fetch(`http://localhost/api/projects/${id}`, {
+			method: "PATCH",
+			headers,
+			body: JSON.stringify(input),
+		});
+	}
+
+	async function auditCount(workspaceId: string, action: string) {
+		return env.DB.prepare(
+			"SELECT count(*) AS n FROM activity WHERE workspace_id = ? AND entity_type = 'project' AND action = ?"
+		)
+			.bind(workspaceId, action)
+			.first<number>("n");
+	}
+
+	it("concurrent case-insensitive creates commit one project and one audit (201/409)", async () => {
+		const { roles, headers } = await fixture();
+		const results = await Promise.all([
+			create(headers, "RACE", "First name"),
+			create(headers, "race", "Second name"),
+		]);
+		expect(results.map((r) => r.status).sort()).toEqual([201, 409]);
+		const conflict = results.find((r) => r.status === 409)!;
+		expect(await conflict.json()).toEqual({ error: "Project key RACE already exists" });
+		expect(await auditCount(roles.workspace.id, "created")).toBe(1);
+		expect(
+			await env.DB.prepare("SELECT count(*) AS n FROM projects WHERE workspace_id = ?")
+				.bind(roles.workspace.id)
+				.first<number>("n")
+		).toBe(1);
+	});
+
+	it("competing updates and create/update races return one success and one conflict", async () => {
+		const { roles, headers } = await fixture();
+		const a = (await (await create(headers, "FIRST")).json()) as { id: string };
+		const b = (await (await create(headers, "SECOND")).json()) as { id: string };
+		const updates = await Promise.all([
+			update(headers, a.id, { key: "TARGET" }),
+			update(headers, b.id, { key: "target" }),
+		]);
+		expect(updates.map((r) => r.status).sort()).toEqual([200, 409]);
+		expect(await auditCount(roles.workspace.id, "updated")).toBe(1);
+		await resetRateLimits();
+		const mixed = await Promise.all([
+			create(headers, "MIXED"),
+			update(headers, a.id, { key: "mixed" }),
+		]);
+		expect(mixed.filter((r) => r.status === 409)).toHaveLength(1);
+		expect(mixed.filter((r) => r.status === 200 || r.status === 201)).toHaveLength(1);
+	});
+
+	it("reserves archived keys, allows self-update and other workspaces, frees a deleted key", async () => {
+		const first = await fixture();
+		const second = await fixture();
+		const a = (await (await create(first.headers, "KEPT")).json()) as { id: string };
+		expect((await update(first.headers, a.id, { key: "kept", archived: true })).status).toBe(200);
+		expect((await create(first.headers, "KEPT", "Different name")).status).toBe(409);
+		expect((await create(second.headers, "kept")).status).toBe(201);
+		await resetRateLimits();
+		expect((await update(first.headers, a.id, { archived: false })).status).toBe(200);
+		expect((await update(second.headers, a.id, { key: "HIDDEN" })).status).toBe(404);
+		expect(await auditCount(second.roles.workspace.id, "updated")).toBe(0);
+		expect(
+			(
+				await SELF.fetch(`http://localhost/api/projects/${a.id}`, {
+					method: "DELETE",
+					headers: first.headers,
+				})
+			).status
+		).toBe(200);
+		expect((await create(first.headers, "kept")).status).toBe(201);
+	});
+
+	it("rolls create and update back when their audit INSERT fails", async () => {
+		const { roles, headers } = await fixture();
+		const project = (await (await create(headers, "BEFORE")).json()) as { id: string };
+		const trigger = `project_audit_failure_${roles.workspace.id.replaceAll("-", "")}`;
+		await env.DB.prepare(
+			`CREATE TRIGGER ${trigger} BEFORE INSERT ON activity
+			 WHEN NEW.workspace_id = '${roles.workspace.id}' AND NEW.entity_type = 'project'
+			 BEGIN SELECT RAISE(ABORT, 'synthetic project audit failure'); END`
+		).run();
+		try {
+			expect((await create(headers, "FAILED")).status).toBe(500);
+			expect((await update(headers, project.id, { key: "AFTER", name: "Changed" })).status).toBe(
+				500
+			);
+			const row = await env.DB.prepare("SELECT key, name FROM projects WHERE id = ?")
+				.bind(project.id)
+				.first();
+			expect(row).toEqual({ key: "BEFORE", name: "BEFORE" });
+			expect(
+				await env.DB.prepare("SELECT count(*) AS n FROM projects WHERE workspace_id = ?")
+					.bind(roles.workspace.id)
+					.first<number>("n")
+			).toBe(1);
+			expect(await auditCount(roles.workspace.id, "created")).toBe(1);
+			expect(await auditCount(roles.workspace.id, "updated")).toBe(0);
+		} finally {
+			await env.DB.prepare(`DROP TRIGGER ${trigger}`).run();
+		}
+	});
+
+	it("same-value updates succeed and missing updates produce no orphan audit", async () => {
+		const { roles, headers } = await fixture();
+		const project = (await (await create(headers, "SAME")).json()) as { id: string };
+		expect((await update(headers, project.id, { key: "same", name: "SAME" })).status).toBe(200);
+		expect(await auditCount(roles.workspace.id, "updated")).toBe(1);
+		expect((await update(headers, crypto.randomUUID(), { key: "MISSING" })).status).toBe(404);
+		expect(await auditCount(roles.workspace.id, "updated")).toBe(1);
+	});
+
+	it("MCP key updates use the same conflict contract", async () => {
+		const { roles, headers } = await fixture();
+		await create(headers, "TAKEN");
+		const other = (await (await create(headers, "OTHER")).json()) as { id: string };
+		const result = await mcpCall(
+			roles.workspace.id,
+			"update_project",
+			{
+				id: other.id,
+				key: "taken",
+			},
+			headers
+		);
+		expect(toolError(result)?.code).toBe("conflict");
+		expect(toolError(result)?.message).toBe("Project key TAKEN already exists");
 	});
 });

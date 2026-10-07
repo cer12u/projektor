@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 import { users, workspaces } from "./core";
 
@@ -27,6 +28,12 @@ export const projects = sqliteTable(
 	},
 	(t) => ({
 		wsIdx: index("projects_workspace_idx").on(t.workspaceId),
+		// Archived projects still own their issue-ref namespace. Physical deletion
+		// frees it. ASCII NOCASE matches the service's uppercase key normalization.
+		keyIdx: uniqueIndex("idx_projects_ws_key_unique").on(
+			t.workspaceId,
+			sql`${t.key} COLLATE NOCASE`
+		),
 		slugIdx: index("projects_workspace_slug_idx").on(t.workspaceId, t.slug),
 	})
 );
