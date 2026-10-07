@@ -41,7 +41,11 @@ jobs:
       - run: pnpm --filter @projektor/docs build
         env:
           REQUIRE_SITEMAP_LASTMOD: "1"   # fail rather than ship a sitemap without dates
-      - run: node scripts/submit-indexnow.mjs
+      # The inherited endpoint/key describes upstream, not this Fork. The script
+      # also fails closed for fork/local invocations if this guard is removed.
+      - name: Submit upstream sitemap to IndexNow
+        if: ${{ github.repository == 'TAJD/projektor' }}
+        run: node scripts/submit-indexnow.mjs
         working-directory: apps/docs
       - uses: actions/upload-pages-artifact@v3
         with:
