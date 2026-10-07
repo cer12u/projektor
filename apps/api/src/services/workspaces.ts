@@ -35,7 +35,8 @@ async function sha256hex(s: string): Promise<string> {
 export async function listWorkspaces(
 	db: D1Database,
 	userId: string,
-	tokenWorkspaceId?: string | null
+	tokenWorkspaceId?: string | null,
+	machinePrincipal = false
 ) {
 	const orm = drizzle(db, { schema });
 	return orm
@@ -54,7 +55,9 @@ export async function listWorkspaces(
 		.where(
 			and(
 				eq(schema.workspaceMembers.userId, userId),
-				tokenWorkspaceId != null ? eq(schema.workspaces.id, tokenWorkspaceId) : undefined
+				tokenWorkspaceId != null ? eq(schema.workspaces.id, tokenWorkspaceId) : undefined,
+				machinePrincipal ? eq(schema.workspaceMembers.role, "member") : undefined,
+				machinePrincipal && !tokenWorkspaceId ? sql`0` : undefined
 			)
 		)
 		.orderBy(asc(schema.workspaces.name));
@@ -252,10 +255,34 @@ export async function updateMemberRole(ctx: ServiceCtx, targetUserId: string, in
 }
 
 export async function createToken(ctx: ServiceCtx, input: unknown) {
-	if (ctx.role === "member" || ctx.role === "viewer") throw new ForbiddenError();
+	if (ctx.role !== "owner" && ctx.role !== "admin") throw new ForbiddenError();
 	const parsed = CreateTokenSchema.safeParse(input);
 	if (!parsed.success) throw new ValidationError(parsed.error.flatten());
-	const { name, scopes, expiresInDays } = parsed.data;
+	const { name, expiresInDays, machineActorId } = parsed.data;
+	const scopes = parsed.data.scopes ?? ["read", "write"];
+	const orm = drizzle(ctx.db, { schema });
+	const actorId = machineActorId ?? ctx.userId;
+	if (machineActorId) {
+		// Auth-bootstrap repair: provision once as an owner; routine issue operations
+		// then authenticate as the explicit member actor, without an owner login.
+		// This creates no user or grant and never rewrites an existing credential.
+		if (
+			ctx.role !== "owner" || ctx.authKind !== "human" ||
+			(ctx.auth?.method !== "access" && ctx.auth?.method !== "dev") ||
+			machineActorId === ctx.userId
+		) throw new ForbiddenError("An interactive workspace owner must provision machine tokens");
+		const member = await orm
+			.select({ role: schema.workspaceMembers.role })
+			.from(schema.workspaceMembers)
+			.innerJoin(schema.users, eq(schema.users.id, schema.workspaceMembers.userId))
+			.where(and(
+				eq(schema.workspaceMembers.workspaceId, ctx.workspaceId),
+				eq(schema.workspaceMembers.userId, machineActorId)
+			)).get();
+		if (member?.role !== "member") {
+			throw new ForbiddenError("Machine actor must be an existing member of this workspace");
+		}
+	}
 
 	const tokenBytes = crypto.getRandomValues(new Uint8Array(32));
 	const token =
@@ -269,11 +296,11 @@ export async function createToken(ctx: ServiceCtx, input: unknown) {
 	const now = Math.floor(Date.now() / 1000);
 	const expiresAt = expiresInDays ? now + expiresInDays * 86400 : null;
 
-	const orm = drizzle(ctx.db, { schema });
 	await orm.insert(schema.apiTokens).values({
 		id,
 		workspaceId: ctx.workspaceId,
-		userId: ctx.userId,
+		userId: actorId,
+		issuedByUserId: ctx.userId,
 		name,
 		tokenHash: hash,
 		scopes,
@@ -281,7 +308,7 @@ export async function createToken(ctx: ServiceCtx, input: unknown) {
 		createdAt: now,
 	});
 
-	return { id, token, name, scopes, expiresAt };
+	return { id, token, name, scopes, expiresAt, userId: actorId, issuedByUserId: ctx.userId, workspaceId: ctx.workspaceId };
 }
 
 export async function listTokens(ctx: ServiceCtx) {
@@ -290,6 +317,9 @@ export async function listTokens(ctx: ServiceCtx) {
 	return orm
 		.select({
 			id: schema.apiTokens.id,
+			userId: schema.apiTokens.userId,
+			issuedByUserId: schema.apiTokens.issuedByUserId,
+			workspaceId: schema.apiTokens.workspaceId,
 			name: schema.apiTokens.name,
 			scopes: schema.apiTokens.scopes,
 			lastUsedAt: schema.apiTokens.lastUsedAt,

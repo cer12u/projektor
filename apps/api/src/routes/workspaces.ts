@@ -85,6 +85,8 @@ const WORKSPACE_TOKEN_HUMAN_ONLY =
 	"Workspace tokens can only be created or revoked from a signed-in browser session, not with an API token or connected app.";
 
 router.post("/:slug/tokens", async (c) => {
+	const workspace = c.get("workspace") as { slug: string };
+	if (workspace.slug !== c.req.param("slug")) return c.json({ error: "Workspace not found" }, 404);
 	const denied = requireInteractiveHuman(c, WORKSPACE_TOKEN_HUMAN_ONLY);
 	if (denied) return denied;
 	const ctx = ctxFromHono(c);

@@ -24,11 +24,24 @@ export const UpdateRoleSchema = z.object({
 	role: RoleEnum,
 });
 
-export const CreateTokenSchema = z.object({
-	name: z.string().min(1).max(100),
-	scopes: z.array(ScopeSchema).min(1).default(["read", "write"]),
-	expiresInDays: z.number().int().min(1).max(365).optional(),
-});
+export const CreateTokenSchema = z
+	.object({
+		name: z.string().min(1).max(100),
+		scopes: z.array(ScopeSchema).min(1).optional(),
+		expiresInDays: z.number().int().min(1).max(365).optional(),
+		// Explicitly selected by an interactive owner, never a request-time actor override.
+		machineActorId: z.string().uuid().optional(),
+	})
+	.strict()
+	.superRefine((value, ctx) => {
+		if (!value.machineActorId) return;
+		if (!value.scopes || value.scopes.includes("*")) {
+			ctx.addIssue({ code: "custom", path: ["scopes"], message: "Machine tokens require explicit read/write scopes" });
+		}
+		if (!value.expiresInDays) {
+			ctx.addIssue({ code: "custom", path: ["expiresInDays"], message: "Machine tokens require an expiry" });
+		}
+	});
 
 export const DeleteWorkspaceInput = z.object({
 	workspaceSlug: z.string(),

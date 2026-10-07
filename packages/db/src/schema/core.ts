@@ -71,6 +71,8 @@ export const apiTokens = sqliteTable("api_tokens", {
 	// NULL = user-scoped token (valid across all workspaces the user is a member of)
 	workspaceId: text("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }),
 	userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+	// NULL is legacy; a different issuer from userId marks an owner-delegated machine token.
+	issuedByUserId: text("issued_by_user_id"),
 	name: text("name").notNull(),
 	tokenHash: text("token_hash").notNull().unique(),
 	scopes: text("scopes", { mode: "json" }).$type<string[]>().notNull(),

@@ -46,6 +46,9 @@ export interface AuthInfo {
 	method: AuthMethod;
 	/** api_tokens.id for pk/pat, the grant id for oauth; absent for sessions. */
 	credentialId?: string;
+	/** Workspace machine tokens retain their issuer separately from the acting user. */
+	principalKind?: "machine" | "user";
+	issuedByUserId?: string;
 	/** OAuth client id (grants created after PROJ-889 only). */
 	clientId?: string;
 	/** Token/grant scopes; absent for sessions (governed by role only). */
