@@ -1,0 +1,73 @@
+name: Build pinned candidate
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/build-candidate.yml'
+      - 'scripts/build-candidate*.mjs'
+
+# This job only produces an expiring, generic build artifact. It never deploys,
+# publishes a version, or uses the release/tag workflows or Cloudflare credentials.
+permissions:
+  contents: read
+
+concurrency:
+  group: build-candidate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build d39852c (no deployment)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out build tooling at the actual PR merge SHA
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          path: tooling
+          persist-credentials: false
+      - name: Check out immutable candidate source separately
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: cer12u/projektor
+          ref: d39852cef35217bc1dbf4c42d646bda1f09994d3
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22.12.0'
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with:
+          version: '10.18.0'
+          run_install: false
+          package_json_file: candidate/package.json
+      - name: Test artifact and provenance rejection cases
+        run: node --test tooling/scripts/build-candidate.test.mjs
+      - name: Build, verify, and package the fixed source
+        env:
+          CANDIDATE_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: >-
+          node tooling/scripts/build-candidate.mjs build
+          "$GITHUB_WORKSPACE/candidate"
+          "$RUNNER_TEMP/projektor-candidate"
+      - name: Retain only the verified tar and manifest
+        id: artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: projektor-candidate-d39852c-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/projektor-candidate/projektor-d39852cef352.tar.gz
+            ${{ runner.temp }}/projektor-candidate/manifest.json
+          if-no-files-found: error
+          include-hidden-files: false
+          retention-days: 7
+          compression-level: 0
+      - name: Public retrieval metadata
+        env:
+          ARTIFACT_URL: ${{ steps.artifact.outputs.artifact-url }}
+          ARTIFACT_ID: ${{ steps.artifact.outputs.artifact-id }}
+          ARTIFACT_DIGEST: ${{ steps.artifact.outputs.artifact-digest }}
+        run: >-
+          node tooling/scripts/build-candidate.mjs report
+          "$RUNNER_TEMP/projektor-candidate"
