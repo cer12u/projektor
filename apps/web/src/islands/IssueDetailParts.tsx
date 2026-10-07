@@ -7,6 +7,8 @@ import { isIssueCompleted } from "../utils/issue-resolution";
 import { issueUrl } from "../utils/issue-url";
 import { PRIORITY_OPTIONS } from "../utils/issue-utils";
 import { renderMd, renderMermaidDiagrams } from "../utils/markdown";
+import { IssueCompletionTimestamp, IssueTimestamp } from "./IssueResolutionHistory";
+import MarkdownEditor from "./LazyMarkdownEditor";
 import { categoryColor } from "./board-utils";
 import type {
 	Attachment,
@@ -25,8 +27,6 @@ import {
 	PRIORITY_COLORS,
 	relativeTime,
 } from "./issue-detail-helpers";
-import { IssueCompletionTimestamp, IssueTimestamp } from "./IssueResolutionHistory";
-import MarkdownEditor from "./LazyMarkdownEditor";
 import { Button } from "./ui/Button";
 import Select from "./ui/Select";
 

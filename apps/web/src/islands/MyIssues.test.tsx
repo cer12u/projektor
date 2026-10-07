@@ -310,11 +310,13 @@ describe("MyIssues — complete cursor pagination", () => {
 
 	it("keeps loading until the last page and does not display a partial queue", async () => {
 		const lastPage = deferred<ReturnType<typeof pageResponse>>();
-		const mockFetch = vi.fn().mockImplementation((url: string) =>
-			url.includes("cursor=")
-				? lastPage.promise
-				: Promise.resolve(pageResponse([OPEN_ISSUE_PROJ_A], "1000:p1", 2))
-		);
+		const mockFetch = vi
+			.fn()
+			.mockImplementation((url: string) =>
+				url.includes("cursor=")
+					? lastPage.promise
+					: Promise.resolve(pageResponse([OPEN_ISSUE_PROJ_A], "1000:p1", 2))
+			);
 		vi.stubGlobal("fetch", mockFetch);
 		render(<MyIssues />);
 		await waitFor(() => expect(mockFetch.mock.calls).toHaveLength(2));
@@ -328,13 +330,15 @@ describe("MyIssues — complete cursor pagination", () => {
 	});
 
 	it("deduplicates overlapping issues by ID across pages", async () => {
-		const mockFetch = vi.fn().mockImplementation((url: string) =>
-			Promise.resolve(
-				url.includes("cursor=")
-					? pageResponse([OPEN_ISSUE_PROJ_A, OPEN_ISSUE_PROJ_B])
-					: pageResponse([OPEN_ISSUE_PROJ_A], "1000:p1", 2)
-			)
-		);
+		const mockFetch = vi
+			.fn()
+			.mockImplementation((url: string) =>
+				Promise.resolve(
+					url.includes("cursor=")
+						? pageResponse([OPEN_ISSUE_PROJ_A, OPEN_ISSUE_PROJ_B])
+						: pageResponse([OPEN_ISSUE_PROJ_A], "1000:p1", 2)
+				)
+			);
 		vi.stubGlobal("fetch", mockFetch);
 		const { container } = render(<MyIssues />);
 		await waitForLoaded();
@@ -345,9 +349,11 @@ describe("MyIssues — complete cursor pagination", () => {
 	});
 
 	it("rejects a repeated cursor without presenting partial success", async () => {
-		const mockFetch = vi.fn().mockImplementation(() =>
-			Promise.resolve(pageResponse([OPEN_ISSUE_PROJ_A], "1000:repeated"))
-		);
+		const mockFetch = vi
+			.fn()
+			.mockImplementation(() =>
+				Promise.resolve(pageResponse([OPEN_ISSUE_PROJ_A], "1000:repeated"))
+			);
 		vi.stubGlobal("fetch", mockFetch);
 		render(<MyIssues />);
 
@@ -370,13 +376,15 @@ describe("MyIssues — complete cursor pagination", () => {
 	});
 
 	it("uses the unique issue count when checking the initial total", async () => {
-		const mockFetch = vi.fn().mockImplementation((url: string) =>
-			Promise.resolve(
-				url.includes("cursor=")
-					? pageResponse([OPEN_ISSUE_PROJ_A, OPEN_ISSUE_PROJ_B])
-					: pageResponse([OPEN_ISSUE_PROJ_A], "1000:p1", 3)
-			)
-		);
+		const mockFetch = vi
+			.fn()
+			.mockImplementation((url: string) =>
+				Promise.resolve(
+					url.includes("cursor=")
+						? pageResponse([OPEN_ISSUE_PROJ_A, OPEN_ISSUE_PROJ_B])
+						: pageResponse([OPEN_ISSUE_PROJ_A], "1000:p1", 3)
+				)
+			);
 		vi.stubGlobal("fetch", mockFetch);
 		render(<MyIssues />);
 
@@ -402,11 +410,13 @@ describe("MyIssues — complete cursor pagination", () => {
 	});
 
 	it("does not show a partial or empty-success queue when a later page fails", async () => {
-		const mockFetch = vi.fn().mockImplementation((url: string) =>
-			url.includes("cursor=")
-				? Promise.reject(new Error("second-page failure"))
-				: Promise.resolve(pageResponse([OPEN_ISSUE_PROJ_A], "1000:p1", 2))
-		);
+		const mockFetch = vi
+			.fn()
+			.mockImplementation((url: string) =>
+				url.includes("cursor=")
+					? Promise.reject(new Error("second-page failure"))
+					: Promise.resolve(pageResponse([OPEN_ISSUE_PROJ_A], "1000:p1", 2))
+			);
 		vi.stubGlobal("fetch", mockFetch);
 		render(<MyIssues />);
 
@@ -450,13 +460,15 @@ describe("MyIssues — priority queue across projects", () => {
 			{ ...OPEN_ISSUE_PROJ_A, id: "high-1-a", title: "Alpha high 1 A" },
 			{ ...OPEN_ISSUE_PROJ_B, id: "urgent", title: "Beta urgent", priority: "urgent" },
 		];
-		const mockFetch = vi.fn().mockImplementation((url: string) =>
-			Promise.resolve(
-				url.includes("cursor=")
-					? pageResponse(issues.slice(4))
-					: pageResponse(issues.slice(0, 4), "1000:p1", 8)
-			)
-		);
+		const mockFetch = vi
+			.fn()
+			.mockImplementation((url: string) =>
+				Promise.resolve(
+					url.includes("cursor=")
+						? pageResponse(issues.slice(4))
+						: pageResponse(issues.slice(0, 4), "1000:p1", 8)
+				)
+			);
 		vi.stubGlobal("fetch", mockFetch);
 		const { container } = render(<MyIssues />);
 		await waitForLoaded();
@@ -497,13 +509,15 @@ describe("MyIssues — priority queue across projects", () => {
 		};
 		vi.stubGlobal(
 			"fetch",
-			vi.fn().mockImplementation((url: string) =>
-				Promise.resolve(
-					url.includes("cursor=")
-						? pageResponse([done, cancelled])
-						: pageResponse([OPEN_ISSUE_PROJ_A], "1000:p1", 3)
+			vi
+				.fn()
+				.mockImplementation((url: string) =>
+					Promise.resolve(
+						url.includes("cursor=")
+							? pageResponse([done, cancelled])
+							: pageResponse([OPEN_ISSUE_PROJ_A], "1000:p1", 3)
+					)
 				)
-			)
 		);
 		const { container } = render(<MyIssues />);
 		await waitForLoaded();
@@ -527,11 +541,13 @@ describe("MyIssues — priority queue across projects", () => {
 describe("MyIssues — stale request protection", () => {
 	it("ignores an old workspace response and does not fetch its next page", async () => {
 		const oldPage = deferred<ReturnType<typeof pageResponse>>();
-		const mockFetch = vi.fn().mockImplementation((_url: string, init: RequestInit) =>
-			(init.headers as Record<string, string>)["X-Workspace-Slug"] === "old-workspace"
-				? oldPage.promise
-				: Promise.resolve(pageResponse([OPEN_ISSUE_PROJ_B]))
-		);
+		const mockFetch = vi
+			.fn()
+			.mockImplementation((_url: string, init: RequestInit) =>
+				(init.headers as Record<string, string>)["X-Workspace-Slug"] === "old-workspace"
+					? oldPage.promise
+					: Promise.resolve(pageResponse([OPEN_ISSUE_PROJ_B]))
+			);
 		vi.stubGlobal("fetch", mockFetch);
 		const { rerender } = render(<MyIssues workspaceSlug="old-workspace" />);
 		await waitFor(() => expect(mockFetch.mock.calls).toHaveLength(1));
@@ -548,11 +564,13 @@ describe("MyIssues — stale request protection", () => {
 	it("ignores an old workspace error while the new workspace is still loading", async () => {
 		const oldPage = deferred<ReturnType<typeof pageResponse>>();
 		const newPage = deferred<ReturnType<typeof pageResponse>>();
-		const mockFetch = vi.fn().mockImplementation((_url: string, init: RequestInit) =>
-			(init.headers as Record<string, string>)["X-Workspace-Slug"] === "old-workspace"
-				? oldPage.promise
-				: newPage.promise
-		);
+		const mockFetch = vi
+			.fn()
+			.mockImplementation((_url: string, init: RequestInit) =>
+				(init.headers as Record<string, string>)["X-Workspace-Slug"] === "old-workspace"
+					? oldPage.promise
+					: newPage.promise
+			);
 		vi.stubGlobal("fetch", mockFetch);
 		const { rerender } = render(<MyIssues workspaceSlug="old-workspace" />);
 		await waitFor(() => expect(mockFetch.mock.calls).toHaveLength(1));
@@ -571,11 +589,13 @@ describe("MyIssues — stale request protection", () => {
 		const newPage = deferred<ReturnType<typeof pageResponse>>();
 		vi.stubGlobal(
 			"fetch",
-			vi.fn().mockImplementation((_url: string, init: RequestInit) =>
-				(init.headers as Record<string, string>)["X-Workspace-Slug"] === "old-workspace"
-					? Promise.resolve(pageResponse([OPEN_ISSUE_PROJ_A]))
-					: newPage.promise
-			)
+			vi
+				.fn()
+				.mockImplementation((_url: string, init: RequestInit) =>
+					(init.headers as Record<string, string>)["X-Workspace-Slug"] === "old-workspace"
+						? Promise.resolve(pageResponse([OPEN_ISSUE_PROJ_A]))
+						: newPage.promise
+				)
 		);
 		const { rerender } = render(<MyIssues workspaceSlug="old-workspace" />);
 		await waitForLoaded();

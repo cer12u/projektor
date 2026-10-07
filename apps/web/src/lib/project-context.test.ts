@@ -1,8 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { __resetApiFetchStateForTests } from "../utils/api-client";
 import {
-	__resetProjectStoreForTests, currentProject, ensureProjectResolved,
-	projectError, projectReady, projectsList, selectProject,
+	__resetProjectStoreForTests,
+	currentProject,
+	ensureProjectResolved,
+	projectError,
+	projectReady,
+	projectsList,
+	selectProject,
 } from "./project-context";
 
 const PROJECTS = [
@@ -18,7 +23,16 @@ beforeEach(() => {
 describe("shared project resolution races", () => {
 	it("does not let an old project request override an explicit All selection", async () => {
 		let finish: (value: unknown) => void = () => {};
-		vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: () => new Promise((resolve) => { finish = resolve; }) })));
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => ({
+				ok: true,
+				json: () =>
+					new Promise((resolve) => {
+						finish = resolve;
+					}),
+			}))
+		);
 		const pending = ensureProjectResolved(undefined, "p1");
 		await Promise.resolve();
 		selectProject(null);
@@ -31,7 +45,16 @@ describe("shared project resolution races", () => {
 
 	it("lets the latest URL win while sharing a pending project request", async () => {
 		let finish: (value: unknown) => void = () => {};
-		vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: () => new Promise((resolve) => { finish = resolve; }) })));
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => ({
+				ok: true,
+				json: () =>
+					new Promise((resolve) => {
+						finish = resolve;
+					}),
+			}))
+		);
 		history.replaceState(null, "", "/issues?projectId=p1");
 		const first = ensureProjectResolved(undefined);
 		await Promise.resolve();
@@ -45,12 +68,18 @@ describe("shared project resolution races", () => {
 
 	it("discards an old workspace result and never reuses its project list", async () => {
 		let finishOld: (value: unknown) => void = () => {};
-		vi.stubGlobal("fetch", vi.fn(async (_url: string, options: RequestInit) => ({
-			ok: true,
-			json: () => (options.headers as Record<string, string>)["X-Workspace-Slug"] === "old"
-				? new Promise((resolve) => { finishOld = resolve; })
-				: Promise.resolve([PROJECTS[1]]),
-		})));
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async (_url: string, options: RequestInit) => ({
+				ok: true,
+				json: () =>
+					(options.headers as Record<string, string>)["X-Workspace-Slug"] === "old"
+						? new Promise((resolve) => {
+								finishOld = resolve;
+							})
+						: Promise.resolve([PROJECTS[1]]),
+			}))
+		);
 		const old = ensureProjectResolved("old", "p1");
 		await Promise.resolve();
 		await ensureProjectResolved("new", "p2");
@@ -63,7 +92,10 @@ describe("shared project resolution races", () => {
 	});
 
 	it("resolves mixed legacy/canonical overview parameters consistently", async () => {
-		vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, json: async () => PROJECTS })));
+		vi.stubGlobal(
+			"fetch",
+			vi.fn(async () => ({ ok: true, json: async () => PROJECTS }))
+		);
 		history.replaceState(null, "", "/projects/view?projectId=p2&id=p1");
 		await ensureProjectResolved(undefined);
 		expect(currentProject.value?.id).toBe("p2");

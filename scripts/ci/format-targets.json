@@ -23,6 +23,7 @@
   "apps/api/src/test/migrations.ts",
   "apps/web/src/islands/EpicList.test.tsx",
   "apps/web/src/islands/IssueDetail.tsx",
+  "apps/web/src/islands/IssueDetailParts.tsx",
   "apps/web/src/islands/MyIssues.test.tsx",
   "apps/web/src/islands/WikiPage.test.tsx",
   "apps/web/src/islands/WikiPage.tsx",

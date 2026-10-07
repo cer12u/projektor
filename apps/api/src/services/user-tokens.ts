@@ -26,8 +26,13 @@ export async function getUserWorkspaces(ctx: UserCtx) {
      WHERE wm.user_id = ? AND (? IS NULL OR w.id = ?)
        AND (? = 0 OR (wm.role = 'member' AND w.id = ?))`
 		)
-		.bind(ctx.userId, ctx.tokenWorkspaceId ?? null, ctx.tokenWorkspaceId ?? null,
-			ctx.machinePrincipal ? 1 : 0, ctx.tokenWorkspaceId ?? null)
+		.bind(
+			ctx.userId,
+			ctx.tokenWorkspaceId ?? null,
+			ctx.tokenWorkspaceId ?? null,
+			ctx.machinePrincipal ? 1 : 0,
+			ctx.tokenWorkspaceId ?? null
+		)
 		.all();
 	return results;
 }

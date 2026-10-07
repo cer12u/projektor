@@ -248,18 +248,34 @@ describe("PROJ-837: project-scoped service operations reach the access guard", (
 				return entry.isDirectory() ? sourceFiles(path) : entry.name.endsWith(".ts") ? [path] : [];
 			});
 		}
-		const protectedBuilders = new Set(["buildInitialResolutionStatement", "buildResolutionTransitionStatement"]);
-		const importers = sourceFiles(src).filter((path) => {
-			const ast = ts.createSourceFile(path, readFileSync(path, "utf8"), ts.ScriptTarget.Latest, true);
-			return ast.statements.some((statement) => {
-				if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) ||
-					!statement.moduleSpecifier.text.endsWith("/issue-resolution")) return false;
-				const bindings = statement.importClause?.namedBindings;
-				if (!bindings) return false;
-				if (ts.isNamespaceImport(bindings)) return true;
-				return bindings.elements.some((element) => protectedBuilders.has((element.propertyName ?? element.name).text));
-			});
-		}).map((path) => relative(src, path));
+		const protectedBuilders = new Set([
+			"buildInitialResolutionStatement",
+			"buildResolutionTransitionStatement",
+		]);
+		const importers = sourceFiles(src)
+			.filter((path) => {
+				const ast = ts.createSourceFile(
+					path,
+					readFileSync(path, "utf8"),
+					ts.ScriptTarget.Latest,
+					true
+				);
+				return ast.statements.some((statement) => {
+					if (
+						!ts.isImportDeclaration(statement) ||
+						!ts.isStringLiteral(statement.moduleSpecifier) ||
+						!statement.moduleSpecifier.text.endsWith("/issue-resolution")
+					)
+						return false;
+					const bindings = statement.importClause?.namedBindings;
+					if (!bindings) return false;
+					if (ts.isNamespaceImport(bindings)) return true;
+					return bindings.elements.some((element) =>
+						protectedBuilders.has((element.propertyName ?? element.name).text)
+					);
+				});
+			})
+			.map((path) => relative(src, path));
 		expect(importers).toEqual(["services/issues.ts"]);
 	});
 

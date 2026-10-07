@@ -81,7 +81,9 @@ describe("durable issue resolution", () => {
 		const issue = await createIssue(ctx, { projectId, title: "Created complete", status: "done" });
 		expect((await times(issue.id))?.completed_at).toBeTypeOf("number");
 		expect((await events(ctx, issue.id))[0]?.from_status).toBeNull();
-		await expect(updateIssue(ctx, issue.id, { completedAt: 1, actorId: "forged" })).rejects.toThrow();
+		await expect(
+			updateIssue(ctx, issue.id, { completedAt: 1, actorId: "forged" })
+		).rejects.toThrow();
 	});
 
 	it("serializes simultaneous repeated closes into a single durable event", async () => {
@@ -105,7 +107,10 @@ describe("durable issue resolution", () => {
 		expect(await times(issueId)).toEqual(first);
 		await updateTaskStatus(ctx, status.id, { category: "todo" });
 		expect((await times(issueId))?.completed_at).toBeNull();
-		expect((await events(ctx, issueId)).map((event) => event.kind)).toEqual(["completed", "reopened"]);
+		expect((await events(ctx, issueId)).map((event) => event.kind)).toEqual([
+			"completed",
+			"reopened",
+		]);
 	});
 
 	it("keeps the latest observed completion available beyond the history preview", async () => {

@@ -4,8 +4,8 @@ import {
 	ListIssueResolutionEventsSchema,
 	MAX_RESOLUTION_WINDOW_SECONDS,
 } from "../schemas/issue-resolution";
-import { getIssue } from "../services/issues";
 import type { listIssueResolutionEvents } from "../services/issue-resolution-query";
+import { getIssue } from "../services/issues";
 import {
 	authHeaders,
 	type JsonRpcResult,
@@ -123,9 +123,9 @@ describe("Resolution event input validation", () => {
 			NaN,
 			Number.MAX_SAFE_INTEGER + 1,
 		]) {
-			expect(
-				ListIssueResolutionEventsSchema.safeParse({ after: value, before: 100 }).success
-			).toBe(false);
+			expect(ListIssueResolutionEventsSchema.safeParse({ after: value, before: 100 }).success).toBe(
+				false
+			);
 		}
 	});
 
@@ -198,9 +198,9 @@ describe("Issue resolution event query", () => {
 		expect(page.items[0].sequence).toEqual(expect.any(Number));
 		expect(page.items[0]).not.toHaveProperty("start");
 		expect(page.items[0]).not.toHaveProperty("end");
-		expect((await restPage(fixture, { after: 1, before: 2 })).items.map((item) => item.id)).toEqual([
-			middle,
-		]);
+		expect((await restPage(fixture, { after: 1, before: 2 })).items.map((item) => item.id)).toEqual(
+			[middle]
+		);
 		expect((await restPage(fixture, { after: 2, before: 3 })).items[0].kind).toBe("cancelled");
 	});
 
@@ -250,7 +250,11 @@ describe("Issue resolution event query", () => {
 	it("filters by project UUID/key and issue UUID/ref", async () => {
 		const otherProject = await seedProject(fixture.workspaceId, "OTHER");
 		const otherIssue = await seedIssue(fixture.workspaceId, otherProject.id, fixture.userId);
-		const sameProjectIssue = await seedIssue(fixture.workspaceId, fixture.projectId, fixture.userId);
+		const sameProjectIssue = await seedIssue(
+			fixture.workspaceId,
+			fixture.projectId,
+			fixture.userId
+		);
 		const match = await seedEvent(fixture, issue.id, 1);
 		const sameProject = await seedEvent(fixture, sameProjectIssue.id, 2);
 		await seedEvent(fixture, otherIssue.id, 3);
@@ -318,58 +322,93 @@ describe("Issue resolution event query", () => {
 
 	// Each filter is an independent case with its own fixture/rate window. Keep the
 	// normal limiter active: one case must not make 11 requests against the test cap of 5.
-	it.each(["project-id", "project-key", "unknown-project", "issue-id", "issue-ref", "unknown-issue"])(
-		"does not expose an ungranted project through %s", async (kind) => {
-			const viewer = await seedProjectFixture({ role: "viewer" });
-			const hiddenProject = await seedProject(viewer.workspaceId, "HIDDEN");
-			const hiddenIssue = await seedIssue(viewer.workspaceId, hiddenProject.id, viewer.userId);
-			await seedEvent(viewer, hiddenIssue.id, 2);
-			const filters: Record<string, QueryInput> = {
-				"project-id": { projectId: hiddenProject.id },
-				"project-key": { projectId: "HIDDEN" },
-				"unknown-project": { projectId: "UNKNOWN" },
-				"issue-id": { issueId: hiddenIssue.id },
-				"issue-ref": { issueId: `HIDDEN-${hiddenIssue.number}` },
-				"unknown-issue": { issueId: "HIDDEN-999" },
-			};
-			expect(await restPage(viewer, filters[kind])).toEqual({ items: [], nextCursor: null });
-		}
-	);
+	it.each([
+		"project-id",
+		"project-key",
+		"unknown-project",
+		"issue-id",
+		"issue-ref",
+		"unknown-issue",
+	])("does not expose an ungranted project through %s", async (kind) => {
+		const viewer = await seedProjectFixture({ role: "viewer" });
+		const hiddenProject = await seedProject(viewer.workspaceId, "HIDDEN");
+		const hiddenIssue = await seedIssue(viewer.workspaceId, hiddenProject.id, viewer.userId);
+		await seedEvent(viewer, hiddenIssue.id, 2);
+		const filters: Record<string, QueryInput> = {
+			"project-id": { projectId: hiddenProject.id },
+			"project-key": { projectId: "HIDDEN" },
+			"unknown-project": { projectId: "UNKNOWN" },
+			"issue-id": { issueId: hiddenIssue.id },
+			"issue-ref": { issueId: `HIDDEN-${hiddenIssue.number}` },
+			"unknown-issue": { issueId: "HIDDEN-999" },
+		};
+		expect(await restPage(viewer, filters[kind])).toEqual({ items: [], nextCursor: null });
+	});
 
 	it("issue history stays behind guarded reads without extra authorization queries", async () => {
 		const viewer = await seedProjectFixture({ role: "viewer" });
 		const hiddenProject = await seedProject(viewer.workspaceId, "HIDDEN");
 		const hiddenIssue = await seedIssue(viewer.workspaceId, hiddenProject.id, viewer.userId);
 		await seedEvent(viewer, hiddenIssue.id, 2);
-		const ctx = { db: env.DB, kv: env.KV, r2: env.R2, workspaceId: viewer.workspaceId, userId: viewer.userId, role: "viewer" as const };
-		for (const lookup of [{ id: hiddenIssue.id }, { ref: `HIDDEN-${hiddenIssue.number}` }, { id: `HIDDEN-${hiddenIssue.number}` }]) {
+		const ctx = {
+			db: env.DB,
+			kv: env.KV,
+			r2: env.R2,
+			workspaceId: viewer.workspaceId,
+			userId: viewer.userId,
+			role: "viewer" as const,
+		};
+		for (const lookup of [
+			{ id: hiddenIssue.id },
+			{ ref: `HIDDEN-${hiddenIssue.number}` },
+			{ id: `HIDDEN-${hiddenIssue.number}` },
+		]) {
 			await expect(getIssue(ctx, lookup)).rejects.toMatchObject({ kind: "not_found" });
 		}
 		await expect(getIssue(ctx, { id: issue.id })).rejects.toMatchObject({ kind: "not_found" });
 		const inconsistent = await seedIssue(fixture.workspaceId, hiddenProject.id, fixture.userId);
-		const ownerCtx = { ...ctx, workspaceId: fixture.workspaceId, userId: fixture.userId, role: "owner" as const };
+		const ownerCtx = {
+			...ctx,
+			workspaceId: fixture.workspaceId,
+			userId: fixture.userId,
+			role: "owner" as const,
+		};
 		for (const lookup of [{ id: inconsistent.id }, { ref: `HIDDEN-${inconsistent.number}` }]) {
 			await expect(getIssue(ownerCtx, lookup)).rejects.toMatchObject({ kind: "not_found" });
 		}
 	});
 
-	it.each(["group-membership", "project-grant"])("cached issue history obeys next-request %s revocation", async (kind) => {
-		const viewer = await seedProjectFixture({ role: "viewer" });
-		const ownedIssue = await seedIssue(viewer.workspaceId, viewer.projectId, viewer.userId);
-		await seedEvent(viewer, ownedIssue.id, 2);
-		const ctx = { db: env.DB, kv: env.KV, r2: env.R2, workspaceId: viewer.workspaceId, userId: viewer.userId, role: "viewer" as const };
-		for (const lookup of [{ id: ownedIssue.id }, { ref: `PROJ-${ownedIssue.number}` }]) {
-			expect(await getIssue(ctx, lookup)).toMatchObject({ id: ownedIssue.id });
+	it.each(["group-membership", "project-grant"])(
+		"cached issue history obeys next-request %s revocation",
+		async (kind) => {
+			const viewer = await seedProjectFixture({ role: "viewer" });
+			const ownedIssue = await seedIssue(viewer.workspaceId, viewer.projectId, viewer.userId);
+			await seedEvent(viewer, ownedIssue.id, 2);
+			const ctx = {
+				db: env.DB,
+				kv: env.KV,
+				r2: env.R2,
+				workspaceId: viewer.workspaceId,
+				userId: viewer.userId,
+				role: "viewer" as const,
+			};
+			for (const lookup of [{ id: ownedIssue.id }, { ref: `PROJ-${ownedIssue.number}` }]) {
+				expect(await getIssue(ctx, lookup)).toMatchObject({ id: ownedIssue.id });
+			}
+			if (kind === "group-membership") {
+				await env.DB.prepare("DELETE FROM user_group_members WHERE user_id = ?")
+					.bind(viewer.userId)
+					.run();
+			} else {
+				await env.DB.prepare("DELETE FROM group_project_grants WHERE project_id = ?")
+					.bind(viewer.projectId)
+					.run();
+			}
+			for (const lookup of [{ id: ownedIssue.id }, { ref: `PROJ-${ownedIssue.number}` }]) {
+				await expect(getIssue(ctx, lookup)).rejects.toMatchObject({ kind: "not_found" });
+			}
 		}
-		if (kind === "group-membership") {
-			await env.DB.prepare("DELETE FROM user_group_members WHERE user_id = ?").bind(viewer.userId).run();
-		} else {
-			await env.DB.prepare("DELETE FROM group_project_grants WHERE project_id = ?").bind(viewer.projectId).run();
-		}
-		for (const lookup of [{ id: ownedIssue.id }, { ref: `PROJ-${ownedIssue.number}` }]) {
-			await expect(getIssue(ctx, lookup)).rejects.toMatchObject({ kind: "not_found" });
-		}
-	});
+	);
 
 	it("workspace removal blocks a warmed issue read before history is returned", async () => {
 		const viewer = await seedProjectFixture({ role: "viewer" });
@@ -378,7 +417,8 @@ describe("Issue resolution event query", () => {
 		const headers = authHeaders(viewer.token, viewer.slug);
 		expect((await SELF.fetch(url, { headers })).status).toBe(200);
 		await env.DB.prepare("DELETE FROM workspace_members WHERE workspace_id = ? AND user_id = ?")
-			.bind(viewer.workspaceId, viewer.userId).run();
+			.bind(viewer.workspaceId, viewer.userId)
+			.run();
 		expect((await SELF.fetch(url, { headers })).status).toBe(403);
 	});
 
@@ -390,7 +430,12 @@ describe("Issue resolution event query", () => {
 		const visible = await seedEvent(viewer, publicIssue.id, 1);
 		const hidden = await seedEvent(viewer, hiddenIssue.id, 2);
 		expect((await restPage(viewer)).items.map((item) => item.id)).toEqual([visible]);
-		const grant = await seedGroupGrant(viewer.workspaceId, viewer.userId, hiddenProject.id, "viewer");
+		const grant = await seedGroupGrant(
+			viewer.workspaceId,
+			viewer.userId,
+			hiddenProject.id,
+			"viewer"
+		);
 		expect((await restPage(viewer)).items.map((item) => item.id)).toEqual([visible, hidden]);
 		await env.DB.prepare("DELETE FROM user_group_members WHERE group_id = ? AND user_id = ?")
 			.bind(grant.groupId, viewer.userId)

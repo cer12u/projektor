@@ -300,7 +300,8 @@ function addDateRangeFilters(conditions: Condition[], filters: ListIssuesFilters
 	const { completedAfter, completedBefore, updatedAfter, updatedBefore } = filters;
 
 	if (completedAfter !== undefined) conditions.push(gte(schema.issues.completedAt, completedAfter));
-	if (completedBefore !== undefined) conditions.push(lte(schema.issues.completedAt, completedBefore));
+	if (completedBefore !== undefined)
+		conditions.push(lte(schema.issues.completedAt, completedBefore));
 	if (updatedAfter !== undefined) conditions.push(gte(schema.issues.updatedAt, updatedAfter));
 	if (updatedBefore !== undefined) conditions.push(lte(schema.issues.updatedAt, updatedBefore));
 }
