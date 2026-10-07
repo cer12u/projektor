@@ -6,7 +6,7 @@
 	"types": "./src/index.ts",
 	"scripts": {
 		"type-check": "tsc --noEmit",
-		"test": "cross-env NODE_OPTIONS=--experimental-sqlite vitest run && node --experimental-sqlite --test ../../scripts/project-key-integrity.test.mjs"
+		"test": "cross-env NODE_OPTIONS=--experimental-sqlite vitest run && node --experimental-sqlite ../../scripts/project-key-integrity.test.mjs"
 	},
 	"dependencies": {
 		"@projektor/types": "workspace:*",
