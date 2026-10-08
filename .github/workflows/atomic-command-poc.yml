@@ -5,6 +5,7 @@ on:
     paths:
       - 'experiments/atomic-command-poc/**'
       - 'browser-review-evidence/*.mjs'
+      - 'query-review-evidence/*.mjs'
       - '.github/workflows/atomic-command-poc.yml'
 
 permissions:
@@ -127,6 +128,11 @@ jobs:
         run: |
           set -o pipefail
           node --test --test-reporter=tap browser-review-evidence/editor-probes.mjs 2>&1 | tee experiments/atomic-command-poc/evidence/browser/editor-probes.tap
+      - name: Independently probe My Issues browser authorization and lifecycle
+        if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          node --test --test-reporter=tap query-review-evidence/browser-probes.mjs 2>&1 | tee experiments/atomic-command-poc/evidence/browser/my-issues-probes.tap
       - name: Verify tests leave tracked files unchanged
         if: ${{ !cancelled() }}
         run: git diff --exit-code
@@ -136,5 +142,47 @@ jobs:
         with:
           name: local-browser-draft-recovery-${{ github.event.pull_request.head.sha }}
           path: experiments/atomic-command-poc/evidence/browser/
+          if-no-files-found: warn
+          retention-days: 7
+
+  my-issues-query:
+    name: My Issues independent query and controller contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+      - name: Install locked local test runtime
+        working-directory: experiments/atomic-command-poc
+        run: npm ci
+      - name: Independently probe Node SQLite query authorization and pagination
+        run: |
+          mkdir -p experiments/atomic-command-poc/evidence/query
+          set -o pipefail
+          node --test --test-reporter=tap query-review-evidence/query-probes.mjs 2>&1 | tee experiments/atomic-command-poc/evidence/query/node-probes.tap
+      - name: Independently probe actual workerd SQLite query
+        if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          REVIEW_RUNTIME=workerd node --test --test-reporter=tap query-review-evidence/query-probes.mjs 2>&1 | tee experiments/atomic-command-poc/evidence/query/workerd-probes.tap
+      - name: Independently probe My Issues controller lifecycle
+        if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          node --test --test-reporter=tap query-review-evidence/controller-probes.mjs 2>&1 | tee experiments/atomic-command-poc/evidence/query/controller-probes.tap
+      - name: Verify tests leave tracked files unchanged
+        if: ${{ !cancelled() }}
+        run: git diff --exit-code
+      - name: Upload synthetic query test logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-my-issues-query-${{ github.event.pull_request.head.sha }}
+          path: experiments/atomic-command-poc/evidence/query/
           if-no-files-found: warn
           retention-days: 7

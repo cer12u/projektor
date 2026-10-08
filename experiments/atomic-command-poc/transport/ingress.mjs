@@ -4,6 +4,7 @@ export { AuthenticatedWorkspace } from './workspace.mjs';
 const uuid='[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}';
 const commandRoute=new RegExp(`^/(machine/)?v1/workspaces/(${uuid})/commands$`);
 const issueRoute=new RegExp(`^/(machine/)?v1/workspaces/(${uuid})/issues/(${uuid})$`);
+const myIssuesRoute=new RegExp(`^/(machine/)?v1/workspaces/(${uuid})/my-issues$`);
 const receiptRoute=new RegExp(`^/(machine/)?v1/workspaces/(${uuid})/operations/(${uuid})$`);
 function response(body,status=200) {return Response.json(body,{status,headers:{'cache-control':'no-store','x-content-type-options':'nosniff'}});}
 function error(code,status) {return response({error:{code,outcome:'unknown',retryable:status===503}},status);}
@@ -30,10 +31,10 @@ export async function body(request, deadlineMs=3000) {
 }
 export default {async fetch(request,env) {
  try {
-  const url=new URL(request.url),command=url.pathname.match(commandRoute),receipt=url.pathname.match(receiptRoute),issue=url.pathname.match(issueRoute);
-  if(!command&&!receipt&&!issue)return error('NOT_FOUND',404);
-  if((command&&request.method!=='POST')||((receipt||issue)&&request.method!=='GET'))return error('METHOD_NOT_ALLOWED',405);
-  const route=command||receipt||issue,kind=route[1]?'machine':'human';
+  const url=new URL(request.url),command=url.pathname.match(commandRoute),receipt=url.pathname.match(receiptRoute),issue=url.pathname.match(issueRoute),myIssues=url.pathname.match(myIssuesRoute);
+  if(!command&&!receipt&&!issue&&!myIssues)return error('NOT_FOUND',404);
+  if((command&&request.method!=='POST')||((receipt||issue||myIssues)&&request.method!=='GET'))return error('METHOD_NOT_ALLOWED',405);
+  const route=command||receipt||issue||myIssues,kind=route[1]?'machine':'human';
   const verified=await authenticate(request,env,kind);
   if(verified.workspaceId!==route[2])return error('WORKSPACE_MISMATCH',403);
   if(command&&kind==='human'&&(url.origin!==env.TEST_ORIGIN||request.headers.get('origin')!==env.TEST_ORIGIN||request.headers.get('x-projektor-csrf')!=='same-origin'))return error('CSRF_REJECTED',403);
@@ -44,6 +45,12 @@ export default {async fetch(request,env) {
    const invalid=validate(c);if(invalid)return error(invalid,invalid==='PRECONDITION_REQUIRED'?428:400);
    if(c.workspaceId!==route[2]||request.headers.get('idempotency-key')!==c.operationId)return error('ENVELOPE_MISMATCH',400);
    result=await stub.command(verified,c);
+  } else if(myIssues) {
+   const allowed=['workspaceEpoch','status','projectId','limit','cursor'];
+   if([...url.searchParams.keys()].some(k=>!allowed.includes(k)||url.searchParams.getAll(k).length!==1)||!url.searchParams.has('workspaceEpoch'))return error('VALIDATION',400);
+   const args={workspaceId:route[2],...Object.fromEntries(url.searchParams)};
+   if(args.limit!==undefined){if(!/^[1-9][0-9]{0,2}$/.test(args.limit))return error('VALIDATION',400);args.limit=Number(args.limit);}
+   result=await stub.myIssues(verified,args);
   } else {
    if([...url.searchParams.keys()].some(k=>k!=='workspaceEpoch')||url.searchParams.getAll('workspaceEpoch').length!==1)return error('VALIDATION',400);
    const args={workspaceId:route[2],workspaceEpoch:url.searchParams.get('workspaceEpoch')};

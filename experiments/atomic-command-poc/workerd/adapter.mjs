@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto';
+import { queryMyIssues } from '../src/my-issues.mjs';
 import { DurableObject } from 'cloudflare:workers';
 import schema from '../src/schema.sql';
 import { StorageFailure, executeCommand, operationGet, queryIssues, failure } from '../src/shared-core.mjs';
@@ -26,7 +28,7 @@ export class AtomicWorkspace extends DurableObject {
   this.db=sqliteStore(ctx.storage);
   ctx.blockConcurrencyWhile(async()=>{
    if(!ctx.storage.sql.exec("SELECT name FROM sqlite_master WHERE name='workspace'").toArray().length)
-    ctx.storage.transactionSync(()=>ctx.storage.sql.exec(schema));
+    ctx.storage.transactionSync(()=>{ctx.storage.sql.exec(schema);ctx.storage.sql.exec('INSERT INTO query_state VALUES(1,0,?)',randomBytes(32).toString('hex'));});
   });
  }
  // Actor must come from a trusted authentication boundary. There is deliberately
@@ -37,6 +39,9 @@ export class AtomicWorkspace extends DurableObject {
  }
  getOperation(actor,args,now) {
   try{return operationGet(this.db,actor,args,now);}catch{return failure('UNAVAILABLE','unknown');}
+ }
+ getMyIssues(actor,args,now) {
+  try{return queryMyIssues(this.db,actor,args,now);}catch{return failure('UNAVAILABLE','unknown');}
  }
  getIssues(actor,args,now) {
   try{return queryIssues(this.db,actor,args,now);}catch{return failure('UNAVAILABLE','unknown');}

@@ -8,3 +8,27 @@ CREATE TABLE activity(change_seq INTEGER PRIMARY KEY, issue_id TEXT NOT NULL REF
 CREATE VIRTUAL TABLE issue_fts USING fts5(issue_id UNINDEXED, title, tokenize='trigram');
 CREATE TABLE outbox(event_id TEXT PRIMARY KEY, change_seq INTEGER NOT NULL REFERENCES activity(change_seq), payload TEXT NOT NULL, state TEXT NOT NULL CHECK(state='pending'));
 CREATE TABLE operation(workspace_id TEXT NOT NULL REFERENCES workspace(id), principal_id TEXT NOT NULL, operation_id TEXT NOT NULL, hash_version TEXT NOT NULL, payload_hash TEXT NOT NULL, entity_id TEXT NOT NULL, project_at_commit TEXT, result_json TEXT NOT NULL, PRIMARY KEY(workspace_id,principal_id,operation_id));
+
+-- Query projection is explicit: legacy title-only rows have no fabricated assignment.
+CREATE TABLE issue_queue(issue_id TEXT PRIMARY KEY REFERENCES issue(id), assignee_id TEXT REFERENCES membership(principal_id), status_category TEXT NOT NULL CHECK(status_category IN ('backlog','ready','in_progress','blocked','done','canceled')), priority INTEGER CHECK(priority IS NULL OR (typeof(priority)='integer' AND priority BETWEEN 0 AND 4)), created_at INTEGER NOT NULL CHECK(typeof(created_at)='integer' AND created_at>=0 AND created_at<=9007199254740991), restricted_read INTEGER NOT NULL DEFAULT 0 CHECK(restricted_read IN (0,1)));
+CREATE INDEX issue_queue_order ON issue_queue(assignee_id, COALESCE(priority,5),created_at,issue_id);
+CREATE TABLE issue_read_grant(issue_id TEXT NOT NULL REFERENCES issue(id),principal_id TEXT NOT NULL REFERENCES membership(principal_id),can_read INTEGER NOT NULL CHECK(can_read IN (0,1)),PRIMARY KEY(issue_id,principal_id));
+CREATE TABLE query_state(id INTEGER PRIMARY KEY CHECK(id=1),revision INTEGER NOT NULL DEFAULT 0,cursor_key TEXT NOT NULL);
+CREATE TRIGGER query_issue_insert AFTER INSERT ON issue BEGIN UPDATE query_state SET revision=revision+1 WHERE id=1; END;
+CREATE TRIGGER query_issue_update AFTER UPDATE ON issue BEGIN UPDATE query_state SET revision=revision+1 WHERE id=1; END;
+CREATE TRIGGER query_issue_delete AFTER DELETE ON issue BEGIN UPDATE query_state SET revision=revision+1 WHERE id=1; END;
+CREATE TRIGGER query_issue_queue_insert AFTER INSERT ON issue_queue BEGIN UPDATE query_state SET revision=revision+1 WHERE id=1; END;
+CREATE TRIGGER query_issue_queue_update AFTER UPDATE ON issue_queue BEGIN UPDATE query_state SET revision=revision+1 WHERE id=1; END;
+CREATE TRIGGER query_issue_queue_delete AFTER DELETE ON issue_queue BEGIN UPDATE query_state SET revision=revision+1 WHERE id=1; END;
+CREATE TRIGGER query_issue_read_grant_insert AFTER INSERT ON issue_read_grant BEGIN UPDATE query_state SET revision=revision+1 WHERE id=1; END;
+CREATE TRIGGER query_issue_read_grant_update AFTER UPDATE ON issue_read_grant BEGIN UPDATE query_state SET revision=revision+1 WHERE id=1; END;
+CREATE TRIGGER query_issue_read_grant_delete AFTER DELETE ON issue_read_grant BEGIN UPDATE query_state SET revision=revision+1 WHERE id=1; END;
+CREATE TRIGGER query_project_grant_insert AFTER INSERT ON project_grant BEGIN UPDATE query_state SET revision=revision+1 WHERE id=1; END;
+CREATE TRIGGER query_project_grant_update AFTER UPDATE ON project_grant BEGIN UPDATE query_state SET revision=revision+1 WHERE id=1; END;
+CREATE TRIGGER query_project_grant_delete AFTER DELETE ON project_grant BEGIN UPDATE query_state SET revision=revision+1 WHERE id=1; END;
+CREATE TRIGGER query_membership_insert AFTER INSERT ON membership BEGIN UPDATE query_state SET revision=revision+1 WHERE id=1; END;
+CREATE TRIGGER query_membership_update AFTER UPDATE ON membership BEGIN UPDATE query_state SET revision=revision+1 WHERE id=1; END;
+CREATE TRIGGER query_membership_delete AFTER DELETE ON membership BEGIN UPDATE query_state SET revision=revision+1 WHERE id=1; END;
+CREATE TRIGGER query_credential_insert AFTER INSERT ON credential BEGIN UPDATE query_state SET revision=revision+1 WHERE id=1; END;
+CREATE TRIGGER query_credential_update AFTER UPDATE ON credential BEGIN UPDATE query_state SET revision=revision+1 WHERE id=1; END;
+CREATE TRIGGER query_credential_delete AFTER DELETE ON credential BEGIN UPDATE query_state SET revision=revision+1 WHERE id=1; END;

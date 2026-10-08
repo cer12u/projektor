@@ -19,6 +19,10 @@ export class AuthenticatedWorkspace extends AtomicWorkspace {
   const actor=this.actor(verified);
   return actor ? this.getIssues(actor,args) : failure('UNAUTHENTICATED');
  }
+ myIssues(verified,args) {
+  const actor=this.actor(verified);
+  return actor ? this.getMyIssues(actor,args) : failure('UNAUTHENTICATED');
+ }
  receipt(verified,args) {
   const actor=this.actor(verified);
   return actor ? this.getOperation(actor,args) : failure('UNAUTHENTICATED');

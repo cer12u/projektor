@@ -1,3 +1,4 @@
+import { queryMyIssues } from './my-issues.mjs';
 import { executeCommand, failure, operationGet, StorageFailure } from './shared-core.mjs';
 // ActorContext is supplied by a trusted fixture authenticator, never request JSON.
 const status={VALIDATION:400,SCHEMA_UNSUPPORTED:400,TITLE_EMPTY:400,PRECONDITION_REQUIRED:428,UNAUTHENTICATED:401,EXPIRED:401,FORBIDDEN:403,NOT_FOUND:404,VERSION_CONFLICT:409,KEY_REUSE:409,EPOCH_MISMATCH:409,STORE_FENCED:503,WORKSPACE_MISMATCH:400,UNAVAILABLE:503,RESPONSE_LOST:503};
@@ -19,3 +20,7 @@ export function mcpUpdate(db,actor,{name,arguments:args},options){
 function lookup(db,actor,args,now){try{return operationGet(db,actor,args,now);}catch{return failure('UNAVAILABLE','unknown');}}
 export function restOperationGet(db,actor,args,now){const body=lookup(db,actor,args,now);return {status:body.error?(status[body.error.code]??500):200,body};}
 export function mcpOperationGet(db,actor,args,now){const result=lookup(db,actor,args,now);return {isError:Boolean(result.error),structuredContent:result};}
+
+// Thin query surfaces use the identical authorized SQL service.
+export function restMyIssues(db,actor,args,now){let body;try{body=queryMyIssues(db,actor,args,now);}catch{body=failure('UNAVAILABLE');}return {status:body.error?(status[body.error.code]??400):200,body};}
+export function mcpMyIssues(db,actor,{name,arguments:args},now){const result=name==='my_issues'?restMyIssues(db,actor,args,now).body:failure('VALIDATION');return {isError:Boolean(result.error),structuredContent:result};}

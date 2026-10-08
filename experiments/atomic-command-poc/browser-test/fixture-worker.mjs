@@ -3,7 +3,7 @@
 import ingress, { body } from '../transport/ingress.mjs';
 import { authenticate, AuthError } from '../transport/auth.mjs';
 import { AuthenticatedWorkspace } from '../transport/workspace.mjs';
-import { canonical, failure } from '../src/shared-core.mjs';
+import { canonical, failure, resourceReadable } from '../src/shared-core.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const bindingFields = ['principalId','workspaceId','workspaceEpoch','resourceType','resourceId','editorId','projectAtProtection','draftId'];
@@ -97,6 +97,7 @@ export class BrowserFixtureWorkspace extends AuthenticatedWorkspace {
    if (binding.principalId !== session.principalId || binding.workspaceId !== session.workspaceId) return fail('DRAFT_SCOPE_MISMATCH');
    if (binding.workspaceEpoch !== session.workspaceEpoch) return fail('EPOCH_MISMATCH',409);
    const issue = this.row('SELECT * FROM issue WHERE id=?',binding.resourceId);
+   if(issue && !resourceReadable(this.db,{principalId:session.principalId},issue.id))return fail('NOT_FOUND',404);
    // Deletion, current resource grant, and the original protection project all
    // gate key access. Workspace membership alone never permits key disclosure.
    if (!issue || issue.deleted) return fail('NOT_FOUND',404);

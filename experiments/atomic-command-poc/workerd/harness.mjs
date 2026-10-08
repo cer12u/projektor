@@ -23,13 +23,14 @@ export class FixtureWorkspace extends AtomicWorkspace {
   return r;
  }
  lookup(args){return this.getOperation(actor,args,now);}
+ myIssues(args,asActor=actor){return this.getMyIssues(asActor,args,now);}
  query(args){return this.getIssues(actor,args,now);}
 }
 export default {async fetch(request,env){
  const {object,action,args=[]}=await request.json();
  const stub=env.WORKSPACE.getByName(object);
  // Narrow dispatch used solely by the local test harness, never deployed.
- if(!['seed','sql','snapshot','command','lookup','query'].includes(action))return new Response('',{status:404});
+ if(!['seed','sql','snapshot','command','lookup','query','myIssues'].includes(action))return new Response('',{status:404});
  try{return Response.json(await stub[action](...args));}
  catch(error) {console.error(error);return Response.json({error:{code:'TRANSPORT_UNKNOWN',outcome:'unknown',retryable:true}},{status:503});}
 }};

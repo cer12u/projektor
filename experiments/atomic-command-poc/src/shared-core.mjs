@@ -25,7 +25,7 @@ export function fingerprint(actor,c){return createHash('sha256').update(canonica
 const get=(db,sql,...args)=>db.prepare(sql).get(...args);
 const run=(db,sql,...args)=>db.prepare(sql).run(...args);
 function one(db,sql,...args){const result=run(db,sql,...args);if(result.changes!==1)throw new Error('Required write count invariant violated');return result;}
-function authorized(db,actor,workspaceId,epoch,now){
+export function authorized(db,actor,workspaceId,epoch,now){
   const w=get(db,'SELECT * FROM workspace WHERE id=?',workspaceId);
   if(!w||actor?.workspaceId!==workspaceId)return 'WORKSPACE_MISMATCH';
   if(!w.active)return 'STORE_FENCED';
@@ -38,6 +38,10 @@ function authorized(db,actor,workspaceId,epoch,now){
   if(cred.revoked||member.revoked)return 'FORBIDDEN';
   return null;
 }
+export function resourceReadable(db,actor,issueId){
+ const q=get(db,'SELECT restricted_read FROM issue_queue WHERE issue_id=?',issueId);
+ return !q?.restricted_read || Boolean(get(db,'SELECT can_read FROM issue_read_grant WHERE issue_id=? AND principal_id=?',issueId,actor.principalId)?.can_read);
+}
 function can(db,actor,project,mode){
  const cred=get(db,'SELECT * FROM credential WHERE id=?',actor.credentialId);
  const grant=get(db,'SELECT * FROM project_grant WHERE principal_id=? AND project_id=?',actor.principalId,project);
@@ -47,12 +51,12 @@ function visibleReceipt(db,actor,row){
  if(!get(db,'SELECT read_own FROM membership WHERE principal_id=?',actor.principalId)?.read_own)return false;
  const current=get(db,'SELECT * FROM issue WHERE id=?',row.entity_id);
  if(row.project_at_commit===null)return Boolean(get(db,'SELECT can_read FROM credential WHERE id=?',actor.credentialId)?.can_read);
- return Boolean(current&&!current.deleted&&can(db,actor,current.project_id,'read')&&can(db,actor,row.project_at_commit,'read'));
+ return Boolean(current&&!current.deleted&&resourceReadable(db,actor,current.id)&&can(db,actor,current.project_id,'read')&&can(db,actor,row.project_at_commit,'read'));
 }
 export class StorageFailure extends Error {
  constructor(outcome){super('Storage operation failed');this.outcome=outcome;}
 }
-function transaction(db,fn){
+export function transaction(db,fn){
  if(db.transactionSync)return db.transactionSync(fn);
  try{db.exec('BEGIN IMMEDIATE');}catch{throw new StorageFailure('not_committed');}
  try{const result=fn();db.exec('COMMIT');return result;}
@@ -78,7 +82,9 @@ export function executeCommand(db,actor,c,{now,fault=()=>{}}={}){
   const issue=get(db,'SELECT * FROM issue WHERE id=?',c.entityId);
   const save=(result,receiptProject=issue?.project_id??null)=>{one(db,'INSERT INTO operation VALUES(?,?,?,?,?,?,?,?)',c.workspaceId,actor.principalId,c.operationId,HASH_VERSION,hash,c.entityId,receiptProject,JSON.stringify(result));return result;};
   // No target details are returned for permission rejection.
-  if(issue&&!can(db,actor,issue.project_id,'read'))return save(failure('NOT_FOUND','rejected'),null);
+  if(issue&&(!resourceReadable(db,actor,issue.id)||!can(db,actor,issue.project_id,'read')))return save(failure('NOT_FOUND','rejected'),null);
+  // Restricted-resource write contracts are not implemented by this read-only slice.
+  if(issue&&get(db,'SELECT restricted_read FROM issue_queue WHERE issue_id=?',issue.id)?.restricted_read)return save(failure('FORBIDDEN','rejected'));
   if(issue&&!can(db,actor,issue.project_id,'write'))return save(failure('FORBIDDEN','rejected'));
   if(!issue||issue.deleted)return save(failure('NOT_FOUND','rejected'),null);
   if(c.payload.title.trim().length===0)return save(failure('TITLE_EMPTY','rejected'));
@@ -110,7 +116,7 @@ export function queryIssues(db,actor,{workspaceId,workspaceEpoch,entityId},now){
  if(!validId(workspaceId)||!validId(workspaceEpoch)||(entityId!==undefined&&!validId(entityId)))return failure('VALIDATION');
  return transaction(db,()=>{now ??= Date.now();const denied=authorized(db,actor,workspaceId,workspaceEpoch,now);if(denied)return failure(denied,'unknown');
  if(!get(db,'SELECT can_read FROM credential WHERE id=?',actor.credentialId)?.can_read)return failure('FORBIDDEN');
- const rows=db.prepare('SELECT * FROM issue WHERE deleted=0 ORDER BY id').all().filter(r=>can(db,actor,r.project_id,'read'));
+ const rows=db.prepare('SELECT * FROM issue WHERE deleted=0 ORDER BY id').all().filter(r=>resourceReadable(db,actor,r.id)&&can(db,actor,r.project_id,'read'));
  if(entityId){const row=rows.find(r=>r.id===entityId);return row?{data:row}:failure('NOT_FOUND');}
  return {data:{items:rows,nextCursor:null}};});
 }
