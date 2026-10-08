@@ -11,6 +11,7 @@ import {createBarrier,safePageLocation,gateFailureMessage} from './barrier.mjs';
 import {selectedFixtureSession} from './session-fixture.mjs';
 import {phase,resourcePhase,trace} from './trace.mjs';
 import {enterFixtureRoot} from './fixture-root.mjs';
+import {issueBodyReady} from './issue-ready.mjs';
 function test(name,run){return nodeTest(name,t=>phase(t,'scenario_body',()=>run(t),70000));}
 function reportBarrierTimeout(label){
   trace('S00',label==='POST /v1/workspaces/:id/commands'?'gate_command':'gate_projects','timeout');
@@ -94,6 +95,7 @@ async function createIssue(f){
   },25000);
   await phase(f.t,'create_open',async()=>{
     await f.page.getByRole('button',{name:'Open created issue',exact:true}).click();
+    await f.page.waitForFunction(issueBodyReady,undefined,{timeout:10000});
     await f.page.getByRole('textbox',{name:'Markdown body',exact:true}).waitFor();
   },25000);
 }
