@@ -51,6 +51,17 @@ const definitive = new Set(['POLICY_VERSION_CONFLICT','POLICY_MIGRATION_REQUIRED
   'BODY_TOO_LARGE', 'CONTENT_EMPTY', 'ASSIGNEE_INVALID', 'PARENT_INVALID', 'ENTITY_EXISTS',
   'COMMENT_EXISTS', 'COMMENT_FORBIDDEN', 'PROJECT_NOT_FOUND', 'LINK_INTEGRATION_UNAVAILABLE','LINK_MAPPING_INVALID','ALIAS_CONFLICT','PARENT_OR_ALIAS_CONFLICT','TREE_CONFLICT','TREE_ACCESS_OR_ALIAS_CONFLICT','ACTIVE_CHILDREN']);
 
+// Finite failures emitted by Issue.Transition's workflow/compatibility handlers.
+// These are terminal only with the existing explicit rejected/zero-effect proof,
+// and only for that command's submit or receipt response. Unknown codes stay open.
+const transitionDefinitive = new Set([
+  'ACTOR_KIND_MISMATCH', 'WORKFLOW_STATE_UNAVAILABLE', 'CLAIM_STALE',
+  'ARTIFACT_CAPTURE_UNAVAILABLE', 'COMPATIBILITY_UNAVAILABLE', 'COMPAT_STATE_MISMATCH',
+  'COMPAT_STATUS_MISMATCH', 'COMPAT_STATUS_REQUIRED', 'REOPEN_REQUIRED', 'REASON_REQUIRED',
+  'BLOCKED_EVIDENCE_REQUIRED', 'EXTERNAL_OUTCOME_UNKNOWN', 'RESULT_REQUIRED',
+  'UNRESOLVED_CHILDREN', 'ENTRY_EXISTS',
+]);
+
 /** One HTTP attempt only: never refresh, redirect, or retry a command here. */
 export function createFetchTransport({baseUrl, fetchImpl = globalThis.fetch, prefix = '/machine/v1',
   getToken = session => session.token, paths = {}, authRedirectOrigins = [],
@@ -103,7 +114,7 @@ export function createFetchTransport({baseUrl, fetchImpl = globalThis.fetch, pre
         return {...ambiguous(code === 'AUTH_INFRASTRUCTURE_UNAVAILABLE' ? code : 'SERVER_UNAVAILABLE'),
           ...retryInfo};
       }
-      if (definitive.has(code)) return body.error.outcome === 'rejected' && body.error.effectApplied === false
+      if (definitive.has(code) || command.commandType === 'Issue.Transition' && ['submit','receipt'].includes(kind) && transitionDefinitive.has(code)) return body.error.outcome === 'rejected' && body.error.effectApplied === false
         ? {kind: 'rejected', code, body} : {kind: 'blocked', code, outcome: 'unknown', body};
       if (!response.ok || code) return ambiguous('PROTOCOL_ERROR');
       if (kind === 'resource' && body.data && typeof body.data === 'object') return {kind: 'resource', body};

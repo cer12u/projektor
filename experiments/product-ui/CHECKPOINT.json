@@ -1,12 +1,12 @@
 {
-  "scope": "Frozen unpublished Issue compatibility source checkpoint; reviewed native/query/draft boundaries; candidate CI not run",
-  "baselineCommit": "949869f129223d7b8d2cb4cb188d92f8e50219ee",
-  "sourceManifestSHA256": "fcc0de8a47dbce64913568aaed0c4138dfdfa4b1a33cc324dcdab4f662632591",
+  "scope": "Reviewed C23 HTTP rejection-classification repair; two selected transport/controller cases and exact-head C22/C23 CI",
+  "baselineCommit": "be51e97823c5c4fe670502bf15ddc066174218ef",
+  "sourceManifestSHA256": "2c7f70e6ca705bec96100ad315c90e2c2589cce949c95513cb2f85cc17b2635c",
   "verification": {
     "typecheck": "PASS (local reviewed source)",
     "productionBuild": "PASS (local reviewed source)",
-    "nativeIntegration": "Nine Issue compatibility cases prepared; six unchanged passing cases reused and three affected detail/list bounds cases passed locally",
-    "protectedController": "One actual SQLite/controller scenario and four selected compact-list/no-op boundary cases passed locally",
+    "nativeIntegration": "Nine native cases and six selected contracts reused from passing be51e978 CI",
+    "protectedController": "Production Request/Response transport now replaces bypass classifier; updated controller and finite classification cases both passed locally",
     "chromiumE2E": {
       "prepared": 23,
       "originalCasesPreserved": 21,
@@ -17,19 +17,18 @@
       "reusedCaseIds": "C01-C21",
       "reusedEvidenceCommit": "949869f129223d7b8d2cb4cb188d92f8e50219ee",
       "reusedEvidenceRun": "https://github.com/cer12u/projektor/actions/runs/37801413590",
-      "status": "C22/C23 not run in CI for this unpublished candidate; local Chromium was blocked, so no browser success is claimed"
+      "status": "C22 passed and C23 failed at be51e978 due to missing RESULT_REQUIRED transport classification; both selected again for reviewed shared transport repair"
     },
-    "scopedReporter": "Five targeted reporter checks passed; scoped selection additionally verified using real Node subprocess pass/fail runs"
+    "scopedReporter": "Five unchanged reporter cases reused from passing be51e978 CI"
   },
   "releaseAccepted": false,
   "candidateCommit": null,
-  "sourceReview": "Independent bounded and adjacent-contract review PASS; list/detail wire bounds, protected no-op receipts and trusted list budget reviewed",
+  "sourceReview": "Independent C23 transport repair review PASS; finite Issue.Transition lanes, explicit zero-effect rejection proof and unknown/auth fail-closed behavior retained",
   "publication": {
-    "status": "not_performed",
-    "pushInvoked": false,
-    "candidateCI": "not_run",
-    "lastVerifiedRemoteHead": "949869f129223d7b8d2cb4cb188d92f8e50219ee",
-    "currentRemoteHeadAfterCancelledCheck": "unverified",
-    "reason": "Final read-only branch-head check was cancelled; no retry or alternate route was used"
+    "status": "repair_prepared",
+    "previousPublishedCommit": "be51e97823c5c4fe670502bf15ddc066174218ef",
+    "repairCommit": null,
+    "candidateCI": "pending",
+    "priorRun": "https://github.com/cer12u/projektor/actions/runs/37814827945"
   }
 }
