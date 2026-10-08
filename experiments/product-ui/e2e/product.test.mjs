@@ -1,6 +1,6 @@
 // Run only in the same approved PR CI Chromium environment. Synthetic I2 service,
 // HTTP-only loopback fixture cookie and encrypted DraftVault. No real Access login.
-import {test,before,after} from 'node:test';
+import {test as nodeTest,before,after} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {resolve,extname} from 'node:path';
@@ -9,28 +9,36 @@ import {chromium} from 'playwright';
 import {build} from 'vite';
 import {createBarrier,safePageLocation,gateFailureMessage} from './barrier.mjs';
 import {selectedFixtureSession} from './session-fixture.mjs';
-function reportBarrierTimeout(label,phase){
-  if(process.env.GITHUB_ACTIONS!=='true')return;
-  const target=label==='POST /v1/workspaces/:id/commands'?'POST command response':label==='GET /v1/workspaces/:id/projects'?'GET project response':'UI response';
-  const stage=phase==='expected-request'?'not captured within 10 seconds':'not released within 10 seconds';
-  process.stderr.write('::error title=UI E2E barrier timeout::'+target+' '+stage+'\n');
+import {phase,resourcePhase,trace} from './trace.mjs';
+function test(name,run){return nodeTest(name,t=>phase(t,'scenario_body',()=>run(t),70000));}
+function reportBarrierTimeout(label){
+  trace('S00',label==='POST /v1/workspaces/:id/commands'?'gate_command':'gate_projects','timeout');
 }
 const root=resolve(import.meta.dirname,'..');
 const core=resolve(process.env.PROJEKTOR_CORE_SOURCE??resolve(root,'../projektor_agent_workflow_20261008/experiments/atomic-command-poc'));
-const {startHarness}=await import(pathToFileURL(resolve(core,'browser-test/server.mjs')));
+const {startHarness}=await phase(null,'suite_import',()=>import(pathToFileURL(resolve(core,'browser-test/server.mjs'))),15000);
 let browser;
 before(async()=>{
-  await build({root,configFile:resolve(root,'fixture.config.mjs')});
-  browser=await chromium.launch({executablePath:process.env.CHROMIUM_PATH,headless:true,args:['--no-sandbox']});
+  await phase(null,'fixture_build',()=>build({root,configFile:resolve(root,'fixture.config.mjs')}),30000);
+  browser=await resourcePhase(null,'browser_launch',()=>chromium.launch({executablePath:process.env.CHROMIUM_PATH,headless:true,args:['--no-sandbox']}),'browser_close',value=>value.close(),20000);
 });
-after(async()=>browser?.close());
+after(async()=>{if(browser)await phase(null,'browser_close',()=>browser.close(),10000);});
 async function setup(t,{bootstrapMode='one'}={}){
-  const h=await startHarness();const context=await browser.newContext();const requests=[];const errors=[];const cleanupGates=[];
+  let h,context;const requests=[],errors=[],cleanupGates=[];
+  t.after(async()=>{
+    for(const release of cleanupGates)release();let failure;
+    try{if(context)await phase(t,'context_close',()=>context.close(),10000);}catch(error){failure=error;}
+    try{if(h)await phase(t,'fixture_close',()=>h.close(),10000);}catch(error){failure??=error;}
+    if(failure)throw failure;
+  });
+  h=await resourcePhase(t,'fixture_start',()=>startHarness(),'fixture_close',value=>value.close(),20000);
+  context=await resourcePhase(t,'context_open',()=>browser.newContext(),'context_close',value=>value.close(),10000);
   context.setDefaultTimeout(10000);context.setDefaultNavigationTimeout(20000);
-  t.after(async()=>{for(const release of cleanupGates)release();await context.close();await h.close();});
-  await h.login(context,'A');
-  await h.control('sql','UPDATE project SET title=? WHERE id=?',['Primary UI fixture project',h.ids.project]);
-  await h.control('sql','UPDATE project SET title=? WHERE id=?',['Secondary UI fixture project',h.ids.otherProject]);
+  await phase(t,'fixture_login',()=>h.login(context,'A'),10000);
+  await phase(t,'fixture_seed',async()=>{
+    await h.control('sql','UPDATE project SET title=? WHERE id=?',['Primary UI fixture project',h.ids.project]);
+    await h.control('sql','UPDATE project SET title=? WHERE id=?',['Secondary UI fixture project',h.ids.otherProject]);
+  },10000);
   await context.route(h.base+'/**',async route=>{
     const url=new URL(route.request().url());
     if(url.pathname==='/v1/session'){
@@ -66,20 +74,26 @@ async function setup(t,{bootstrapMode='one'}={}){
     if(url.pathname.startsWith('/v1/workspaces/'))requests.push(route.request().method()+' '+url.pathname);
     await route.continue();
   });
-  const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
-  return {h,context,page,requests,errors,cleanupGates,setBootstrapMode:mode=>{bootstrapMode=mode;}};
+  const page=await phase(t,'page_open',()=>context.newPage(),10000);page.on('pageerror',e=>errors.push(e.message));
+  return {t,h,context,page,requests,errors,cleanupGates,setBootstrapMode:mode=>{bootstrapMode=mode;}};
 }
 async function createIssue(f){
-  await f.page.goto(f.h.base+'/');
-  await f.page.getByRole('button',{name:'Create issue in Primary UI fixture project',exact:true}).click();
-  await f.page.getByRole('textbox',{name:'Title',exact:true}).fill('UI acceptance issue');
-  await f.page.getByRole('textbox',{name:'Markdown body',exact:true}).fill('original 日本語');
-  await f.page.getByRole('textbox',{name:'Assignee principal ID',exact:true}).fill(f.h.ids.actorA);
-  await f.page.getByRole('button',{name:'Save',exact:true}).click();
-  await f.page.getByText('Saved snapshot confirmed.',{exact:false}).waitFor();
-  assert.equal(await f.page.getByRole('button',{name:'Save',exact:true}).isDisabled(),true);
-  await f.page.getByRole('button',{name:'Open created issue',exact:true}).click();
-  await f.page.getByRole('textbox',{name:'Markdown body',exact:true}).waitFor();
+  await phase(f.t,'create_navigate',()=>f.page.goto(f.h.base+'/'),25000);
+  await phase(f.t,'create_project',()=>f.page.getByRole('button',{name:'Create issue in Primary UI fixture project',exact:true}).click(),15000);
+  await phase(f.t,'create_fields',async()=>{
+    await f.page.getByRole('textbox',{name:'Title',exact:true}).fill('UI acceptance issue');
+    await f.page.getByRole('textbox',{name:'Markdown body',exact:true}).fill('original 日本語');
+    await f.page.getByRole('textbox',{name:'Assignee principal ID',exact:true}).fill(f.h.ids.actorA);
+  },35000);
+  await phase(f.t,'create_save',async()=>{
+    await f.page.getByRole('button',{name:'Save',exact:true}).click();
+    await f.page.getByText('Saved snapshot confirmed.',{exact:false}).waitFor();
+    assert.equal(await f.page.getByRole('button',{name:'Save',exact:true}).isDisabled(),true);
+  },25000);
+  await phase(f.t,'create_open',async()=>{
+    await f.page.getByRole('button',{name:'Open created issue',exact:true}).click();
+    await f.page.getByRole('textbox',{name:'Markdown body',exact:true}).waitFor();
+  },25000);
 }
 test('zero and multi bootstrap send no workspace-scoped query before valid selection',async t=>{
   for(const mode of ['zero','multi']){

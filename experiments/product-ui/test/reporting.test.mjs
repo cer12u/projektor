@@ -1,0 +1,49 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join,resolve} from 'node:path';
+import {spawnSync} from 'node:child_process';
+import reporter from '../e2e/github-reporter.mjs';
+import {CASES,PREFIX,phase} from '../e2e/trace.mjs';
+async function report(events){let output='';for await(const line of reporter((async function*(){yield*events;})()))output+=line;return output;}
+test('custom reporter never forwards raw errors, hostile names, headers, editor text or URLs',async()=>{
+  const out=await report([
+    {type:'test:stdout',data:{message:'Cookie: secret\n'+PREFIX+'{"id":"C01","phase":"fixture_start","state":"start"}\n'}},
+    {type:'test:fail',data:{name:'private editor text',details:{error:{message:'Authorization: secret'}}}},
+    {type:'test:stderr',data:{message:'https://secret.invalid/private\n'+PREFIX+'{"id":"C01","phase":"private","state":"fail"}\n'}},
+  ]);
+  assert.match(out,/C01 fixture_start start/);for(const value of ['Cookie','secret','private','Authorization'])assert.ok(!out.includes(value));
+});
+test('fragmented safe phase markers survive reporter stream chunking',async()=>{
+  const message=PREFIX+'{"id":"C02","phase":"create_save","state":"timeout"}\n';
+  const out=await report([{type:'test:stdout',data:{message:message.slice(0,9)}},{type:'test:stdout',data:{message:message.slice(9)}}]);
+  assert.match(out,/C02 create_save timeout/);
+});
+test('real Node reporter emits column-zero GitHub annotation and preserves a failing exit',()=>{
+  const dir=mkdtempSync(join(tmpdir(),'projektor-reporter-'));
+  try{
+    const file=join(dir,'failure.test.mjs');
+    writeFileSync(file,`import {test} from 'node:test';test(${JSON.stringify(CASES[0])},()=>{process.stdout.write(${JSON.stringify(PREFIX+'{"id":"C01","phase":"create_project","state":"fail"}\n')});throw Error('SECRET_COOKIE_SENTINEL');});`);
+    const result=spawnSync(process.execPath,['--test','--test-timeout=2000','--test-reporter='+resolve('e2e/github-reporter.mjs'),file],{encoding:'utf8',env:{...process.env,NODE_TEST_CONTEXT:undefined,GITHUB_ACTIONS:'true'},timeout:10000});
+    assert.equal(result.status,1);assert.match(result.stdout,/^::error title=UI E2E diagnostic::UI E2E C01 create_project fail$/m);
+    assert.ok(!result.stdout.includes('# ::'));assert.ok(!result.stdout.includes('SECRET_COOKIE_SENTINEL'));assert.ok(!result.stderr.includes('SECRET_COOKIE_SENTINEL'));
+  }finally{rmSync(dir,{recursive:true,force:true});}
+});
+test('bounded phase fails rather than treating a stuck operation as success',async()=>{
+  const start=Date.now();await assert.rejects(phase({name:CASES[0]},'fixture_start',()=>new Promise(()=>{}),15),/UI_TEST_PHASE_TIMEOUT C01 fixture_start/);
+  assert.ok(Date.now()-start<500);
+});
+test('late fixture acquisition after timeout is closed rather than leaked into an ended test',async()=>{
+  const {resourcePhase}=await import('../e2e/trace.mjs');let release,closes=0;
+  const pending=resourcePhase({name:CASES[0]},'fixture_start',()=>new Promise(r=>release=r),'fixture_close',async value=>{assert.equal(value,'late fixture');closes++;},15);
+  await assert.rejects(pending,/UI_TEST_PHASE_TIMEOUT/);release('late fixture');
+  await new Promise(r=>setTimeout(r,10));assert.equal(closes,1);
+});
+test('cleanup failure does not replace the first failing phase with a later successful close',async()=>{
+  const out=await report([
+    {type:'test:stdout',data:{message:PREFIX+'{"id":"C01","phase":"context_close","state":"timeout"}\n'+PREFIX+'{"id":"C01","phase":"fixture_close","state":"pass"}\n'}},
+    {type:'test:fail',data:{name:CASES[0]}},
+  ]);
+  assert.match(out,/C01 context_close fail/);
+});

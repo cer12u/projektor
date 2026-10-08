@@ -8,7 +8,7 @@
     "typecheck":"tsc --noEmit",
     "build":"npm run typecheck && vite build",
     "test":"node --test test/*.test.mjs",
-    "test:e2e":"node --test --test-timeout=90000 e2e/*.test.mjs",
+    "test:e2e":"node --test --test-timeout=90000 --test-reporter=./e2e/github-reporter.mjs e2e/*.test.mjs",
     "verify":"npm run build && npm test"
   },
   "dependencies":{"react":"19.3.0","react-dom":"19.3.0"},
