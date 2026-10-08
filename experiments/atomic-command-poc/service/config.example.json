@@ -25,6 +25,7 @@
     "jwksCacheMs",
     "jwksTimeoutMs"
   ],
+  "providerConfigNotice": "Use the reviewed existing human Access provider. Explicit machineAudience null disables only unconfigured machine authentication; omission is invalid. A configured machine audience must remain distinct.",
   "binding": {
     "name": "WORKSPACE",
     "provisioned": false
@@ -36,5 +37,5 @@
     "identityBurst",
     "identityPerSecond"
   ],
-  "mcpRateLimitNotice": "No production defaults. Approve the exact limits against workload, CPU/memory, quota and restart/concurrency evidence before deployment; synthetic fixture values are not recommendations."
+  "mcpRateLimitNotice": "No production defaults. A human-only profile with explicit machineAudience null may use serialized JSON null ('null') for MCP_RATE_LIMIT_CONFIG. Configured machine access requires exact limits approved against workload, CPU/memory, quota and restart/concurrency evidence; synthetic fixture values are not recommendations."
 }

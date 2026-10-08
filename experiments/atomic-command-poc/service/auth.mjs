@@ -83,7 +83,9 @@ function settings(config) {
  if (!record(config) || Object.keys(config).some(key => !fields.includes(key))) throw unavailable();
  const issuer = https(config.issuer, true);
  const jwksUrl = https(config.jwksUrl);
- if (!text(config.humanAudience, 256) || !text(config.machineAudience, 256) || config.humanAudience === config.machineAudience) throw unavailable();
+ // Explicit null supports an existing human-only Access application. Omission is
+ // still a configuration error; a configured machine audience stays distinct.
+ if (!text(config.humanAudience, 256) || (config.machineAudience !== null && !text(config.machineAudience, 256)) || config.humanAudience === config.machineAudience) throw unavailable();
  const jwksCacheMs = own(config, 'jwksCacheMs') ? config.jwksCacheMs : 300000;
  const jwksTimeoutMs = own(config, 'jwksTimeoutMs') ? config.jwksTimeoutMs : 3000;
  if (!Number.isSafeInteger(jwksCacheMs) || jwksCacheMs < REFRESH_INTERVAL_MS || jwksCacheMs > 3600000 ||
@@ -208,10 +210,14 @@ async function fetchKeys(config, fetchImpl) {
  }
 }
 
-// Test seams are deliberately on this factory, never on request headers or env.
-// now() returns epoch milliseconds. The returned callable is verifier(request, kind).
-export function createVerifier(config, { fetchImpl = globalThis.fetch, now = Date.now } = {}) {
+// One signature/claims boundary serves normal authentication and the offline
+// migration planner. Unverified payloads never leave this private function.
+function createVerifiedClaimsReader(config, { fetchImpl = globalThis.fetch, now = Date.now } = {}, servicePerimeter = false) {
  config = settings(config);
+ // A perimeter service assertion belongs to the existing app audience. This
+ // private purpose never enables standalone machine authentication or maps an
+ // Access service identity to a business principal.
+ const claimsConfig = servicePerimeter ? { ...config, machineAudience: config.humanAudience } : config;
  if (typeof fetchImpl !== 'function' || typeof now !== 'function') throw unavailable();
  let keys = new Map();
  let expiresAt = -Infinity;
@@ -251,6 +257,7 @@ export function createVerifier(config, { fetchImpl = globalThis.fetch, now = Dat
   return key;
  }
  return async function verify(request, kind) {
+  if (kind === 'machine' && config.machineAudience === null && !servicePerimeter) throw unauthenticated();
   const token = tokenFrom(request, kind);
   let header, claims, signature, parts;
   try {
@@ -262,7 +269,8 @@ export function createVerifier(config, { fetchImpl = globalThis.fetch, now = Dat
    if (!record(header) || Object.keys(header).some(key => !['alg', 'typ', 'kid'].includes(key)) || header.alg !== 'RS256' || !kidValid(header.kid) ||
        (own(header, 'typ') && !['JWT', 'at+jwt'].includes(header.typ)) || signature.length < 256 || signature.length > 1024) throw Error('JWT header');
    // Cheap untrusted input filtering does not confer identity or authorization.
-   claimsValid(claims, config, kind, time(), false);
+   if (servicePerimeter && (!record(claims) || own(claims, 'email'))) throw unauthenticated();
+   claimsValid(claims, claimsConfig, kind, time(), false);
   } catch (error) { if (error instanceof AuthError) throw error; throw unauthenticated(); }
   const key = await keyFor(header.kid);
   let verified;
@@ -270,10 +278,51 @@ export function createVerifier(config, { fetchImpl = globalThis.fetch, now = Dat
   catch { throw unauthenticated(); }
   if (!verified) throw unauthenticated();
   const authenticatedAt = time();
-  claimsValid(claims, config, kind, authenticatedAt);
+  claimsValid(claims, claimsConfig, kind, authenticatedAt);
+  return { claims, authenticatedAt };
+ };
+}
+
+// Test seams are deliberately on this factory, never on request headers or env.
+// now() returns epoch milliseconds. The returned callable is verifier(request, kind).
+export function createVerifier(config, options) {
+ const read = createVerifiedClaimsReader(config, options);
+ return async function verify(request, kind) {
+  const { claims, authenticatedAt } = await read(request, kind);
   return Object.freeze({ issuer: claims.iss, subject: kind === 'human' ? claims.sub : claims.common_name,
    actorKind: kind, credentialExpiresAt: claims.exp * 1000, authMethod: kind === 'machine' ? 'cloudflare_access_service_token' : 'cloudflare_access',
    authenticatedAt, requestId: crypto.randomUUID() });
+ };
+}
+
+// Verify only a co-present Access service perimeter assertion using the existing
+// app's issuer/JWKS/human audience. The separately verified D1 bearer supplies the
+// business principal. No Access subject, common_name, scopes or roles leave here.
+export function createServicePerimeterVerifier(config, options) {
+ const read = createVerifiedClaimsReader(config, options, true);
+ return async function verifyServicePerimeter(request) {
+  const assertion = request.headers.get('cf-access-jwt-assertion');
+  const cookies = request.headers.get('cookie') ?? '';
+  if (!assertion || assertion.length > MAX_TOKEN_BYTES || cookies.length > 32768 || cookies.split(';').some(cookie => cookie.trim().split('=', 1)[0] === COOKIE)) throw unauthenticated();
+  // The original bearer is not forwarded to the Access verifier. This private
+  // request exists only to reuse the exact bounded JWT/signature read boundary.
+  const perimeterRequest = new Request(request.url, { headers: { authorization: 'Bearer ' + assertion } });
+  const { claims, authenticatedAt } = await read(perimeterRequest, 'machine');
+  return Object.freeze({ authenticatedAt, credentialExpiresAt: claims.exp * 1000 });
+ };
+}
+
+// Migration evidence only. Never use this as an authentication result or expose
+// it in a response/log: email is needed solely for the legacy exact-email lookup.
+// The planner consumes it in memory and emits neither email nor bearer material.
+export function createMigrationOnlyAccessEvidenceReader(config, options) {
+ const read = createVerifiedClaimsReader(config, options);
+ return async function readMigrationEvidence(request) {
+  const { claims, authenticatedAt } = await read(request, 'human');
+  if (!text(claims.email, 320) || (own(claims, 'email_verified') && typeof claims.email_verified !== 'boolean')) throw unauthenticated();
+  return Object.freeze({ issuer: claims.iss, subject: claims.sub, email: claims.email,
+   emailVerified: own(claims, 'email_verified') ? claims.email_verified : null,
+   credentialExpiresAt: claims.exp * 1000, authenticatedAt });
  };
 }
 
@@ -292,4 +341,20 @@ export async function authenticate(request, env, kind) {
   verifiers.set(serialized, verifier);
  }
  return verifier(request, kind);
+}
+
+// Separate bounded cache because this purpose uses the existing app audience.
+// It does not alter normal human/service-token audience selection above.
+const servicePerimeterVerifiers = new Map();
+export async function authenticateServicePerimeter(request, serializedConfig) {
+ if (typeof serializedConfig !== 'string' || !serializedConfig || serializedConfig.length > 8192) throw unavailable();
+ let verifier = servicePerimeterVerifiers.get(serializedConfig);
+ if (!verifier) {
+  let config;
+  try { config = json(serializedConfig); } catch { throw unavailable(); }
+  verifier = createServicePerimeterVerifier(config);
+  if (servicePerimeterVerifiers.size >= 4) servicePerimeterVerifiers.delete(servicePerimeterVerifiers.keys().next().value);
+  servicePerimeterVerifiers.set(serializedConfig, verifier);
+ }
+ return verifier(request);
 }

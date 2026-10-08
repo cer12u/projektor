@@ -77,6 +77,21 @@ test('Access service-token machine identity has no application IDs and stays sep
  await rejects(() => f.verify(request(human, 'machine'), 'machine'));
 });
 
+test('explicit null machine audience supports existing human Access but closes unconfigured machine authentication', async () => {
+ const f = fixture({ configChanges: { machineAudience: null } });
+ const machine = await sign({ kind: 'machine' });
+ await rejects(() => f.verify(request(machine, 'machine'), 'machine'));
+ assert.equal(f.calls.length, 0);
+ const human = await f.verify(request(await sign()), 'human');
+ assert.equal(human.subject, subject);
+ assert.equal(human.actorKind, 'human');
+ await rejects(() => f.verify(request(machine, 'machine'), 'machine'));
+ assert.equal(f.calls.length, 1);
+ for (const machineAudience of [undefined, '', false, config.humanAudience]) {
+  assert.throws(() => createVerifier({ ...config, machineAudience }), error => error instanceof AuthError && error.status === 503);
+ }
+});
+
 test('ambiguous credentials fail before contacting the provider', async () => {
  const f = fixture(); const token = await sign();
  for (const headers of [

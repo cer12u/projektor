@@ -35,8 +35,8 @@ function decodedHeader(value){
 }
 // Transport state is disposable, bounded, and never an authorization cache. A DO
 // restart/eviction invalidates legacy sessions (404); receipt state survives.
-export function createMCPTransport({listTools,callTool,rateLimit,now=Date.now,randomId=()=>crypto.randomUUID()}){
- const sessions=new Map(),admitTool=createMCPRateLimiter(rateLimit,now);
+export function createMCPTransport({listTools,callTool,rateLimit,admitTool,now=Date.now,randomId=()=>crypto.randomUUID()}){
+ const sessions=new Map();admitTool??=createMCPRateLimiter(rateLimit,now);
  return function handle(request,rpc,identity){
   const time=now(),binding=JSON.stringify([identity.workspaceId,identity.epoch,identity.principalId,identity.credentialId]);
   for(const [key,s] of sessions)if(s.expiresAt<=time)sessions.delete(key);

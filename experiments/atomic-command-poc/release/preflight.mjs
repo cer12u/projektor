@@ -16,6 +16,7 @@ const text = value => typeof value === 'string' && value.length > 0 && value===v
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const removed = /auto.?join|auto.?provision|trash.?purge|purge.?trash|cron|scheduled/i;
 const varNames = ['APP_ORIGIN','WORKSPACE_IDS','REQUEST_TIMEOUT_MS','BODY_TIMEOUT_MS','PROVIDER_CONFIG','MCP_RATE_LIMIT_CONFIG'];
+const legacyApiTokenVar = 'LEGACY_API_TOKEN_AUTH';
 
 export function validateProfile(profile, observed) {
  exact(profile, ['schemaVersion','sourceCommit','worker','hostname','compatibilityDate','compatibilityFlags','entrypoint','vars','bindings','schedules','observability','expectedDeploymentVersion','workspaceBinding','lifecycleReview'], 'profile');
@@ -28,10 +29,11 @@ export function validateProfile(profile, observed) {
  same(profile.schedules,[],'this release has no scheduled maintenance');
  same(observed.schedules,[],'live schedules require renewed review');
  if (profile.entrypoint !== 'service/entry.mjs') fail('unreviewed entrypoint');
- exact(profile.vars,varNames,'service vars');
+ const legacyApiTokenConfigured=Object.hasOwn(profile.vars??{},legacyApiTokenVar);
+ exact(profile.vars,legacyApiTokenConfigured?[...varNames,legacyApiTokenVar]:varNames,'service vars');
  if (Object.keys(profile.vars).some(key=>removed.test(key))) fail('removed capability');
  const v=profile.vars;
- if(!readMCPRatePolicy(v.MCP_RATE_LIMIT_CONFIG))fail('explicit bounded MCP invocation rate policy required');
+ if(legacyApiTokenConfigured&&v[legacyApiTokenVar]!=='d39852-api-tokens-v1')fail('legacy API token auth mode');
  if(v.APP_ORIGIN!=='https://projektor.cerutech.net')fail('origin');
  let ids; try { ids=strictJson(v.WORKSPACE_IDS); } catch { fail('workspace registry'); }
  if(!Array.isArray(ids)||ids.length<1||ids.length>10||new Set(ids).size!==ids.length||ids.some(id=>typeof id!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(id))) fail('workspace registry');
@@ -39,15 +41,20 @@ export function validateProfile(profile, observed) {
  let provider;try{provider=strictJson(v.PROVIDER_CONFIG);}catch{fail('provider config');}
  exact(provider,['issuer','jwksUrl','humanAudience','machineAudience','jwksCacheMs','jwksTimeoutMs'],'provider config');
  for(const key of ['issuer','jwksUrl']) {let url;if(!text(provider[key])||provider[key].length>2048)fail('provider URL');try{url=new URL(provider[key]);}catch{fail('provider URL');}if(url.protocol!=='https:'||url.username||url.password||url.hash||(key==='issuer'&&url.search))fail('provider URL');}
- if(!text(provider.humanAudience)||!text(provider.machineAudience)||provider.humanAudience.length>256||provider.machineAudience.length>256||provider.humanAudience===provider.machineAudience)fail('distinct reviewed audiences required');
+ if(!text(provider.humanAudience)||provider.humanAudience.length>256||(provider.machineAudience!==null&&(!text(provider.machineAudience)||provider.machineAudience.length>256||provider.humanAudience===provider.machineAudience)))fail('reviewed human audience and distinct machine audience or explicit null required');
+ // A serialized null is permitted only when both machine authentication paths
+ // are disabled. Existing legacy tokens still require a bounded MCP policy.
+ if(!(provider.machineAudience===null&&!legacyApiTokenConfigured&&v.MCP_RATE_LIMIT_CONFIG==='null')&&!readMCPRatePolicy(v.MCP_RATE_LIMIT_CONFIG))fail('explicit bounded MCP invocation rate policy required');
  if(!Number.isSafeInteger(provider.jwksCacheMs)||provider.jwksCacheMs<5000||provider.jwksCacheMs>3600000||!Number.isSafeInteger(provider.jwksTimeoutMs)||provider.jwksTimeoutMs<50||provider.jwksTimeoutMs>10000)fail('JWKS bounds');
  if(!Array.isArray(observed.bindings)||!observed.bindings.length)fail('live binding inventory missing');
  const names=new Set();
  for(const binding of observed.bindings){
   exact(binding,['name','type','identity'],'binding attestation');
-  if(!text(binding.name)||!text(binding.type)||!text(binding.identity)||names.has(binding.name)||binding.name==='WORKSPACE'||removed.test(binding.name)||varNames.includes(binding.name))fail('live binding attestation');
+  if(!text(binding.name)||!text(binding.type)||!text(binding.identity)||names.has(binding.name)||binding.name==='WORKSPACE'||removed.test(binding.name)||varNames.includes(binding.name)||binding.name===legacyApiTokenVar)fail('live binding attestation');
   names.add(binding.name);
  }
+ // Legacy API-token continuity reuses this attested existing DB. The exact
+ // profile/live identity comparison below forbids substituting another source.
  for (const [name,type] of [['DB','d1'],['KV','kv_namespace'],['OAUTH_KV','kv_namespace'],['RATE_LIMITER','durable_object_namespace'],['JWT_SECRET','secret_text']]) if(!observed.bindings.some(binding=>binding.name===name&&binding.type===type))fail(`required live binding missing: ${name}`);
  if(observed.bindings.filter(binding=>binding.type==='r2_bucket').length!==1)fail('required live R2 binding');
  if(observed.bindings.find(binding=>binding.name==='KV').identity===observed.bindings.find(binding=>binding.name==='OAUTH_KV').identity)fail('distinct live KV namespaces required');

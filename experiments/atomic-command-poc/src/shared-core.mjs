@@ -6,7 +6,7 @@ export {queryWiki,queryWikiRevisions,queryWikiResolve,queryLinks,queryBacklinks}
 import {WORKFLOW_COMMANDS,validateWorkflow,executeWorkflowCommand} from './agent-workflow.mjs';
 export {queryClaim,queryResolutionRecords,queryCapabilities,queryAttemptCheckpoint,queryIssueAlias} from './agent-workflow.mjs';
 import { CONTENT_COMMANDS, validateContent, executeContentCommand, issueProjection, captureAccess } from './issue-content.mjs';
-import { currentRead, currentWrite, receiptScope } from './resource-access.mjs';
+import { currentRead, currentWrite, receiptScope, credentialAllows } from './resource-access.mjs';
 export { currentRead, currentWrite, historicRead, receiptScope } from './resource-access.mjs';
 export { queryProjects, queryIssueEntries, queryContentRevisions, queryArchiveRecord } from './issue-content.mjs';
 import { createHash } from 'node:crypto';
@@ -48,7 +48,8 @@ export function authorized(db,actor,workspaceId,epoch,now){
   if(!validId(actor.principalId)||!validId(actor.credentialId)||!Number.isSafeInteger(actor.credentialExpiresAt))return 'UNAUTHENTICATED';
   const cred=get(db,'SELECT * FROM credential WHERE id=? AND principal_id=?',actor.credentialId,actor.principalId);
   const member=get(db,'SELECT * FROM membership WHERE principal_id=?',actor.principalId);
-  if(!cred||!member||member.kind!==actor.actorKind)return 'UNAUTHENTICATED';
+  if(!cred||!member||member.kind!==(actor.principalKind??actor.actorKind))return 'UNAUTHENTICATED';
+  if(actor.source==='legacy_api_token'&&(actor.actorKind!=='machine'||!['human','machine'].includes(actor.principalKind)||actor.legacyCapabilities?.read!==true))return 'UNAUTHENTICATED';
   if(now>=actor.credentialExpiresAt||now>=cred.expires_at)return 'EXPIRED';
   if(cred.revoked||member.revoked)return 'FORBIDDEN';
   return null;
@@ -57,15 +58,14 @@ export function resourceReadable(db,actor,issueId){
  return currentRead(db,actor,{type:'issue',id:issueId});
 }
 function can(db,actor,project,mode){
- const cred=get(db,'SELECT * FROM credential WHERE id=?',actor.credentialId);
  const grant=get(db,'SELECT * FROM project_grant WHERE principal_id=? AND project_id=?',actor.principalId,project);
- return Boolean(cred?.['can_'+mode]&&grant?.['can_'+mode]);
+ return Boolean(credentialAllows(db,actor,mode)&&grant?.['can_'+mode]);
 }
 function visibleReceipt(db,actor,row){
  const scoped=receiptScope(db,actor,row);if(scoped!==null)return scoped;
  if(!get(db,'SELECT read_own FROM membership WHERE principal_id=?',actor.principalId)?.read_own)return false;
  const current=get(db,'SELECT * FROM issue WHERE id=?',row.entity_id);
- if(row.project_at_commit===null)return Boolean(get(db,'SELECT can_read FROM credential WHERE id=?',actor.credentialId)?.can_read);
+ if(row.project_at_commit===null)return credentialAllows(db,actor,'read');
  return Boolean(current&&!current.deleted&&resourceReadable(db,actor,current.id)&&can(db,actor,current.project_id,'read')&&can(db,actor,row.project_at_commit,'read'));
 }
 export class StorageFailure extends Error {
@@ -96,8 +96,7 @@ export function executeCommand(db,actor,c,{now,fault=()=>{},contentLinks=null}={
    if(old.hash_version!==HASH_VERSION||old.payload_hash!==hash)return failure('KEY_REUSE');
    return JSON.parse(old.result_json);
   }
-  const currentCredential=get(db,'SELECT can_read,can_write FROM credential WHERE id=?',actor.credentialId);
-  if(!currentCredential.can_read||!currentCredential.can_write)return failure('FORBIDDEN');
+  if(!credentialAllows(db,actor,'read')||!credentialAllows(db,actor,'write'))return failure('FORBIDDEN');
   const issue=get(db,'SELECT * FROM issue WHERE id=?',c.entityId);
   const save=(result,receiptProject=issue?.project_id??null)=>{one(db,'INSERT INTO operation VALUES(?,?,?,?,?,?,?,?)',c.workspaceId,actor.principalId,c.operationId,HASH_VERSION,hash,c.entityId,receiptProject,JSON.stringify(result));if(receiptProject&&get(db,'SELECT 1 FROM resource_access WHERE resource_type=? AND resource_id=?','issue',c.entityId)){const a=captureAccess(db,{type:'issue',id:c.entityId});one(db,'INSERT INTO operation_scope VALUES(?,?,?,?,?,?,?,0)',c.workspaceId,actor.principalId,c.operationId,'issue',c.entityId,JSON.stringify(a.originalScope),a.accessSnapshotId);}return result;};
   // No target details are returned for permission rejection.
@@ -135,7 +134,7 @@ export function operationGet(db,actor,{workspaceId,workspaceEpoch,operationId},n
 export function queryIssues(db,actor,{workspaceId,workspaceEpoch,entityId,limit,cursor},now){
  if(!validId(workspaceId)||!validId(workspaceEpoch)||(entityId!==undefined&&!validId(entityId))||(limit!==undefined&&(!Number.isSafeInteger(limit)||limit<1||limit>100))||(cursor!==undefined&&(typeof cursor!=='string'||cursor.length<1||cursor.length>2048))||(entityId!==undefined&&(limit!==undefined||cursor!==undefined)))return failure('VALIDATION');
  return transaction(db,()=>{now ??= Date.now();const denied=authorized(db,actor,workspaceId,workspaceEpoch,now);if(denied)return failure(denied,'unknown');
- if(!get(db,'SELECT can_read FROM credential WHERE id=?',actor.credentialId)?.can_read)return failure('FORBIDDEN');
+ if(!credentialAllows(db,actor,'read'))return failure('FORBIDDEN');
  const rows=db.prepare('SELECT * FROM issue WHERE deleted=0 ORDER BY id').all().filter(r=>resourceReadable(db,actor,r.id)&&can(db,actor,r.project_id,'read'));
  if(entityId){const row=rows.find(r=>r.id===entityId);return row?{data:issueProjection(db,row,actor)}:failure('NOT_FOUND');}
  return contentPage(db,actor,rows,{workspaceId,workspaceEpoch,...(limit!==undefined?{limit}:{}),...(cursor!==undefined?{cursor}:{})},'issue-list',row=>issueProjection(db,row,actor,{compact:true}),now,{tuple:r=>[r.id,r.id],maxBytes:2*1024*1024-16*1024});});

@@ -1,6 +1,7 @@
 import {mcpFailure} from './mcp.mjs';
 import { configuration } from './config.mjs';
 import { authenticate } from './auth.mjs';
+import { authenticateWorkspace } from './workspace-auth.mjs';
 import { createSessionHTTP } from '../session-ports/http.mjs';
 import { SessionPortError } from '../session-ports/server.mjs';
 import { route,error,failureResponse } from './http.mjs';
@@ -22,11 +23,12 @@ export default {async fetch(request,env,ctx){
     }});
    const pending=handle(request);ctx.waitUntil(pending.then(()=>{},()=>{}));return await pending;
   }
-  const r=route(request,config);isMCP=r.action==='mcp';
+  const r=route(request,config);isMCP=['mcp','legacyMCP'].includes(r.action);
   const unavailable=code=>isMCP?mcpFailure(code):error(code);
   const started=Date.now();
   const pending=(async()=>{
-   const verified=await authenticate(request,env,r.kind);
+   const verified=await authenticateWorkspace(request,env,r.kind,r.workspaceId);
+   if(r.action==='legacyMCP'&&verified.source!=='legacy_api_token')return mcpFailure('LEGACY_CREDENTIAL_REQUIRED',403);
    if(Date.now()-started>=config.deadline)return unavailable('TRANSPORT_TIMEOUT');
    return env.WORKSPACE.get(env.WORKSPACE.idFromName(r.workspaceId)).fetch(request);
   })();

@@ -4,6 +4,14 @@ const routePattern=new RegExp(`^/(machine/)?v1/workspaces/(${uuid})/(.+)$`);
 const resourcePattern=new RegExp(`^(issues|wiki|projects|operations)/(${uuid})(?:/(entries|revisions|claim|resolutions|checkpoint)(?:/(${uuid}))?)?$`);
 export function route(request,config) {
  const url=new URL(request.url),match=url.pathname.match(routePattern);
+ const legacy=url.pathname.match(new RegExp(`^/mcp/(${uuid})$`));
+ if(legacy){
+  if(!config.workspaces.includes(legacy[1]))throw new AuthError('NOT_FOUND',404);
+  if(url.origin!==config.origin||request.headers.has('origin')&&request.headers.get('origin')!==config.origin)throw new AuthError('ORIGIN_REJECTED',403);
+  if(request.method!=='POST')throw new AuthError('METHOD_NOT_ALLOWED',405);
+  if([...url.searchParams.keys()].some(k=>k!=='domains'||url.searchParams.getAll(k).length!==1)||url.search.length>1024)throw new AuthError('VALIDATION',400);
+  return {url,action:'legacyMCP',kind:'machine',workspaceId:legacy[1]};
+ }
  if(!match)throw new AuthError('NOT_FOUND',404);
  if(!config.workspaces.includes(match[2]))throw new AuthError('NOT_FOUND',404);
  if(url.origin!==config.origin)throw new AuthError('ORIGIN_REJECTED',403);

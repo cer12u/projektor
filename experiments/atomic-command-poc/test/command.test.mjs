@@ -72,7 +72,7 @@ test('canonical hashing sorts object keys; preserves title Unicode, newline and 
 test('parameterized title stores SQL-looking input literally',withDb(({db})=>{const title="'); DROP TABLE issue; --";execute(db,command({payload:{title}}));assert.equal(snapshot(db).issue[0].title,title);}));
 test('nonexistent rejection remains queryable; genuinely empty read is a successful empty list',withDb(({db})=>{
  const c=command({entityId:randomUUID()});const result=execute(db,c);assert.equal(result.error.code,'NOT_FOUND');assert.deepEqual(operationGet(db,actor,op(c),now),result);
- db.exec('DELETE FROM issue_fts; DELETE FROM issue');assert.deepEqual(queryIssues(db,actor,op(c),now),{data:{items:[],nextCursor:null}});
+ db.exec('DELETE FROM issue_fts; DELETE FROM issue');const empty=queryIssues(db,actor,op(c),now);assert.deepEqual(empty.data,{items:[],nextCursor:null});assert.equal(empty.meta.workspaceId,ids.workspace);assert.equal(empty.meta.actorId,ids.actor);
  assert.equal(queryIssues(db,{...actor,credentialExpiresAt:now},op(c),now).error.code,'EXPIRED');
 }));
 test('WAL/FULL committed state is visible through a new connection (not restart or power loss proof)',withDb(({db,path})=>{

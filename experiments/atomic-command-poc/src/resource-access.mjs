@@ -1,9 +1,22 @@
 // Synchronous transaction ports. The caller must authenticate in the same transaction.
 const get=(db,s,...a)=>db.prepare(s).get(...a);
-export function hasScope(db,actor,scope){return Boolean(get(db,'SELECT 1 FROM principal_scope WHERE principal_id=? AND scope=?',actor.principalId,scope)&&get(db,'SELECT 1 FROM credential_scope WHERE credential_id=? AND scope=?',actor.credentialId,scope));}
+// Legacy read/write means only these reviewed existing domain operations, never
+// a wildcard over future scopes or newly introduced access-management powers.
+const legacyReadScopes=new Set(['issue:read','wiki:read','history:read','deleted:read','operations:read_own']);
+const legacyWriteScopes=new Set(['issue:write','wiki:write','comment:write','claim:write','progress:write','issue:transition']);
+export function credentialAllows(db,actor,mode){
+ if(actor.source==='legacy_api_token'&&actor.legacyCapabilities?.[mode]!==true)return false;
+ return Boolean(get(db,'SELECT * FROM credential WHERE id=?',actor.credentialId)?.['can_'+mode]);
+}
+export function hasScope(db,actor,scope){
+ if(actor.source==='legacy_api_token'){
+  const mode=legacyReadScopes.has(scope)?'read':legacyWriteScopes.has(scope)||actor.principalKind==='human'&&['wiki:trash','wiki:restore'].includes(scope)?'write':null;
+  if(!mode||actor.legacyCapabilities?.[mode]!==true)return false;
+ }
+ return Boolean(get(db,'SELECT 1 FROM principal_scope WHERE principal_id=? AND scope=?',actor.principalId,scope)&&get(db,'SELECT 1 FROM credential_scope WHERE credential_id=? AND scope=?',actor.credentialId,scope));
+}
 export function scopeAllowed(db,actor,scope,mode='read'){
- const cred=get(db,'SELECT * FROM credential WHERE id=?',actor.credentialId);
- if(!cred?.['can_'+mode])return false;
+ if(!credentialAllows(db,actor,mode))return false;
  if(scope?.kind==='project')return typeof scope.projectId==='string'&&Boolean(get(db,'SELECT * FROM project_grant WHERE principal_id=? AND project_id=?',actor.principalId,scope.projectId)?.['can_'+mode]);
  if(scope?.kind==='workspace_shared')return Boolean(get(db,'SELECT * FROM shared_grant WHERE principal_id=?',actor.principalId)?.['can_'+mode]);
  return false;
@@ -46,7 +59,7 @@ export function historicRead(db,actor,revision){return currentRead(db,actor,{typ
 function receiptRead(db,actor,resource){const r=resourceScope(db,resource);return currentRead(db,actor,resource,{allowDeleted:true})&&(!r.deleted||hasScope(db,actor,'history:read'));}
 export function receiptScope(db,actor,row){
  const targets=get(db,'SELECT targets_json FROM operation_targets WHERE workspace_id=? AND principal_id=? AND operation_id=?',row.workspace_id,row.principal_id,row.operation_id);
- if(targets){if(!hasScope(db,actor,'operations:read_own'))return false;if(!get(db,'SELECT read_own FROM membership WHERE principal_id=?',actor.principalId)?.read_own)return false;return JSON.parse(targets.targets_json).every(t=>t.redacted===true?Boolean(get(db,'SELECT can_read FROM credential WHERE id=?',actor.credentialId)?.can_read):t.creationRejection?t.originalScope?.state==='known'&&scopeAllowed(db,actor,t.originalScope.scope):receiptRead(db,actor,t.resource)&&originalRead(db,actor,t.originalScope,t.accessSnapshotId,t.resource));}
+ if(targets){if(!hasScope(db,actor,'operations:read_own'))return false;if(!get(db,'SELECT read_own FROM membership WHERE principal_id=?',actor.principalId)?.read_own)return false;return JSON.parse(targets.targets_json).every(t=>t.redacted===true?credentialAllows(db,actor,'read'):t.creationRejection?t.originalScope?.state==='known'&&scopeAllowed(db,actor,t.originalScope.scope):receiptRead(db,actor,t.resource)&&originalRead(db,actor,t.originalScope,t.accessSnapshotId,t.resource));}
  const scope=get(db,'SELECT * FROM operation_scope WHERE workspace_id=? AND principal_id=? AND operation_id=?',row.workspace_id,row.principal_id,row.operation_id);
  if(!scope)return null; // Frozen title receipt policy remains owned by shared-core.
  if(!hasScope(db,actor,'operations:read_own'))return false;
@@ -68,6 +81,7 @@ export function accessProjection(db,actor,resource){
 
 // Shared explicit scope-admin predicate; individual commands still require their own scopes.
 export function scopeManageAllowed(db,actor,scope){
+ if(actor.source==='legacy_api_token'&&actor.principalKind==='machine')return false;
  if(!scope||!['project','workspace_shared'].includes(scope.kind))return false;
  const scopeId=scope.kind==='project'?scope.projectId:actor.workspaceId;
  return get(db,'SELECT can_manage FROM scope_manage_grant WHERE principal_id=? AND scope_kind=? AND scope_id=?',actor.principalId,scope.kind,scopeId)?.can_manage===1;

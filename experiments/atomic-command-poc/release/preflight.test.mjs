@@ -19,6 +19,56 @@ function valid(){
 test('positive strict profile preserves attested identities and never authorizes deployment',()=>{
  const {profile,observed}=valid();assert.deepEqual(validateProfile(profile,observed),{profileValidated:true,deploymentAuthorized:false});
 });
+test('provider profile accepts explicit human-only Access without inventing a machine audience',()=>{
+ const {profile,observed}=valid(),provider=JSON.parse(profile.vars.PROVIDER_CONFIG);
+ profile.vars.PROVIDER_CONFIG=JSON.stringify({...provider,machineAudience:null});
+ assert.deepEqual(validateProfile(profile,observed),{profileValidated:true,deploymentAuthorized:false});
+ profile.vars.MCP_RATE_LIMIT_CONFIG='null';
+ assert.deepEqual(validateProfile(profile,observed),{profileValidated:true,deploymentAuthorized:false});
+ for(const badPolicy of [undefined,null,'{}','',false]){
+  profile.vars.MCP_RATE_LIMIT_CONFIG=badPolicy;
+  assert.throws(()=>validateProfile(profile,observed),/MCP invocation rate policy/);
+ }
+ profile.vars.MCP_RATE_LIMIT_CONFIG='null';
+ profile.vars.PROVIDER_CONFIG=JSON.stringify(provider);
+ assert.throws(()=>validateProfile(profile,observed),/MCP invocation rate policy/);
+ for(const machineAudience of [undefined,'',false,provider.humanAudience]){
+  profile.vars.PROVIDER_CONFIG=JSON.stringify({...provider,machineAudience});
+  assert.throws(()=>validateProfile(profile,observed),/RELEASE_REJECTED/);
+ }
+});
+test('legacy API token profile permits only the pinned mode and requires a bounded policy even without Access machines',()=>{
+ const {profile,observed}=valid(),provider=JSON.parse(profile.vars.PROVIDER_CONFIG);
+ profile.vars.LEGACY_API_TOKEN_AUTH='d39852-api-tokens-v1';
+ assert.deepEqual(validateProfile(profile,observed),{profileValidated:true,deploymentAuthorized:false});
+ profile.vars.PROVIDER_CONFIG=JSON.stringify({...provider,machineAudience:null});
+ assert.deepEqual(validateProfile(profile,observed),{profileValidated:true,deploymentAuthorized:false});
+ const validPolicy=profile.vars.MCP_RATE_LIMIT_CONFIG;
+ for(const policy of ['null',undefined,null,'{}','',false]){
+  profile.vars.MCP_RATE_LIMIT_CONFIG=policy;
+  assert.throws(()=>validateProfile(profile,observed),/MCP invocation rate policy/);
+ }
+ profile.vars.MCP_RATE_LIMIT_CONFIG=validPolicy;
+ for(const mode of [undefined,null,'',false,true,'none','d39852-api-tokens-v2']){
+  profile.vars.LEGACY_API_TOKEN_AUTH=mode;
+  assert.throws(()=>validateProfile(profile,observed),/legacy API token auth mode/);
+ }
+ delete profile.vars.LEGACY_API_TOKEN_AUTH;
+ profile.vars.MCP_RATE_LIMIT_CONFIG='null';
+ assert.deepEqual(validateProfile(profile,observed),{profileValidated:true,deploymentAuthorized:false});
+});
+test('legacy API token profile must retain the observed existing D1 DB identity',()=>{
+ for(const mutate of [
+  ({profile,observed})=>{observed.bindings=observed.bindings.filter(binding=>binding.name!=='DB');profile.bindings=structuredClone(observed.bindings);},
+  ({profile,observed})=>{observed.bindings.find(binding=>binding.name==='DB').type='kv_namespace';profile.bindings=structuredClone(observed.bindings);},
+  ({profile})=>{profile.bindings.find(binding=>binding.name==='DB').identity='synthetic-replacement-database';},
+  ({profile,observed})=>{observed.bindings.find(binding=>binding.name==='DB').identity='REQUIRES_APPROVED_ID';profile.bindings=structuredClone(observed.bindings);},
+  ({profile,observed})=>{observed.bindings.push({name:'LEGACY_API_TOKEN_AUTH',type:'plain_text',identity:'d39852-api-tokens-v1'});profile.bindings=structuredClone(observed.bindings);},
+ ]){
+  const state=valid();state.profile.vars.LEGACY_API_TOKEN_AUTH='d39852-api-tokens-v1';mutate(state);
+  assert.throws(()=>validateProfile(state.profile,state.observed),/RELEASE_REJECTED/);
+ }
+});
 test('all removed switches fail even with none/false; unknown config rejected',()=>{
  for(const name of ['AUTO_JOIN_ROLE','AUTO_PROVISION_MEMBERSHIP','TRASH_PURGE','PURGE_TRASH','CRON','scheduled','unknown'])for(const value of ['none',false,true]){
   const {profile,observed}=valid();profile.vars[name]=value;assert.throws(()=>validateProfile(profile,observed),/RELEASE_REJECTED/);

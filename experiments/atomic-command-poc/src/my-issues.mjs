@@ -1,3 +1,4 @@
+import { credentialAllows } from './resource-access.mjs';
 import {issueCompatibilitySummary} from './issue-compat.mjs';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { Buffer } from 'node:buffer';
@@ -44,7 +45,7 @@ export function queryMyIssues(db,actor,args,now) {
  return transaction(db,()=>{
   const at=now??Date.now();
   const denied=authorized(db,actor,q.workspaceId,q.workspaceEpoch,at);if(denied)return failure(denied);
-  if(!db.prepare('SELECT can_read FROM credential WHERE id=?').get(actor.credentialId)?.can_read)return failure('FORBIDDEN');
+  if(!credentialAllows(db,actor,'read'))return failure('FORBIDDEN');
   const w=db.prepare('SELECT change_seq FROM workspace WHERE id=?').get(q.workspaceId);
   const state=db.prepare('SELECT * FROM query_state WHERE id=1').get();
   if(!state||!/^[0-9a-f]{64}$/.test(state.cursor_key))return failure('UNAVAILABLE');
