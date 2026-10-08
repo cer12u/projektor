@@ -111,3 +111,12 @@ CREATE TRIGGER query_credential_scope_insert AFTER INSERT ON credential_scope BE
 CREATE TRIGGER query_credential_scope_update AFTER UPDATE ON credential_scope BEGIN UPDATE query_state SET revision=revision+1 WHERE id=1; END;
 
 CREATE TRIGGER query_credential_scope_delete AFTER DELETE ON credential_scope BEGIN UPDATE query_state SET revision=revision+1 WHERE id=1; END;
+
+-- Reviewed normalized Wiki additive schema
+CREATE TRIGGER wiki_revision_metadata_no_update BEFORE UPDATE ON wiki_revision_metadata BEGIN SELECT RAISE(ABORT,'immutable wiki revision metadata'); END;
+CREATE TRIGGER wiki_revision_metadata_no_delete BEFORE DELETE ON wiki_revision_metadata BEGIN SELECT RAISE(ABORT,'immutable wiki revision metadata'); END;
+CREATE TRIGGER wiki_alias_no_update BEFORE UPDATE ON wiki_alias BEGIN SELECT RAISE(ABORT,'immutable wiki alias'); END;
+CREATE TRIGGER wiki_alias_no_delete BEFORE DELETE ON wiki_alias BEGIN SELECT RAISE(ABORT,'immutable wiki alias'); END;
+CREATE TABLE link_view_decision(link_view_id TEXT NOT NULL,ordinal INTEGER NOT NULL,occurrence_id TEXT NOT NULL,binding_id TEXT NOT NULL,binding_version INTEGER NOT NULL,PRIMARY KEY(link_view_id,ordinal),UNIQUE(link_view_id,occurrence_id));
+CREATE TRIGGER link_view_decision_no_update BEFORE UPDATE ON link_view_decision BEGIN SELECT RAISE(ABORT,'immutable link view decision'); END;
+CREATE TRIGGER link_view_decision_no_delete BEFORE DELETE ON link_view_decision BEGIN SELECT RAISE(ABORT,'immutable link view decision'); END;

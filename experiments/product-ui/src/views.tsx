@@ -4,15 +4,17 @@ import {isID,type ProductPorts,type Selected,type Route,type PrepareLeave} from 
 import {IssueContentController,MyIssuesController,preserveMarkdownInput} from './core.ts';
 import {Notice,IssueRows,listMessage,EntryList,History,editorMessage,states,actionResultText} from './components.tsx';
 export interface ViewProps {ports:ProductPorts;selected:Selected;route:Route;navigate:(patch:Partial<Route>)=>void;replace:(patch:Partial<Route>)=>void;guard:(prepare:PrepareLeave)=>()=>void;locked:boolean;restoreView:()=>void}
-function useLifecycle(controller:any,allowed:boolean){
+export function useLifecycle(controller:any,allowed:boolean,revision?:number){
   const canRun=useRef(allowed);canRun.current=allowed;
   // Root bootstrap lock must also invalidate requests and clear cached keys.
   // Layout effects run before paint; masking never substitutes for this lock.
   useLayoutEffect(()=>{
+    if(!controller)return;
     if(!allowed)controller.setVisible(false);
     else void controller.setVisible(document.visibilityState!=='hidden');
-  },[controller,allowed]);
+  },[controller,allowed,revision]);
   useEffect(()=>{
+    if(!controller)return;
     const hidden=()=>{if(document.visibilityState==='hidden'||!canRun.current)flushSync(()=>controller.setVisible(false));else void controller.setVisible(true);};
     const hide=()=>flushSync(()=>controller.setVisible(false));
     const show=()=>{flushSync(()=>controller.lock('VERIFY_SESSION'));if(canRun.current)void controller.setVisible(document.visibilityState!=='hidden');};
@@ -133,7 +135,7 @@ export function ContentView(props:ViewProps){
     </>}
   </section>;
 }
-export function ProjectPicker({ports,selected,navigate,locked,accessRevision}:{ports:ProductPorts;selected:Selected;navigate:(patch:Partial<Route>)=>void;locked:boolean;accessRevision:number}){
+export function ProjectPicker({ports,selected,navigate,locked,accessRevision,wiki=false}:{ports:ProductPorts;selected:Selected;navigate:(patch:Partial<Route>)=>void;locked:boolean;accessRevision:number;wiki?:boolean}){
   const[state,setState]=useState<any>({phase:'loading',items:[],binding:null});
   const binding=selected.principal.id+':'+selected.workspace.id+':'+selected.workspace.epoch+':'+accessRevision;
   useEffect(()=>{
@@ -150,5 +152,5 @@ export function ProjectPicker({ports,selected,navigate,locked,accessRevision}:{p
   },[ports,selected,locked,binding]);
   if(locked)return null;
   const current=state.binding===binding?state:{phase:'loading',items:[]};
-  return <section><h2>Create in a project</h2>{current.phase==='loading'?<Notice>Loading projects…</Notice>:current.phase==='error'?<Notice error>Projects unavailable · {current.code}</Notice>:current.items.length===0?<Notice>No readable projects</Notice>:<ul>{current.items.map((p:any)=><li key={p.id}><button onClick={()=>navigate({view:'create',projectId:p.id,issueId:null,draftId:crypto.randomUUID(),projectAtProtection:null})}>Create issue in {p.title}</button></li>)}</ul>}</section>;
+  return <section><h2>Create in a project</h2>{current.phase==='loading'?<Notice>Loading projects…</Notice>:current.phase==='error'?<Notice error>Projects unavailable · {current.code}</Notice>:current.items.length===0?<Notice>No readable projects</Notice>:<ul>{current.items.map((p:any)=><li key={p.id}><button onClick={()=>{const id=crypto.randomUUID();navigate(wiki?{view:'wiki-create',projectId:null,issueId:null,pageId:id,draftId:id,wikiProtectionScope:'project',projectAtProtection:p.id}:{view:'create',projectId:p.id,issueId:null,draftId:id,projectAtProtection:null});}}>Create {wiki?'Wiki page':'issue'} in {p.title}</button></li>)}</ul>}</section>;
 }

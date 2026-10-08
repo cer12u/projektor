@@ -1,16 +1,19 @@
 import {isID,type Route,type PrepareLeave} from './contracts.ts';
-const views=new Set(['list','board','issue','create']);
+const views=new Set(['list','board','issue','create','wiki','wiki-page','wiki-create']);
 export function parseRoute(input:string):Route{
   const url=new URL(input,'https://ui.invalid');
   if(url.origin!=='https://ui.invalid'||url.pathname!=='/'||url.hash||/[\\]/.test(input))throw new Error('ROUTE_INVALID');
   const p=url.searchParams;
-  if([...p.keys()].some(k=>!['view','workspaceId','issueId','projectId','status','draftId','projectAtProtection'].includes(k))||[...p.keys()].some(k=>p.getAll(k).length!==1))throw new Error('ROUTE_INVALID');
+  if([...p.keys()].some(k=>!['view','workspaceId','pageId','wikiProtectionScope','issueId','projectId','status','draftId','projectAtProtection'].includes(k))||[...p.keys()].some(k=>p.getAll(k).length!==1))throw new Error('ROUTE_INVALID');
   const view=p.get('view')??'list';
   if(!views.has(view))throw new Error('ROUTE_INVALID');
-  for(const key of ['workspaceId','issueId','projectId','draftId','projectAtProtection'])if(p.has(key)&&!isID(p.get(key)))throw new Error('ROUTE_INVALID');
+  for(const key of ['workspaceId','pageId','issueId','projectId','draftId','projectAtProtection'])if(p.has(key)&&!isID(p.get(key)))throw new Error('ROUTE_INVALID');
   const status=p.get('status')??'unresolved';if(!['all','unresolved'].includes(status))throw new Error('ROUTE_INVALID');
+  if(p.has('wikiProtectionScope')&&!['project','workspace_shared'].includes(p.get('wikiProtectionScope')!))throw new Error('ROUTE_INVALID');
+  if(['wiki-page','wiki-create'].includes(view)&&!p.get('pageId'))throw new Error('ROUTE_INVALID');
+  if(view==='wiki-create'&&(p.get('draftId')!==p.get('pageId')||!p.get('wikiProtectionScope')||p.get('wikiProtectionScope')==='project'&&!p.get('projectAtProtection')||p.get('wikiProtectionScope')==='workspace_shared'&&p.has('projectAtProtection')))throw new Error('ROUTE_INVALID');
   if(view==='issue'&&!p.get('issueId')||view==='create'&&!p.get('projectId'))throw new Error('ROUTE_INVALID');
-  return {view:view as Route['view'],workspaceId:p.get('workspaceId'),issueId:p.get('issueId'),projectId:p.get('projectId'),status:status as Route['status'],draftId:p.get('draftId'),projectAtProtection:p.get('projectAtProtection')};
+  return {view:view as Route['view'],workspaceId:p.get('workspaceId'),pageId:p.get('pageId'),wikiProtectionScope:p.get('wikiProtectionScope') as Route['wikiProtectionScope'],issueId:p.get('issueId'),projectId:p.get('projectId'),status:status as Route['status'],draftId:p.get('draftId'),projectAtProtection:p.get('projectAtProtection')};
 }
 export function routeURL(route:Route):string{
   const p=new URLSearchParams();for(const[k,v]of Object.entries(route))if(v!==null)p.set(k,v);

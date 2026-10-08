@@ -3,13 +3,15 @@
 export interface Workspace { id:string; epoch:string; title:string; principal?:Principal }
 export interface Principal { id:string; kind:'human'|'machine'; displayName:string }
 export interface Bootstrap { principal:Principal|null; workspaces:Workspace[]; expiresAt:number }
-export interface Route { view:'list'|'board'|'issue'|'create'; workspaceId:string|null; issueId:string|null; projectId:string|null; status:'all'|'unresolved'; draftId:string|null; projectAtProtection:string|null }
+export interface Route { view:'list'|'board'|'issue'|'create'|'wiki'|'wiki-page'|'wiki-create'; pageId:string|null; wikiProtectionScope:'project'|'workspace_shared'|null; workspaceId:string|null; issueId:string|null; projectId:string|null; status:'all'|'unresolved'; draftId:string|null; projectAtProtection:string|null }
 export interface Selected { principal:Principal; workspace:Workspace }
 export interface ProductPorts {
   evidence:'product'|'contract-fixture';
   bootstrap(options:{signal:AbortSignal}):Promise<Bootstrap>;
   /** Must freshly verify selected workspace and principal. Never select by email. */
   session(selected:Selected,options?:{signal?:AbortSignal}):Promise<any>;
+  wikiAPI?(selected:Selected):any;
+  wikiProtection?(options:any):any;
   contentAPI(selected:Selected):any;
   listTransport(selected:Selected):any;
   protection(options:{selected:Selected;api:any;issueId:string|null;projectId:string|null;draftId:string;projectAtProtection?:string;dirty:()=>boolean;onBinding:(binding:any)=>void}):any;

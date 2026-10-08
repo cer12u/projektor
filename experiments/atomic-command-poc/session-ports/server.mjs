@@ -2,7 +2,7 @@
 // current identity/credential authorization. These are not public actor RPCs.
 import {randomBytes, randomUUID} from 'node:crypto';
 import {authorized, canonical} from '../src/shared-core.mjs';
-import {currentRead,scopeAllowed,resourceScope,hasScope} from '../src/resource-access.mjs';
+import {currentRead,currentWrite,historicRead,scopeAllowed,resourceScope,hasScope} from '../src/resource-access.mjs';
 export class SessionPortError extends Error {constructor(code,status=403){super(code);this.code=code;this.status=status;}}
 const stop=(code,status)=>{throw new SessionPortError(code,status);};
 export const isId=x=>typeof x==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(x);
@@ -27,19 +27,38 @@ export function currentSession(db,verified,workspaceId,{now=Date.now()}={}) {
 export function bootstrapMembership(db,verified,workspaceId,options) {return currentSession(db,verified,workspaceId,options).session;}
 export function validateBinding(binding){
  const keys=['principalId','workspaceId','workspaceEpoch','resourceType','resourceId','editorId','projectAtProtection','draftId'];
- if(!binding||typeof binding!=='object'||Array.isArray(binding)||Object.keys(binding).length!==keys.length||keys.some(k=>!Object.hasOwn(binding,k))||!['principalId','workspaceId','workspaceEpoch','resourceId','draftId'].every(k=>isId(binding[k]))||!['issue','project','wiki'].includes(binding.resourceType)||typeof binding.editorId!=='string'||!/^[a-z][a-z0-9-]{0,63}$/.test(binding.editorId)||binding.projectAtProtection!==null&&!isId(binding.projectAtProtection))stop('VALIDATION',400);
- if(binding.resourceType!=='wiki'&&binding.projectAtProtection===null)stop('VALIDATION',400);
+ if(!binding||typeof binding!=='object'||Array.isArray(binding)||Object.keys(binding).length!==keys.length||keys.some(k=>!Object.hasOwn(binding,k))||!['principalId','workspaceId','workspaceEpoch','resourceId','draftId'].every(k=>isId(binding[k]))||!['issue','project','wiki','workspace'].includes(binding.resourceType)||typeof binding.editorId!=='string'||!/^[a-z][a-z0-9-]{0,63}$/.test(binding.editorId)||binding.projectAtProtection!==null&&!isId(binding.projectAtProtection))stop('VALIDATION',400);
+ if(binding.editorId==='wiki-create'){
+  if(binding.resourceType==='project'){if(binding.resourceId!==binding.projectAtProtection)stop('VALIDATION',400);}
+  else if(binding.resourceType==='workspace'){if(binding.resourceId!==binding.workspaceId||binding.projectAtProtection!==null)stop('VALIDATION',400);}
+  else stop('VALIDATION',400);
+ }else if(binding.resourceType==='workspace')stop('VALIDATION',400);
+ if(!['wiki','workspace'].includes(binding.resourceType)&&binding.projectAtProtection===null)stop('VALIDATION',400);
 }
 function authorizeDraft(db,actor,binding,{creating=false}={}){
  const original=binding.projectAtProtection===null?{kind:'workspace_shared'}:{kind:'project',projectId:binding.projectAtProtection};
  if(!scopeAllowed(db,actor,original))stop('DRAFT_FORBIDDEN');
  if(binding.projectAtProtection!==null){const p=get(db,'SELECT deleted FROM project WHERE id=?',binding.projectAtProtection);if(!p||p.deleted)stop('DRAFT_FORBIDDEN');}
+ // wiki-create/v1: draftId is the preallocated Wiki page ID, never a title alias.
+ if(binding.editorId==='wiki-create'){
+  if(!hasScope(db,actor,'wiki:read')||!hasScope(db,actor,'wiki:write')||!scopeAllowed(db,actor,original,'write'))stop('DRAFT_FORBIDDEN');
+  const page=get(db,'SELECT id FROM wiki_page WHERE id=?',binding.draftId);
+  const history=get(db,"SELECT 1 AS present FROM content_revision WHERE resource_type='wiki' AND resource_id=? LIMIT 1",binding.draftId);
+  // Never retrofit a new broad creation key, or treat a disappeared page as new.
+  if(creating&&(page||history)||!page&&history)stop('DRAFT_FORBIDDEN');
+  if(page&&!currentRead(db,actor,{type:'wiki',id:binding.draftId}))stop('DRAFT_FORBIDDEN');
+  return;
+ }
  if(binding.resourceType==='project'){
   const p=get(db,'SELECT deleted FROM project WHERE id=?',binding.resourceId);
   if(!p||p.deleted||binding.resourceId!==binding.projectAtProtection||!scopeAllowed(db,actor,{kind:'project',projectId:binding.resourceId})||!hasScope(db,actor,'issue:read'))stop('DRAFT_FORBIDDEN');
  }else{
   const resource={type:binding.resourceType,id:binding.resourceId};
-  if(!currentRead(db,actor,resource)||!hasScope(db,actor,`${binding.resourceType}:read`))stop('DRAFT_FORBIDDEN');
+  const state=resourceScope(db,resource);
+  if(resource.type==='wiki'&&state?.deleted&&binding.editorId==='wiki-content'){
+   const revision=get(db,"SELECT * FROM content_revision WHERE id=? AND resource_type='wiki' AND resource_id=?",state.row.current_revision_id,resource.id);
+   if(!hasScope(db,actor,'wiki:read')||!hasScope(db,actor,'wiki:write')||!hasScope(db,actor,'wiki:restore')||!currentRead(db,actor,resource,{allowDeleted:true})||!currentWrite(db,actor,resource,{allowDeleted:true})||!revision||!historicRead(db,actor,revision))stop('DRAFT_FORBIDDEN');
+  }else if(!currentRead(db,actor,resource)||!hasScope(db,actor,`${binding.resourceType}:read`))stop('DRAFT_FORBIDDEN');
   if(creating&&canonical(resourceScope(db,resource)?.scope)!==canonical(original))stop('DRAFT_ORIGINAL_SCOPE_MISMATCH');
  }
 }

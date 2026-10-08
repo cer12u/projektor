@@ -1,3 +1,4 @@
+import {WikiView} from './WikiView.tsx';
 import {Component,useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import {flushSync} from 'react-dom';
 import {checkBootstrap,chooseWorkspace,retainViewSelection,workspaceAccessNotice,type Bootstrap,type ProductPorts,type PrepareLeave,type Route,type Selected} from './contracts.ts';
@@ -57,7 +58,7 @@ export function App({ports}:{ports:ProductPorts}){
       <button disabled={!selected||masked||router.busy} onClick={()=>navigate({view:'list',issueId:null,projectId:null,draftId:null,projectAtProtection:null})}>My Issues</button>
       <button disabled={!selected||masked||router.busy} onClick={()=>navigate({view:'board',issueId:null,projectId:null,draftId:null,projectAtProtection:null})}>Board</button>
       <button ref={workspaceButton} disabled={masked||router.busy} onClick={()=>setWorkspacePicker(true)}>Choose workspace</button>
-      <p className="meta">Wiki connection pending</p>
+      <button disabled={!selected||masked||router.busy} onClick={()=>navigate({view:'wiki',pageId:null,draftId:null,projectAtProtection:null,wikiProtectionScope:null})}>Wiki</button>
     </nav><main id="main">
       {router.error&&<Notice error>{router.error}</Notice>}
       {phase==='loading'&&<Notice>Checking authenticated workspace access…</Notice>}
@@ -67,7 +68,7 @@ export function App({ports}:{ports:ProductPorts}){
       {!masked&&data&&(workspacePicker||!selected||selectionError)&&data.workspaces.length>0&&<section aria-label="Workspace selection"><h1 data-workspace-heading tabIndex={-1}>Choose a workspace</h1>{workspacePicker&&selected&&<button onClick={()=>{setWorkspacePicker(false);workspaceButton.current?.focus();}}>Cancel workspace selection</button>}<ul>{data.workspaces.map(w=><li key={w.id}><button onClick={()=>navigate({workspaceId:w.id,view:'list',issueId:null,projectId:null,draftId:null,projectAtProtection:null})}>{w.title}</button></li>)}</ul></section>}
       {viewSelection&&props&&<div key={viewSelection.principal.id+viewSelection.workspace.id+viewSelection.workspace.epoch}>
         {!masked&&data&&<Expiry expiresAt={data.expiresAt}/>}
-        {['list','board'].includes(route.view)?<><ListView {...props}/><ProjectPicker ports={ports} selected={viewSelection} navigate={navigate} locked={masked||!selected} accessRevision={accessRevision}/></>:<ContentView key={route.view+route.issueId+route.projectId} {...props}/>}
+        {route.view.startsWith('wiki')?<WikiView key={route.view+route.pageId} {...props} accessRevision={accessRevision}/>:['list','board'].includes(route.view)?<><ListView {...props}/><ProjectPicker ports={ports} selected={viewSelection} navigate={navigate} locked={masked||!selected} accessRevision={accessRevision}/></>:<ContentView key={route.view+route.issueId+route.projectId} {...props}/>}
       </div>}
       {masked&&phase!=='loading'&&phase!=='error'&&<Notice>Content locked. Verify your session before restoring drafts <button onClick={()=>boot()}>Verify access</button></Notice>}
     </main></div></>;

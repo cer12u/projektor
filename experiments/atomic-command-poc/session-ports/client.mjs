@@ -12,8 +12,9 @@ export function createSessionAPI({baseUrl=globalThis.location?.origin,fetchImpl=
   keyProvider:(binding,keyId)=>read('/v1/draft-keys',{method:'POST',body:{binding,...(keyId?{keyId}:{})}})
  };
 }
-export function createContentProtection({api,issueId,projectId,draftId,projectAtProtection,dbName,fault=()=>null,onBinding=()=>{},dirty=()=>false,keyProvider,resourceType,editorId}){
+export function createContentProtection({api,issueId,projectId,draftId,projectAtProtection,dbName,fault=()=>null,onBinding=()=>{},dirty=()=>false,keyProvider,resourceType,editorId,resourceIdFromSession}){
  if(!id(draftId))throw Error('DRAFT_ID_REQUIRED');
+ if(resourceIdFromSession!==undefined&&(resourceIdFromSession!=='workspace'||resourceType!=='workspace'||editorId!=='wiki-create'||projectAtProtection!==null||projectId!==undefined||issueId!==draftId))throw Error('DRAFT_BINDING_MISMATCH');
  if(!keyProvider)keyProvider=createSessionAPI().keyProvider;
  let binding=null,branchConflict=false;
  const vault=new DraftVault({dbName,fault,keyProvider});
@@ -22,7 +23,7 @@ export function createContentProtection({api,issueId,projectId,draftId,projectAt
   let project=projectId??projectAtProtection;
   if(project===undefined){const body=await api.issue({session,issueId});if(!guard())throw Error('STALE_CONTEXT');project=validateContentIssue(body,session,issueId).project_id;}
   if(!guard())throw Error('STALE_CONTEXT');
-  binding={principalId:session.principalId,workspaceId:session.workspaceId,workspaceEpoch:session.workspaceEpoch,resourceType:resourceType??(projectId?'project':'issue'),resourceId:projectId??issueId,editorId:editorId??(projectId?'issue-create':'content'),projectAtProtection:project,draftId};onBinding(structuredClone(binding));
+  binding={principalId:session.principalId,workspaceId:session.workspaceId,workspaceEpoch:session.workspaceEpoch,resourceType:resourceType??(projectId?'project':'issue'),resourceId:resourceIdFromSession==='workspace'?session.workspaceId:projectId??issueId,editorId:editorId??(projectId?'issue-create':'content'),projectAtProtection:project,draftId};onBinding(structuredClone(binding));
  }
  return {vault,get binding(){return binding&&structuredClone(binding);},lock(){vault.clearKeys();},
   async restore(session,guard){if(branchConflict)throw Error('DRAFT_WRITE_CONFLICT');await ensure(session,guard);if(await vault.tombstoned(session.sessionId))throw Error('SESSION_TOMBSTONED');const oldHead=vault.heads.get(canonical(binding));const stored=await vault.restore(binding,session,guard);if(oldHead!==undefined&&oldHead!==vault.heads.get(canonical(binding))&&dirty()){branchConflict=true;throw Error('DRAFT_WRITE_CONFLICT');}return stored;},

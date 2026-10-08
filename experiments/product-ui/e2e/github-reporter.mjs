@@ -17,7 +17,7 @@ export default async function* reporter(source){
         const raw=buffer.slice(0,index);buffer=buffer.slice(index+1);
         if(!raw.startsWith(PREFIX))continue;
         let value;try{value=JSON.parse(raw.slice(PREFIX.length));}catch{continue;}
-        if(!value||Object.keys(value).sort().join(',')!=='id,phase,state'||!/^C(?:0[1-9]|1[0-2])$|^S00$/.test(value.id)||!PHASES.includes(value.phase)||!STATES.includes(value.state))continue;
+        if(!value||Object.keys(value).sort().join(',')!=='id,phase,state'||!/^C(?:0[1-9]|1[0-7])$|^S00$/.test(value.id)||!PHASES.includes(value.phase)||!STATES.includes(value.state))continue;
         last.set(value.id,value.phase);if(value.id==='S00'&&['fail','timeout'].includes(value.state))runnerFailed=true;if(['fail','timeout'].includes(value.state)&&(!failed.has(value.id)||failed.get(value.id)==='scenario_body'))failed.set(value.id,value.phase);yield line(value.id,value.phase,value.state);
       }
     }else if(event.type==='test:fail'){

@@ -1,3 +1,4 @@
+import {currentLinkView,carryLinkView} from './content-links.mjs';
 // Runtime-neutral workflow on the existing WorkspaceStore transaction boundary.
 import {randomUUID} from 'node:crypto';
 import {Buffer} from 'node:buffer';
@@ -153,6 +154,12 @@ export function executeWorkflowCommand(db,actor,c,options={}){
    }
   }
   fault('after_domain');
+  // Every versioned Issue projection keeps its exact prior immutable bindings.
+  for(const changed of metadata.targets??(version!==issue.version?[{id:issue.id,version}]:[])){
+   const changedResource={type:'issue',id:changed.id},fromVersion=changed.version-1;
+   if(currentLinkView(db,changedResource,fromVersion))carryLinkView(db,{resource:changedResource,fromVersion,resourceVersion:changed.version,access:captureAccess(db,changedResource)});
+  }
+  fault('after_links');
   const wrappedSave=(result,t)=>save({...result,data:{...result.data,...(claimResult?{claim:claimResult}:{}),...(entryId?{entryId}:{}),...(resolutionRecordId?{resolutionRecordId}:{}),...(metadata.targets?{targets:metadata.targets}:{})}},t);
   return commitResourceMutation(db,actor,c,{resource,version,revisionId,subresourceId:entryId,originalAuthorRef:nativeAuthor(actor),beforeTitle:issue.title,afterTitle:issue.title,metadata,now,fault,save:wrappedSave,targets:evidence()});
  });

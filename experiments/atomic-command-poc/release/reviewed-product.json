@@ -1,5 +1,5 @@
 {
-  "sourceCommit": "23f9a069de99cfbab4d2402d6548e9bb38a949ef",
+  "sourceCommit": "13da5980811aee08d1d05b395101ec37a6d7a783",
   "entrypoint": "service/entry.mjs",
   "exports": [
     "WorkspaceService",
@@ -9,19 +9,23 @@
     "service/auth.mjs": "11d3d0df9392212b569ae52ba3b4d136dd515041bd038feee4823ee209054428",
     "service/config.mjs": "23b730f38b700a3eae5313e5ec9d062f7ded28f6ffc2bcaadfcbf19bdc51c912",
     "service/entry.mjs": "75ad596543ce1b2498df669c93e3c52d3e157c902bf8707646e4882496aa4e2d",
-    "service/http.mjs": "3894f01d94ec6a6463a60a02b5381c9b5dccf13d53fa32bb6f426271ba36792a",
+    "service/http.mjs": "3efcd33d8f656c5059ba4468d6685b231832367d9f30e2b5c035c80f201cbe3b",
     "service/store.mjs": "bf4e96cd39df75e85c5a0ede8d4fb86b534093b3f3cbe56c5a56c0e917b9e939",
-    "service/workspace.mjs": "0a0070fd2da27c624022264bff6d30fc6c3052e31ca91e9d48212f5b7552c95b",
+    "service/workspace.mjs": "df370596d4085229280cfd673a492c21bb02364cc93d02aa4db22ad826c8298d",
     "session-ports/http.mjs": "67c56fdb7e970d5c03e05f5b8c79c3114b451aa334f0646586aad2eaa0ac7ddc",
     "session-ports/schema.sql": "a40b654403df7d3ef62676c49a6f08172fdce8c1134d0f153628dca7d63f1ab9",
-    "session-ports/server.mjs": "00edad3772eceb520eb592dc701b096712b9ca07b6413b6108e41e498c3bba95",
-    "src/agent-workflow.mjs": "0cda9c0697bf2506992504235117f84b754d38e76dfa7e5b9d2ca342a67d00d4",
+    "session-ports/server.mjs": "fc988ea95739f698f70cf52acbbe1d45b2fd437eca3f1f0492da51e41fc7999f",
+    "src/agent-workflow.mjs": "42073c72970371c15d396be74a3745b13c82f135a7b712d5868f510e8ca1ad84",
     "src/command-pipeline.mjs": "6d79bdc871193f859028df3c6dba73c2caa4fd75febf07f7759ebfded21f932f",
+    "src/content-links.mjs": "057ed6a1a781d4ce6908fa15d179fb7fb8aab0624e7ddde6c055e0d8d3ac3cff",
     "src/content-page.mjs": "468c62d6abbd592eeaec46f744533dba480dbff4da8d3883b0ff79bdf3af3d44",
-    "src/issue-content.mjs": "0da0005dffc583de4c5db5b58fc598ed06d8b05358a0660ff6340965a7a7ea5c",
+    "src/issue-content.mjs": "61be366328652c44124f510b5268528ff59e53357d6fedd8c18fcc273e06eb3e",
+    "src/link-parser.mjs": "da8ec05152c9607cf79a497799d42b2a2431981d72bf0af7b04686f167396e5d",
     "src/my-issues.mjs": "906b1a0178dc6fcb8413dbf9d5facb88f5fc2509ce2f48bfd47225b2945d3d8a",
     "src/resource-access.mjs": "4bff3e762906a111e34d3b65e990bf6fbee314f2a61eeb833a204fe58378ef71",
-    "src/schema.sql": "4c9a1e64be9e89fe239320e67a687f309f99f3c8dd9c46633143ed71f9d9a19a",
-    "src/shared-core.mjs": "00a04f0bc033116fb4fe3f1b37d3cde64421ff7b4e106eb2a47b007f27805bf6"
+    "src/schema.sql": "4753185402ed489343606deb1d565c37670be5d13d5cbdd4497c58e1b1e02d69",
+    "src/shared-core.mjs": "beb04adb5c72ebde64f0c0080243bef80cb93e3a04cff5d6c8d248bbea1ff197",
+    "src/wiki-surface.mjs": "b52adfc64dfb8740a6f88b839e599b64da3a55170b245419673c0f231b37442f",
+    "src/wiki.mjs": "1127beef4a829347fe743f45bafa1526734a97983daf0a20d05c8a437ab19e82"
   }
 }

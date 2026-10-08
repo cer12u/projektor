@@ -2,36 +2,76 @@
   {
     "path": "vendor/browser/draft-vault.mjs",
     "origin": "I2 frozen source",
+    "source": "experiments/atomic-command-poc/browser/draft-vault.mjs",
     "sha256": "af1d129d25d459b07559c2b59744dfe8c7e115d2524280be63aa54ef62b6afc8"
   },
   {
     "path": "vendor/browser/issue-content.mjs",
-    "origin": "I2 frozen source",
+    "origin": "unchanged published13da vendor source",
+    "source": "PUBLISHED-FILES-13da598.json:experiments/product-ui/vendor/browser/issue-content.mjs",
     "sha256": "33a99089ff0a6e6ae48197a7c0cca28f5db0162057968248deef0e9e01d266bc"
   },
   {
     "path": "vendor/browser/my-issues.mjs",
-    "origin": "I2 frozen source",
+    "origin": "unchanged published13da vendor source",
+    "source": "PUBLISHED-FILES-13da598.json:experiments/product-ui/vendor/browser/my-issues.mjs",
     "sha256": "d3492ca6fb9539a1a73799f6625946ad3004bb8e22095b6e85153a4416bf50e8"
   },
   {
     "path": "vendor/client/issue-content.mjs",
-    "origin": "reviewed manual-receipt patch",
-    "sha256": "5881771e1d14a42a8c9d5073947bf34b40ac7d29cdd524a283cda26188264f99"
+    "origin": "exact canonical Wiki integration candidate copy; final independent review pending",
+    "source": "experiments/atomic-command-poc/client/issue-content.mjs",
+    "sha256": "50f7c90f77ce1fa261a92b815621984c6f635c0d388ccb801ce35dbec1bf7027",
+    "priorPublishedSHA256": "5881771e1d14a42a8c9d5073947bf34b40ac7d29cdd524a283cda26188264f99"
   },
   {
     "path": "vendor/client/recovery.mjs",
-    "origin": "I2 frozen source",
-    "sha256": "09192a623d1a4781f13082ec90bebcce8f7a19c1c8a0d1bddff512d5dbeb322a"
+    "origin": "exact canonical Wiki integration candidate copy; final independent review pending",
+    "source": "experiments/atomic-command-poc/client/recovery.mjs",
+    "sha256": "022de9d8a27a37c80b0fa8594df46acab5fdcfa235d85e6aba8401b9f10fab3f",
+    "priorPublishedSHA256": "09192a623d1a4781f13082ec90bebcce8f7a19c1c8a0d1bddff512d5dbeb322a"
+  },
+  {
+    "path": "vendor/client/wiki-content.mjs",
+    "origin": "exact canonical Wiki integration candidate copy; final independent review pending",
+    "source": "experiments/atomic-command-poc/client/wiki-content.mjs",
+    "sha256": "c82ec2354108f55c60b1f9d02df389754af379381e10abd3413e7f2cf489e892"
+  },
+  {
+    "path": "vendor/client/wiki-create-record.mjs",
+    "origin": "exact canonical Wiki integration candidate copy; final independent review pending",
+    "source": "experiments/atomic-command-poc/client/wiki-create-record.mjs",
+    "sha256": "e89e305bbb116e17aa6abc492a51224678a28c2814bd1b6f7b57482ad41c77bd"
+  },
+  {
+    "path": "vendor/client/wiki-generation.mjs",
+    "origin": "exact canonical Wiki integration candidate copy; final independent review pending",
+    "source": "experiments/atomic-command-poc/client/wiki-generation.mjs",
+    "sha256": "7a78910803792ed3baa3e83497d86a4fa2231427c6f088a27a84ac046d770adb"
+  },
+  {
+    "path": "vendor/client/wiki-protection.mjs",
+    "origin": "exact canonical Wiki integration candidate copy; final independent review pending",
+    "source": "experiments/atomic-command-poc/client/wiki-protection.mjs",
+    "sha256": "b36d50aaf4fe0b5a222fbc835d87c7ff7d81e6af7a3375bb4a3e9c75817cddef"
   },
   {
     "path": "vendor/session-ports/client.mjs",
-    "origin": "session owner cap-10 checkpoint",
-    "sha256": "b6d7d4dfddc02f50db9b8a2586c446cbdee843a8d597fe7a29dcc0b6c4a53d06"
+    "origin": "exact canonical Wiki integration candidate copy; final independent review pending",
+    "source": "experiments/atomic-command-poc/session-ports/client.mjs",
+    "sha256": "051645d1dab2299ce3c47ceec2d55e62184a6d400831612c49b64c2638c1aedb",
+    "priorPublishedSHA256": "b6d7d4dfddc02f50db9b8a2586c446cbdee843a8d597fe7a29dcc0b6c4a53d06"
   },
   {
     "path": "vendor/session-ports/human-workflow.mjs",
     "origin": "session owner cap-10 checkpoint",
+    "source": "experiments/atomic-command-poc/session-ports/human-workflow.mjs",
     "sha256": "90a909efb2e2ee0fa0eb54b918dfdbd140f4c56fc05cc5f7aec27d1436754202"
+  },
+  {
+    "path": "vendor/src/link-parser.mjs",
+    "origin": "exact canonical Wiki integration candidate copy; final independent review pending",
+    "source": "experiments/atomic-command-poc/src/link-parser.mjs",
+    "sha256": "da8ec05152c9607cf79a497799d42b2a2431981d72bf0af7b04686f167396e5d"
   }
 ]

@@ -1,30 +1,19 @@
 {
-  "scope": "I5 UI/session source checkpoint; not release acceptance",
-  "sourceManifestSHA256": "474f371b603760ec7162a1bdeb7c214d839bad7cb5499a744d96f1117b5b70de",
-  "baselineI2Commit": "5c76a7ac3770f2b9d88cf696eca0a58e91780b0d",
-  "sessionSourceManifestSHA256": "40ca888b61de558ac9137068c2f96da699065f928ff6e25600da5b775295e690",
-  "manualRecoverySourceManifestSHA256": "548df46671cd9820c53c8591ce027473af61e7accb5ec940bf05c06f457e6772",
+  "scope": "Wiki actual-session integration candidate; final review and browser pending",
+  "baselineCommit": "13da5980811aee08d1d05b395101ec37a6d7a783",
+  "sourceManifestSHA256": "47e7930cbed473c8f977ff98281e5dfafaddd6d93a27b7e38842de4cec3c42e6",
   "verification": {
-    "cleanInstall": "PASS npm ci --ignore-scripts",
+    "installedDependenciesOnly": true,
     "typecheck": "PASS",
     "productionBuild": "PASS",
     "nodeComponentTests": {
-      "passed": 104,
+      "passed": 133,
       "failed": 0
     },
-    "fixtureBuild": "PASS",
     "chromiumE2E": {
-      "prepared": 12,
-      "status": "NOT_RUN locally; approved same-PR CI required"
-    },
-    "realProvider": "NOT_RUN",
-    "manualAccessibility": "NOT_RUN"
+      "prepared": 17,
+      "status": "NOT_RUN locally; exact-head approved CI required"
+    }
   },
-  "blockers": [
-    "exact integrated CI browser evidence",
-    "actual ingress/provider renewal/key lifecycle",
-    "Wiki and artifact view integration",
-    "full pagination and provider navigation manifest",
-    "imported history coverage/archive/Agent display metadata"
-  ]
+  "releaseAccepted": false
 }

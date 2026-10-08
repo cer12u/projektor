@@ -11,14 +11,19 @@ export const CASES=[
   "delayed project titles cannot reappear after same-principal grant revocation and resume",
   "canceling workspace selection preserves route, latest draft and keyboard focus",
   "temporary missing membership keeps unpersisted input locked in memory until exact access revalidation",
-  "native Back is canceled when protection fails, then Back/Forward restores the same protected draft"
+  "native Back is canceled when protection fails, then Back/Forward restores the same protected draft",
+  "Wiki project protected creation survives reload and opens a distinct existing-page binding",
+  "Wiki shared protected creation survives reload and opens a distinct existing-page binding",
+  "Wiki committed creation keeps late text through Back/reload and cannot issue a second Create",
+  "Wiki old creation ciphertext is not revealed after resulting page ACL is revoked",
+  "Wiki trash reload restores only through authorized current and historic protection"
 ];
 export const PHASES=['suite_import','fixture_build','browser_launch','fixture_start','context_open','fixture_login','fixture_seed','page_open','scenario_body','create_navigate','create_project','create_fields','create_save','create_open','gate_command','gate_projects','context_close','fixture_close','browser_close','draft_protect','draft_reload','draft_verify','late_send','late_edit','late_verify','revoke_access','revoke_lock','other_identity','other_identity_verify','storage_fault','membership_remove','membership_locked','membership_restore','membership_verify','history_locator_ready','history_fault','history_cancel','history_cancel_verify','history_back_ready','history_forward_ready','history_verify'];
 export const STATES=['start','pass','fail','timeout'];
 export const PREFIX='@@PROJEKTOR_UI_PHASE ';
 export function caseID(name){const i=CASES.indexOf(name);return i<0?'S00':'C'+String(i+1).padStart(2,'0');}
 export function trace(id,phase,state){
-  if(!/^C(?:0[1-9]|1[0-2])$|^S00$/.test(id)||!PHASES.includes(phase)||!STATES.includes(state))throw Error('INVALID_TEST_DIAGNOSTIC');
+  if(!/^C(?:0[1-9]|1[0-7])$|^S00$/.test(id)||!PHASES.includes(phase)||!STATES.includes(state))throw Error('INVALID_TEST_DIAGNOSTIC');
   process.stdout.write(PREFIX+JSON.stringify({id,phase,state})+'\n');
 }
 export async function phase(t,name,run,timeoutMs=15000){

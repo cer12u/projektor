@@ -1,3 +1,5 @@
+import {wikiCommandTools,wikiMCP,wikiQuery} from './wiki-surface.mjs';
+export {wikiMCP as mcpWiki};
 import {queryClaim,queryResolutionRecords,queryCapabilities,queryAttemptCheckpoint,queryIssueAlias} from './agent-workflow.mjs';
 import { queryMyIssues } from './my-issues.mjs';
 import { executeCommand, failure, operationGet, queryIssues, queryProjects, queryIssueEntries, queryContentRevisions, StorageFailure } from './shared-core.mjs';
@@ -14,7 +16,7 @@ export function restUpdate(db,actor,{workspaceId,entityId,idempotencyKey,body},o
  const result=workspaceId!==body?.workspaceId||entityId!==body?.entityId||idempotencyKey!==body?.operationId?failure('VALIDATION'):invoke(db,actor,body,options);
  return {status:result.error?(status[result.error.code]??500):200,body:result};
 }
-export const commandTools=Object.freeze({
+export const commandTools=Object.freeze({...wikiCommandTools,
  issue_update_title:'Issue.UpdateTitle',issue_create:'Issue.Create',issue_update_body:'Issue.UpdateBody',
  issue_assign:'Issue.Assign',issue_set_priority:'Issue.SetPriority',issue_add_comment:'Issue.AddComment',issue_edit_comment:'Issue.EditComment',issue_claim:'Issue.Claim',issue_renew_claim:'Issue.RenewClaim',issue_release_claim:'Issue.ReleaseClaim',issue_append_progress:'Issue.AppendProgress',issue_transition:'Issue.Transition',issue_reparent:'Issue.Reparent',issue_move_tree:'Issue.MoveTree'
 });
@@ -56,3 +58,5 @@ export function restClaim(db,actor,args,now){return restRead(queryClaim,db,actor
 export function restResolutions(db,actor,args,now){return restRead(queryResolutionRecords,db,actor,args,now);}
 export function restCapabilities(db,actor,args,now){return restRead(queryCapabilities,db,actor,args,now);}
 export function mcpWorkflowQuery(db,actor,{name,arguments:args},now){const q={claim_get:queryClaim,resolution_records_list:queryResolutionRecords,capabilities_get:queryCapabilities,attempt_checkpoint_get:queryAttemptCheckpoint,issue_alias_get:queryIssueAlias}[name];const result=q?read(q,db,actor,args,now):failure('VALIDATION');return {isError:Boolean(result.error),structuredContent:result};}
+
+export function restWiki(db,actor,{name,arguments:args},now){const body=wikiQuery(db,actor,name,args,now);return {status:body.error?(status[body.error.code]??400):200,body};}

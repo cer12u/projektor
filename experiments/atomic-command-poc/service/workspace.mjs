@@ -1,3 +1,4 @@
+import {wikiQuery,wikiMCP,wikiCommandTools,validateWikiQuery} from '../src/wiki-surface.mjs';
 import {queryClaim,queryResolutionRecords,queryCapabilities,queryAttemptCheckpoint,queryIssueAlias} from '../src/agent-workflow.mjs';
 import { DurableObject } from 'cloudflare:workers';
 import { randomBytes,createHash } from 'node:crypto';
@@ -12,7 +13,7 @@ import { authenticate,AuthError } from './auth.mjs';
 import { route,body,queryArgs,error,failureResponse,resultResponse } from './http.mjs';
 // The only public operation is fetch(Request). There are no actor/RPC, schema,
 // SQL, enrollment, reset, key or fault-injection methods on this class.
-const schemaFingerprint=createHash('sha256').update(schema).update('\nI5-session-ports\n').update(keySchema).digest('hex');
+const schemaFingerprint=createHash('sha256').update(schema).update('\nI5-session-ports\n').update(keySchema).update('\nWiki-precreate-binding-v1\nWiki-deleted-protection-v1\n').digest('hex');
 export class WorkspaceService extends DurableObject {
  #db;#supported=false;
  constructor(ctx,env){
@@ -41,13 +42,13 @@ export class WorkspaceService extends DurableObject {
    const config=configuration(this.env),r=route(request,config);
    if(!this.ctx.id.equals(this.env.WORKSPACE.idFromName(r.workspaceId)))return error('WORKSPACE_MISMATCH',403);
    const verified=await authenticate(request,this.env,r.kind);
-   if(!this.#supported)return error('STORE_SCHEMA_UNSUPPORTED');
-   let args;
+   if(!this.#supported||this.#db.prepare('SELECT version FROM service_schema WHERE id=1').get()?.version!==5||this.#db.prepare('SELECT fingerprint FROM service_schema_variant WHERE id=1').get()?.fingerprint!==schemaFingerprint)return error('STORE_SCHEMA_UNSUPPORTED');
+   let args,rpc;
    if(r.action==='command'){
     args=await body(request,Math.min(config.bodyDeadline,Math.max(1,config.deadline-(Date.now()-started))));
     const invalid=validate(args);if(invalid)throw new AuthError(invalid,invalid==='PRECONDITION_REQUIRED'?428:400);
     if(args.workspaceId!==r.workspaceId||request.headers.get('idempotency-key')!==args.operationId)throw new AuthError('ENVELOPE_MISMATCH',400);
-   }else if(r.action==='draftKey'){
+   }else if(r.action==='mcp'){rpc=await body(request,config.bodyDeadline);if(!rpc||rpc.jsonrpc!=='2.0'||!['string','number'].includes(typeof rpc.id)||rpc.method!=='tools/call'||!rpc.params||Object.keys(rpc).some(k=>!['jsonrpc','id','method','params'].includes(k))||Object.keys(rpc.params).some(k=>!['name','arguments'].includes(k)))throw new AuthError('VALIDATION',400);args=rpc.params.arguments;if(Object.hasOwn(wikiCommandTools,rpc.params.name)){const invalid=validate(args);if(invalid||args.commandType!==wikiCommandTools[rpc.params.name])throw new AuthError(invalid??'VALIDATION',400);if(request.headers.get('idempotency-key')!==args.operationId)throw new AuthError('ENVELOPE_MISMATCH',400);}else if(validateWikiQuery(rpc.params.name,args))throw new AuthError('VALIDATION',400);if(args.workspaceId!==r.workspaceId)throw new AuthError('ENVELOPE_MISMATCH',400);}else if(r.action==='draftKey'){
     args=await body(request,config.bodyDeadline);
     if(!args||typeof args!=='object'||Array.isArray(args)||Object.keys(args).some(k=>!['binding','keyId'].includes(k)))throw new AuthError('VALIDATION',400);
     if(args.binding?.workspaceId!==r.workspaceId)throw new AuthError('WORKSPACE_MISMATCH',403);
@@ -63,10 +64,11 @@ export class WorkspaceService extends DurableObject {
     const rows=this.#db.prepare('SELECT principal_id,credential_id FROM identity_binding WHERE issuer=? AND subject=? AND kind=? LIMIT 2').all(verified.issuer,verified.subject,r.kind);
     if(rows.length!==1)return failure('UNAUTHENTICATED');
     const row=rows[0],actor={...verified,workspaceId:r.workspaceId,credentialId:row.credential_id,principalId:row.principal_id};
-    const outcome=r.action==='alias'?queryIssueAlias(this.#db,actor,args):r.action==='checkpoint'?queryAttemptCheckpoint(this.#db,actor,args):r.action==='capabilities'?queryCapabilities(this.#db,actor,args):r.action==='claim'?queryClaim(this.#db,actor,args):r.action==='resolutions'?queryResolutionRecords(this.#db,actor,args):r.action==='command'?executeCommand(this.#db,actor,args):r.action==='myIssues'?queryMyIssues(this.#db,actor,args):r.action==='issue'?queryIssues(this.#db,actor,args):r.action==='projects'?queryProjects(this.#db,actor,args):r.action==='entries'?queryIssueEntries(this.#db,actor,args):r.action==='revisions'?queryContentRevisions(this.#db,actor,args):operationGet(this.#db,actor,args);
+    const wikiName={wiki:r.entityId?'wiki_get':'wiki_list',wikiRevisions:r.revisionId?'wiki_revision_get':'wiki_revision_list',wikiResolve:'wiki_resolve',links:'links_list',backlinks:'backlinks_list'}[r.action];
+    const outcome=r.action==='mcp'?wikiMCP(this.#db,actor,rpc.params):wikiName?wikiQuery(this.#db,actor,wikiName,args):r.action==='alias'?queryIssueAlias(this.#db,actor,args):r.action==='checkpoint'?queryAttemptCheckpoint(this.#db,actor,args):r.action==='capabilities'?queryCapabilities(this.#db,actor,args):r.action==='claim'?queryClaim(this.#db,actor,args):r.action==='resolutions'?queryResolutionRecords(this.#db,actor,args):r.action==='command'?executeCommand(this.#db,actor,args):r.action==='myIssues'?queryMyIssues(this.#db,actor,args):r.action==='issue'?queryIssues(this.#db,actor,args):r.action==='projects'?queryProjects(this.#db,actor,args):r.action==='entries'?queryIssueEntries(this.#db,actor,args):r.action==='revisions'?queryContentRevisions(this.#db,actor,args):operationGet(this.#db,actor,args);
     return outcome.data&&['issue','projects','entries','revisions'].includes(r.action)?{...outcome,meta:{...outcome.meta,workspaceId:r.workspaceId,workspaceEpoch:args.workspaceEpoch,actorId:actor.principalId}}:outcome;
    });
-   return resultResponse(result,r.kind);
+   return resultResponse(rpc&&!result.error?{jsonrpc:'2.0',id:rpc.id,result}:result,r.kind);
   }catch(e){if(sessionError&&e.outcome==='not_committed')return error(sessionError.code,sessionError.status);return e instanceof SessionPortError?error(e.code,e.status):failureResponse(e);}
  }
 }

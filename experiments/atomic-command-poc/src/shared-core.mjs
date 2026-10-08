@@ -1,3 +1,6 @@
+import {captureContentLinks,currentLinkView,carryLinkView} from './content-links.mjs';
+import {WIKI_COMMANDS,validateWiki,executeWikiCommand} from './wiki.mjs';
+export {queryWiki,queryWikiRevisions,queryWikiResolve,queryLinks,queryBacklinks} from './wiki.mjs';
 import {WORKFLOW_COMMANDS,validateWorkflow,executeWorkflowCommand} from './agent-workflow.mjs';
 export {queryClaim,queryResolutionRecords,queryCapabilities,queryAttemptCheckpoint,queryIssueAlias} from './agent-workflow.mjs';
 import { CONTENT_COMMANDS, validateContent, executeContentCommand, issueProjection, captureAccess } from './issue-content.mjs';
@@ -16,8 +19,9 @@ export function validate(c){
   const keys=['schemaVersion','workspaceId','workspaceEpoch','operationId','commandType','entityId','expectedVersion','payload'];
   if(Object.keys(c).some(k=>!keys.includes(k)))return 'VALIDATION';
   if(c.schemaVersion!==1)return 'SCHEMA_UNSUPPORTED';
-  if(!['workspaceId','workspaceEpoch','operationId','entityId'].every(k=>validId(c[k]))||!['Issue.UpdateTitle',...CONTENT_COMMANDS,...WORKFLOW_COMMANDS].includes(c.commandType))return 'VALIDATION';
+  if(!['workspaceId','workspaceEpoch','operationId','entityId'].every(k=>validId(c[k]))||!['Issue.UpdateTitle',...CONTENT_COMMANDS,...WORKFLOW_COMMANDS,...WIKI_COMMANDS].includes(c.commandType))return 'VALIDATION';
   if(c.expectedVersion===undefined)return 'PRECONDITION_REQUIRED';
+  if(WIKI_COMMANDS.includes(c.commandType))return validateWiki(c);
   if(WORKFLOW_COMMANDS.includes(c.commandType))return validateWorkflow(c);
   if(CONTENT_COMMANDS.includes(c.commandType))return validateContent(c);
   if(!Number.isSafeInteger(c.expectedVersion)||c.expectedVersion<1)return 'VALIDATION';
@@ -74,8 +78,9 @@ export const MUTATION_STEPS=['before_issue','after_issue','after_sequence','afte
 export function executeCommand(db,actor,c,{now,fault=()=>{},contentLinks=null}={}){
  const invalid=validate(c);if(invalid)return failure(invalid);
  if(!actor||typeof actor!=='object')return failure('UNAUTHENTICATED');
+ if(WIKI_COMMANDS.includes(c.commandType))return executeWikiCommand(db,actor,c,{now,fault});
  if(WORKFLOW_COMMANDS.includes(c.commandType))return executeWorkflowCommand(db,actor,c,{now,fault});
- if(CONTENT_COMMANDS.includes(c.commandType))return executeContentCommand(db,actor,c,{now,fault,contentLinks});
+ if(CONTENT_COMMANDS.includes(c.commandType))return executeContentCommand(db,actor,c,{now,fault,contentLinks:contentLinks??captureContentLinks});
  const hash=fingerprint(actor,c);
  return transaction(db,()=>{
   fault('before_authorization');
@@ -103,6 +108,7 @@ export function executeCommand(db,actor,c,{now,fault=()=>{},contentLinks=null}={
   const update=run(db,'UPDATE issue SET title=?,version=version+1 WHERE id=? AND version=?',c.payload.title,c.entityId,c.expectedVersion);
   if(update.changes!==1)throw new Error('CAS invariant violated');
   fault('after_issue');
+  const resource={type:'issue',id:c.entityId};if(currentLinkView(db,resource,issue.version))carryLinkView(db,{resource,fromVersion:issue.version,resourceVersion:issue.version+1,access:captureAccess(db,resource)});fault('after_links');
   one(db,'UPDATE workspace SET change_seq=change_seq+1 WHERE id=?',c.workspaceId);
   const seq=get(db,'SELECT change_seq FROM workspace WHERE id=?',c.workspaceId).change_seq;
   fault('after_sequence');

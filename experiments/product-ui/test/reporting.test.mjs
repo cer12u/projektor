@@ -49,8 +49,8 @@ test('cleanup failure does not replace the first failing phase with a later succ
 });
 test('reporter final summary gives exact static failed IDs without depending on capped pass notices',async()=>{
   const events=CASES.map((name,index)=>({type:[2,3,10].includes(index)?'test:fail':'test:pass',data:{name}}));
-  const out=await report(events);assert.match(out,/summary passed=9 failed=3 incomplete=0 runner_failed=false failed_ids=C03,C04,C11/);
-  const incomplete=await report([{type:'test:pass',data:{name:CASES[0]}}]);assert.match(incomplete,/passed=1 failed=0 incomplete=11/);
+  const out=await report(events);assert.match(out,/summary passed=14 failed=3 incomplete=0 runner_failed=false failed_ids=C03,C04,C11/);
+  const incomplete=await report([{type:'test:pass',data:{name:CASES[0]}}]);assert.match(incomplete,/passed=1 failed=0 incomplete=16/);
 });
 test('phase and Node failure duplicates produce one case annotation plus one final summary',async()=>{
   const previous=process.env.GITHUB_ACTIONS;process.env.GITHUB_ACTIONS='true';
@@ -63,7 +63,9 @@ test('phase and Node failure duplicates produce one case annotation plus one fin
     assert.match(out,/::error title=UI E2E diagnostic::UI E2E C01 draft_protect fail/);
   }finally{if(previous===undefined)delete process.env.GITHUB_ACTIONS;else process.env.GITHUB_ACTIONS=previous;}
 });
-test('suite cleanup failure is not hidden by twelve passing cases',async()=>{
+test('suite cleanup failure is not hidden by seventeen passing cases',async()=>{
   const out=await report([...CASES.map(name=>({type:'test:pass',data:{name}})),{type:'test:stdout',data:{message:PREFIX+'{"id":"S00","phase":"browser_close","state":"fail"}\n'}}]);
-  assert.match(out,/passed=12 failed=0 incomplete=0 runner_failed=true/);
+  assert.match(out,/passed=17 failed=0 incomplete=0 runner_failed=true/);
 });
+
+test('Wiki C13–C17 cases are individually reported and unknown case IDs remain suppressed',async()=>{assert.equal(CASES.length,17);const events=CASES.map((name,index)=>({type:index>=12?'test:fail':'test:pass',data:{name}}));for(let n=13;n<=17;n++)events.unshift({type:'test:stdout',data:{message:PREFIX+JSON.stringify({id:'C'+n,phase:'scenario_body',state:'fail'})+'\n'}});events.unshift({type:'test:stdout',data:{message:PREFIX+JSON.stringify({id:'C18',phase:'scenario_body',state:'fail'})+'\n'}});const out=await report(events);assert.match(out,/passed=12 failed=5 incomplete=0 runner_failed=false failed_ids=C13,C14,C15,C16,C17/);for(let n=13;n<=17;n++)assert.match(out,new RegExp('C'+n+' scenario_body fail'));assert.ok(!out.includes('C18'));});

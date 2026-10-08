@@ -196,7 +196,7 @@ export class IssueContentController {
       if (!this.current(generation)) return {kind:'stale'};
       this.quarantined=false;
       if (!await this.readCurrent(generation)) return {kind:'stale'};
-      if (!this.record) this.record={revision:0,baseVersion:this.issue?.version??0,scopeCeiling:copy(session.scopes),active:this.projectId?'create':'body',drafts:{},journal:null};
+      if (!this.record) this.record={revision:0,baseVersion:this.issue?.version??0,scopeCeiling:copy(session.scopes),active:this.initialMode??(this.projectId?'create':'body'),drafts:{},journal:null};
       const active=this.record.active;
       if (!this.record.drafts[active]) this.record.drafts[active]={mode:active,...this.initial(active),revision:0,ack:0};
       this.adoptCurrent();this.touch();

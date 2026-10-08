@@ -1,3 +1,5 @@
+import {createWikiAPI} from '../vendor/client/wiki-content.mjs';
+import {createWikiProtection} from '../vendor/client/wiki-protection.mjs';
 import {createSessionAPI,createContentProtection} from '../vendor/session-ports/client.mjs';
 import {createContentAPI} from '../vendor/client/issue-content.mjs';
 import {createMyIssuesTransport} from '../vendor/browser/my-issues.mjs';
@@ -22,6 +24,8 @@ export function createProductPorts({baseUrl=globalThis.location?.origin,fetchImp
         workspaces:b.workspaces.map((w:any)=>({id:w.workspaceId,epoch:w.workspaceEpoch,title:w.name,principal:actor(w.principalId)}))};
     },
     session,
+    wikiAPI(selected){return createWikiAPI({baseUrl,fetchImpl,session:(options:any)=>session(selected,options)} as any);},
+    wikiProtection(options){return createWikiProtection({...options,factory:createContentProtection,keyProvider:sessionAPI.keyProvider,dbName:'projektor-product-drafts-v1'});},
     contentAPI(selected){return {...api,session:(options:any)=>session(selected,options)};},
     listTransport(){return list;},
     protection(options){return createContentProtection({...options,keyProvider:sessionAPI.keyProvider,dbName:'projektor-product-drafts-v1'} as any);},
