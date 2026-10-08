@@ -10,6 +10,7 @@ import {build} from 'vite';
 import {createBarrier,safePageLocation,gateFailureMessage} from './barrier.mjs';
 import {selectedFixtureSession} from './session-fixture.mjs';
 import {phase,resourcePhase,trace} from './trace.mjs';
+import {enterFixtureRoot} from './fixture-root.mjs';
 function test(name,run){return nodeTest(name,t=>phase(t,'scenario_body',()=>run(t),70000));}
 function reportBarrierTimeout(label){
   trace('S00',label==='POST /v1/workspaces/:id/commands'?'gate_command':'gate_projects','timeout');
@@ -17,12 +18,13 @@ function reportBarrierTimeout(label){
 const root=resolve(import.meta.dirname,'..');
 const core=resolve(process.env.PROJEKTOR_CORE_SOURCE??resolve(root,'../projektor_agent_workflow_20261008/experiments/atomic-command-poc'));
 const {startHarness}=await phase(null,'suite_import',()=>import(pathToFileURL(resolve(core,'browser-test/server.mjs'))),15000);
-let browser;
+let browser,restoreFixtureRoot=()=>{};
 before(async()=>{
   await phase(null,'fixture_build',()=>build({root,configFile:resolve(root,'fixture.config.mjs')}),30000);
+  restoreFixtureRoot=enterFixtureRoot(core);
   browser=await resourcePhase(null,'browser_launch',()=>chromium.launch({executablePath:process.env.CHROMIUM_PATH,headless:true,args:['--no-sandbox']}),'browser_close',value=>value.close(),20000);
 });
-after(async()=>{if(browser)await phase(null,'browser_close',()=>browser.close(),10000);});
+after(async()=>{try{if(browser)await phase(null,'browser_close',()=>browser.close(),10000);}finally{restoreFixtureRoot();}});
 async function setup(t,{bootstrapMode='one'}={}){
   let h,context;const requests=[],errors=[],cleanupGates=[];
   t.after(async()=>{
