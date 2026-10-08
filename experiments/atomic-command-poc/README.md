@@ -1,3 +1,7 @@
+# Authenticated transport candidate, 2026-10-08
+
+This candidate extends PR7 with a local-only signed-token HTTP ingress and memory-only recovery client. Read transport/README.md and client/README.md for the current slice. The historical PoC description below is retained for baseline context; its original scope limits remain in force except for this explicitly tested local extension. No production/provider enrollment or deployment is claimed.
+
 # Projektor 最初の縦断: Issue.UpdateTitle
 
 ## 結果と位置づけ
