@@ -1,18 +1,18 @@
 {
   "scope": "Wiki actual-session integration candidate; final review and browser pending",
   "baselineCommit": "13da5980811aee08d1d05b395101ec37a6d7a783",
-  "sourceManifestSHA256": "2a771abe8acbe5ceb6ea427167890b13ef22ded04f8c64d0961cbf2ea3509cd2",
+  "sourceManifestSHA256": "4369566044e84cf6497c5bf771515b41d9a1fd53f0c676fe7d302afe9b4c78ab",
   "verification": {
     "installedDependenciesOnly": true,
     "typecheck": "PASS",
     "productionBuild": "PASS",
     "nodeComponentTests": {
-      "passed": 136,
+      "passed": 137,
       "failed": 0
     },
     "chromiumE2E": {
       "prepared": 17,
-      "status": "e76b740: legacy12 passed; Wiki5 failed scenario_body; runner_failed=true. Diagnostic05 does not claim a fix."
+      "status": "fb936ee: 12 passed, Wiki5 timed out at populated control lookups. Candidate06 adds explicit stable accessible labels; same17 exact-locator browser tests pending."
     }
   },
   "releaseAccepted": false
