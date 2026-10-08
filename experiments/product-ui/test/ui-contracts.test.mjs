@@ -62,7 +62,7 @@ test('navigation checks protected latest revision before URL mutation and preser
   assert.equal(await r.go(nextRoute(r.route,{view:'board'})),false);assert.equal(r.route.view,'list');assert.match(r.error,/stopped/);
   r.prepare=async()=>true;assert.equal(await r.go(nextRoute(r.route,{view:'board'})),true);
   r.prepare=async()=>false;win.history.go(-1);await new Promise(r=>setTimeout(r,30));assert.equal(r.route.view,'board');assert.match(win.location.search,/view=board/);
-  r.prepare=async()=>true;win.history.go(-1);await new Promise(r=>setTimeout(r,30));assert.equal(r.route.view,'list');
+  r.prepare=async()=>true;win.history.go(-1);await new Promise(r=>setTimeout(r,30));assert.equal(r.route.view,'list');assert.equal(r.error,null);
   r.dispose();
 });
 test('zero membership may have no application principal; selected stores may bind different principals',()=>{
@@ -136,4 +136,13 @@ test('zero-membership deep link has only no-access notice; wrong link with other
   const some=checkBootstrap(data([workspace(2)]));assert.throws(()=>chooseWorkspace(some,uuid(9)),/WORKSPACE_UNAVAILABLE/);
   assert.equal(workspaceAccessNotice(some.workspaces.length,true),'selection-unavailable');
   assert.equal(workspaceAccessNotice(some.workspaces.length,false),'none');assert.equal(workspaceAccessNotice(null,false),'none');
+});
+
+test('a successful native Forward clears a prior canceled Forward notice',async()=>{
+  const win=mockWindow(),r=new UIRouter(win);
+  await r.go(nextRoute(r.route,{view:'board'}));win.history.go(-1);await new Promise(resolve=>setTimeout(resolve,30));
+  r.prepare=async()=>false;win.history.go(1);await new Promise(resolve=>setTimeout(resolve,30));
+  assert.equal(r.route.view,'list');assert.match(r.error,/Navigation stopped/);
+  r.prepare=async()=>true;win.history.go(1);await new Promise(resolve=>setTimeout(resolve,30));
+  assert.equal(r.route.view,'board');assert.equal(r.error,null);r.dispose();
 });

@@ -51,7 +51,7 @@ export class UIRouter{
   private pop=async(event:PopStateEvent)=>{
     const targetIndex=event.state?.projektorIndex;
     if(targetIndex===this.bounce){this.bounce=null;return;}
-    if(targetIndex===this.accept){this.accept=null;this.index=targetIndex;this.pendingView=event.state?.view??null;this.route=parseRoute(this.window.location.pathname+this.window.location.search);this.busy=false;this.emit();return;}
+    if(targetIndex===this.accept){this.accept=null;this.index=targetIndex;this.pendingView=event.state?.view??null;this.route=parseRoute(this.window.location.pathname+this.window.location.search);this.error=null;this.busy=false;this.emit();return;}
     if(!Number.isSafeInteger(targetIndex)){this.error='Unknown history entry; use the navigation links';this.emit();return;}
     const delta=targetIndex-this.index;if(!delta)return;
     if(this.busy){this.bounce=this.index;this.window.history.go(-delta);return;}

@@ -254,6 +254,7 @@ test('native Back is canceled when protection fails, then Back/Forward restores 
     // The heading is present while locked; this action appears only after the
     // committed create draft and current resource have been freshly verified.
     await f.page.getByRole('button',{name:'Open created issue',exact:true}).waitFor();
+    assert.equal(await f.page.getByText('Navigation stopped:',{exact:false}).count(),0);
   });
   await phase(f.t,'history_forward_ready',async()=>{
     await f.page.evaluate(()=>history.forward());
