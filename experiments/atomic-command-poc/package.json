@@ -11,9 +11,11 @@
     "test:workerd": "node --test workerd/*.test.mjs",
     "test:all": "npm test && npm run test:workerd && npm run test:transport && npm run test:client",
     "test:transport": "node --test transport-test/*.test.mjs",
-    "test:client": "node --test client-test/*.test.mjs"
+    "test:client": "node --test client-test/*.test.mjs",
+    "test:browser": "node --test browser-test/browser.test.mjs"
   },
   "devDependencies": {
-    "miniflare": "4.20260730.0"
+    "miniflare": "4.20260730.0",
+    "playwright": "1.62.1"
   }
 }

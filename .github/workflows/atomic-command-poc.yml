@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'experiments/atomic-command-poc/**'
+      - 'browser-review-evidence/*.mjs'
       - '.github/workflows/atomic-command-poc.yml'
 
 permissions:
@@ -86,3 +87,54 @@ jobs:
           npm run test:client
       - name: Verify tests leave tracked files unchanged
         run: git diff --exit-code
+
+  browser-draft-recovery:
+    name: Local Chromium encrypted draft recovery
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+      - name: Install locked local browser test runtime
+        working-directory: experiments/atomic-command-poc
+        run: |
+          npm ci
+          npx --no-install playwright install --with-deps chromium
+      - name: Test synthetic authorization fixture
+        working-directory: experiments/atomic-command-poc
+        run: |
+          mkdir -p evidence/browser
+          set -o pipefail
+          node --test --test-reporter=tap browser-test/fixture-authz.test.mjs 2>&1 | tee evidence/browser/fixture-authz.tap
+      - name: Test real Chromium draft recovery (local issuer only)
+        working-directory: experiments/atomic-command-poc
+        run: |
+          set -o pipefail
+          npm run test:browser 2>&1 | tee evidence/browser/browser-suite.log
+      - name: Independently probe browser vault isolation
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p experiments/atomic-command-poc/evidence/browser
+          set -o pipefail
+          node browser-review-evidence/vault-probes.mjs 2>&1 | tee experiments/atomic-command-poc/evidence/browser/vault-probes.log
+      - name: Independently probe browser editor recovery
+        if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          node --test --test-reporter=tap browser-review-evidence/editor-probes.mjs 2>&1 | tee experiments/atomic-command-poc/evidence/browser/editor-probes.tap
+      - name: Verify tests leave tracked files unchanged
+        if: ${{ !cancelled() }}
+        run: git diff --exit-code
+      - name: Upload synthetic browser screenshots and test logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-browser-draft-recovery-${{ github.event.pull_request.head.sha }}
+          path: experiments/atomic-command-poc/evidence/browser/
+          if-no-files-found: warn
+          retention-days: 7
