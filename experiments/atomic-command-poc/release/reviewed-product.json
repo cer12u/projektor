@@ -18,7 +18,7 @@
     "service/workspace.mjs": "020d8269cc2299f92d78ecae0e2a7ab0769a7ff6726fb97e4e2382effb8f1d94",
     "session-ports/http.mjs": "67c56fdb7e970d5c03e05f5b8c79c3114b451aa334f0646586aad2eaa0ac7ddc",
     "session-ports/schema.sql": "a40b654403df7d3ef62676c49a6f08172fdce8c1134d0f153628dca7d63f1ab9",
-    "session-ports/server.mjs": "fc988ea95739f698f70cf52acbbe1d45b2fd437eca3f1f0492da51e41fc7999f",
+    "session-ports/server.mjs": "7e6bea21bc476385a8de56ab2a7549c4da43612791a091c2a5860d63338889e0",
     "src/adapters.mjs": "dbf9c571d0d16cb85d941ac9c9c45f339b3d29a27ca848053987318cdb4098c5",
     "src/agent-workflow.mjs": "6ab9da7bee25e9d28a6bb8e09038cf3a9ad290e5d68c5e61bd7d027a04eabb5a",
     "src/command-pipeline.mjs": "e187fdb9a8d484968def847be829253610b31fd33d601df50a3fe775a63e4c5c",
@@ -27,11 +27,11 @@
     "src/issue-content.mjs": "b5a6df0f7e74a6fa244e7c5dbd29189de0b9cdfb4c1f8daf278e97a2415eef8e",
     "src/link-parser.mjs": "da8ec05152c9607cf79a497799d42b2a2431981d72bf0af7b04686f167396e5d",
     "src/my-issues.mjs": "906b1a0178dc6fcb8413dbf9d5facb88f5fc2509ce2f48bfd47225b2945d3d8a",
-    "src/resource-access.mjs": "6ece6b139ecd9d66ff888058f578dcb5b0739830253fe6b9114c6d6e10432378",
+    "src/resource-access.mjs": "4859f84f4714168bf29016c4f115eba97a53f6b9d83371d062ae551aba003de2",
     "src/resource-policy.mjs": "ff4508d1eb5ae2e97aa6357aea72b393a0d63ad0565830f40e72ded617c8e031",
     "src/schema.sql": "e359566315df483c1188f86b31fe811df8335d2403e56e44aef747b1dada1b4b",
     "src/shared-core.mjs": "96331c6db79654367dd970db40bbc94586b2b6def82b2a78435b9cba55c19392",
     "src/wiki-surface.mjs": "7462c6258602b3335cd19c38443b447e3d80381179bdf0fe7ff6c9c54bb973de",
-    "src/wiki.mjs": "b7a51dd2a061f7090ffe01628745796253fe93d6d501551983abc85a7473e928"
+    "src/wiki.mjs": "da87b8c54f267fc3f10147353cfb1f12eb5a3f436f1d2522a0a5385fc420170d"
   }
 }

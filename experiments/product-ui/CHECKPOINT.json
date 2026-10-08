@@ -1,7 +1,7 @@
 {
-  "scope": "R05 SetResourceAccess source-reviewed candidate; exact-head Chromium acceptance pending",
-  "baselineCommit": "94637dd4ae3690758671c46bab705260ec218b15",
-  "sourceManifestSHA256": "9548e3b0bfe89eba77d48044327657a4a7b2c91ee7be56f4ca170c0ee9ac139b",
+  "scope": "Scoped Wiki Trash/Restore authority guard candidate; source diff and affected CI pending",
+  "baselineCommit": "cab0f8e91154e76003c64b3ef40b0f29bb69a5e8",
+  "sourceManifestSHA256": "2ed28a325848b0de696ca8cb7f64596fc57c93252ad3e7e48bd00c875e45f1e3",
   "verification": {
     "installedDependenciesOnly": true,
     "typecheck": "PASS",
@@ -12,8 +12,8 @@
     },
     "chromiumE2E": {
       "prepared": 21,
-      "originalCasesPreserved": 17,
-      "status": "NOT_RUN_LOCAL; approved exact-head CI required"
+      "originalCasesPreserved": 21,
+      "status": "Prior cab0f8e9 browser21 PASS; candidate updates explicit authorized lifecycle fixture grants only; affected exact-head CI pending"
     }
   },
   "releaseAccepted": false,

@@ -252,10 +252,10 @@ async function wikiStep(f,name,run){try{return await phase(f.t,name,run);}catch(
 async function startWikiDraft(f,{shared=false}={}){
   const statuses=new Set();f.wikiStatuses=statuses;const observe=response=>{const u=new URL(response.url());if(u.origin!==f.h.base||!u.pathname.startsWith('/v1/'))return;const status=response.status();const endpoint=u.pathname==='/v1/draft-keys'?'key':u.pathname.endsWith('/commands')?'command':['/v1/session','/v1/bootstrap'].includes(u.pathname)?'session':'read';if([400,401,403,404,409].includes(status))statuses.add('wiki_http_'+endpoint+'_'+status);else if(status>=500)statuses.add('wiki_http_'+endpoint+'_5xx');};f.page.on('response',observe);f.cleanupGates.push(()=>f.page.off('response',observe));
   try{
-    await phase(f.t,'wiki_seed',async()=>{for(const scope of ['wiki:read','wiki:write','wiki:restore','deleted:read']){
+    await phase(f.t,'wiki_seed',async()=>{for(const scope of ['wiki:read','wiki:write','wiki:trash','wiki:restore','deleted:read']){
       await f.h.control('sql','INSERT OR IGNORE INTO principal_scope VALUES(?,?)',[f.h.ids.actorA,scope]);
       await f.h.control('sql','INSERT OR IGNORE INTO credential_scope SELECT id,? FROM credential WHERE principal_id=?',[scope,f.h.ids.actorA]);
-    }await f.h.control('sql','INSERT OR IGNORE INTO shared_grant VALUES(?,1,1)',[f.h.ids.actorA]);});
+    }await f.h.control('sql','INSERT OR IGNORE INTO shared_grant VALUES(?,1,1)',[f.h.ids.actorA]);for(const [kind,id]of [['project',f.h.ids.project],['workspace_shared',f.h.ids.workspace]])await f.h.control('sql','INSERT OR IGNORE INTO scope_manage_grant VALUES(?,?,?,1)',[f.h.ids.actorA,kind,id]);});
     await phase(f.t,'wiki_navigate',async()=>{await f.page.goto(f.h.base+'/');await f.page.getByRole('button',{name:'Wiki',exact:true}).click();});
     await phase(f.t,'wiki_select_scope',()=>f.page.getByRole('button',{name:shared?'Create shared Wiki page':'Create Wiki page in Primary UI fixture project',exact:true}).click());
     await phase(f.t,'wiki_editor_ready',()=>f.page.getByLabel('title',{exact:true}).waitFor());

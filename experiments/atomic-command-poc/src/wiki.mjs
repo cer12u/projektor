@@ -2,7 +2,7 @@ import {contentPage} from './content-page.mjs';
 import {randomUUID} from 'node:crypto';
 import {Buffer} from 'node:buffer';
 import {authorized,failure,transaction} from './shared-core.mjs';
-import {currentRead,currentWrite,scopeAllowed,hasScope,historicRead,accessProjection} from './resource-access.mjs';
+import {currentRead,currentWrite,scopeAllowed,hasScope,historicRead,accessProjection,scopeManageAllowed} from './resource-access.mjs';
 import {captureAccess,appendContentRevision,nativeAuthor} from './issue-content.mjs';
 import {executeResourceCommand,commitResourceMutation} from './command-pipeline.mjs';
 import {linkDecisions,captureContentLinks,validateContentLinkChange,validateResolveContentLink,carryLinkView,currentLinkView,resolveContentLinkDecision,projectLinkView,resolveWikiAlias,backlinks,scopeKey} from './content-links.mjs';
@@ -43,7 +43,8 @@ export function executeWikiCommand(db,actor,c,options={}){
  if(!s||!scopeAllowed(db,actor,s)||!creating&&!currentRead(db,actor,resource,{allowDeleted:restoring}))return reject('NOT_FOUND',[{redacted:true}]);
  const initial=creating?{originalScope:{state:'known',scope:s},accessSnapshotId:null,creationRejection:true}:captureAccess(db,resource),targets=[receiptTarget(resource,initial)],bad=code=>reject(code,targets);
  if(!hasScope(db,actor,resource.type+':write')||!hasScope(db,actor,resource.type+':read')||!scopeAllowed(db,actor,s,'write')||!creating&&!currentWrite(db,actor,resource,{allowDeleted:restoring}))return bad('FORBIDDEN');
- if(restoring&&!hasScope(db,actor,'wiki:restore'))return bad('FORBIDDEN');
+ if(t==='Wiki.Trash'&&(!hasScope(db,actor,'wiki:trash')||!scopeManageAllowed(db,actor,s)))return bad('FORBIDDEN');
+ if(restoring&&(!hasScope(db,actor,'wiki:restore')||!scopeManageAllowed(db,actor,s)))return bad('FORBIDDEN');
  if(creating&&row)return bad('ENTITY_EXISTS');
  if(!creating&&row.version!==c.expectedVersion)return bad('VERSION_CONFLICT');
  if(creating&&(!validParent(db,actor,p.parentId,s,new Set([resource.id]))||aliasCollision(db,s,p.slug,resource.id)))return bad('PARENT_OR_ALIAS_CONFLICT');

@@ -2,7 +2,7 @@
 // current identity/credential authorization. These are not public actor RPCs.
 import {randomBytes, randomUUID} from 'node:crypto';
 import {authorized, canonical} from '../src/shared-core.mjs';
-import {currentRead,currentWrite,historicRead,scopeAllowed,resourceScope,hasScope} from '../src/resource-access.mjs';
+import {currentRead,currentWrite,historicRead,scopeAllowed,resourceScope,hasScope,scopeManageAllowed} from '../src/resource-access.mjs';
 export class SessionPortError extends Error {constructor(code,status=403){super(code);this.code=code;this.status=status;}}
 const stop=(code,status)=>{throw new SessionPortError(code,status);};
 export const isId=x=>typeof x==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(x);
@@ -57,7 +57,7 @@ function authorizeDraft(db,actor,binding,{creating=false}={}){
   const state=resourceScope(db,resource);
   if(resource.type==='wiki'&&state?.deleted&&binding.editorId==='wiki-content'){
    const revision=get(db,"SELECT * FROM content_revision WHERE id=? AND resource_type='wiki' AND resource_id=?",state.row.current_revision_id,resource.id);
-   if(!hasScope(db,actor,'wiki:read')||!hasScope(db,actor,'wiki:write')||!hasScope(db,actor,'wiki:restore')||!currentRead(db,actor,resource,{allowDeleted:true})||!currentWrite(db,actor,resource,{allowDeleted:true})||!revision||!historicRead(db,actor,revision))stop('DRAFT_FORBIDDEN');
+   if(!hasScope(db,actor,'wiki:read')||!hasScope(db,actor,'wiki:write')||!hasScope(db,actor,'wiki:restore')||!scopeManageAllowed(db,actor,state.scope)||!currentRead(db,actor,resource,{allowDeleted:true})||!currentWrite(db,actor,resource,{allowDeleted:true})||!revision||!historicRead(db,actor,revision))stop('DRAFT_FORBIDDEN');
   }else if(!currentRead(db,actor,resource)||!hasScope(db,actor,`${binding.resourceType}:read`))stop('DRAFT_FORBIDDEN');
   if(creating&&canonical(resourceScope(db,resource)?.scope)!==canonical(original))stop('DRAFT_ORIGINAL_SCOPE_MISMATCH');
  }

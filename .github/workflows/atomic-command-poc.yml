@@ -116,6 +116,18 @@ jobs:
           node --test --test-reporter=tap --test-name-pattern='machine: authenticated REST' service-test/resource-policy.test.mjs 2>&1 | tee evidence/combined/existing-policy-mcp.tap
           # A name-filter miss must not become a file-only green result.
           awk '/^[[:space:]]*ok [0-9]+ - machine: authenticated REST/ && !/# SKIP/ {found++} END {exit found != 1}' evidence/combined/existing-policy-mcp.tap
+      - name: Integration - scoped Wiki lifecycle authorization and existing restore
+        if: ${{ !cancelled() }}
+        working-directory: experiments/atomic-command-poc
+        run: |
+          mkdir -p evidence/combined
+          set -o pipefail
+          node --test --test-reporter=tap service-test/wiki-lifecycle-authority.test.mjs 2>&1 | tee evidence/combined/wiki-lifecycle-authority.tap
+          grep -Eq '^# tests 6$' evidence/combined/wiki-lifecycle-authority.tap
+          grep -Eq '^# pass 6$' evidence/combined/wiki-lifecycle-authority.tap
+          node --test --test-reporter=tap --test-name-pattern='rename/move/trash|actual existing Wiki key|existing Wiki trash key' service-test/wiki-native.test.mjs session-ports/wiki-create.test.mjs 2>&1 | tee evidence/combined/wiki-lifecycle-restore.tap
+          grep -Eq '^# tests 3$' evidence/combined/wiki-lifecycle-restore.tap
+          grep -Eq '^# pass 3$' evidence/combined/wiki-lifecycle-restore.tap
       - name: Verify integration leaves tracked source unchanged
         if: ${{ !cancelled() }}
         run: git diff --exit-code
