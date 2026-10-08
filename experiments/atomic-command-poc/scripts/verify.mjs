@@ -6,16 +6,16 @@ import { fileURLToPath } from 'node:url';
 const root=fileURLToPath(new URL('..',import.meta.url));
 const sha=file=>createHash('sha256').update(readFileSync(file)).digest('hex');
 mkdirSync(root+'/evidence',{recursive:true});
-const suites=[['node','test'],['workerd','workerd'],['transport','transport-test'],['client','client-test']].map(([name,dir])=>[name,readdirSync(root+'/'+dir).filter(f=>f.endsWith('.test.mjs')).map(f=>dir+'/'+f)]);
+const suites=[['node','test'],['workerd','workerd'],['transport','transport-test'],['client','client-test'],['service','service-test']].map(([name,dir])=>[name,readdirSync(root+'/'+dir).filter(f=>f.endsWith('.test.mjs')).map(f=>dir+'/'+f)]);
 suites.push(['browser-fixture',['browser-test/fixture-authz.test.mjs']]);
 if(process.env.RUN_BROWSER==='1')suites.push(['browser',['browser-test/browser.test.mjs','browser-test/my-issues.test.mjs']]);
 const results=[];
 for(const [name,files] of suites){
  const run=spawnSync(process.execPath,['--test','--test-reporter=tap',...files],{cwd:root,encoding:'utf8'});
- const path=`evidence/my-issues-${name}.tap`;writeFileSync(root+'/'+path,run.stdout+run.stderr);
+ const path=`evidence/service-boundary-${name}.tap`;writeFileSync(root+'/'+path,run.stdout+run.stderr);
  const field=name=>Number(run.stdout.match(new RegExp('^# '+name+' (\\d+)','m'))?.[1]??0);
  results.push({name,exitCode:run.status,tests:field('tests'),pass:field('pass'),fail:field('fail'),skipped:field('skipped'),cancelled:field('cancelled'),evidence:path,sha256:sha(root+'/'+path)});
 }
-const result={generatedAt:new Date().toISOString(),baselineCommit:'c3604e464ba2ee4f53ec47275c5bfc3fa712256b',candidateCommit:null,node:process.version,compatibilityDate:'2026-07-30',results,browserAcceptance:process.env.RUN_BROWSER==='1'?'SEE_RESULTS':'NOT_RUN_LOCAL; pending exact-commit approved isolated CI',limitations:['Synthetic local issuer only; production provider not verified','Fresh zero-base SQLite schema only; populated-store migration not implemented','Restricted-resource writes fail closed; this slice implements read/query only','MCP pure adapter tested; production MCP transport not integrated','No production deployment, canonical record write, cutover or legacy removal']};
+const result={generatedAt:new Date().toISOString(),baselineCommit:'03dd1564c6f2acae63d9a1299662e3212ec15fb2',candidateCommit:null,node:process.version,compatibilityDate:'2026-07-30',results,browserAcceptance:process.env.RUN_BROWSER==='1'?'SEE_RESULTS':'NOT_RUN_LOCAL; pending exact-commit approved isolated CI',limitations:['Access human/service-token adapter tested using mocked HTTP JWKS; actual provider not verified','Fresh zero-base SQLite schema only; populated-store migration not implemented','Restricted-resource writes fail closed; this slice implements read/query only','MCP pure adapter tested; production MCP transport not integrated','No production deployment, canonical record write, cutover or legacy removal']};
 writeFileSync(root+'/TEST-RESULTS.json',JSON.stringify(result,null,2)+'\n');
 console.log(JSON.stringify(result,null,2));process.exitCode=results.every(r=>r.exitCode===0&&r.tests>0&&r.tests===r.pass)?0:1;

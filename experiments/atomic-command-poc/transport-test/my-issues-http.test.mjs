@@ -1,3 +1,4 @@
+import { denyOutbound } from '../test-support/offline.mjs';
 import {test,before,after} from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID,generateKeyPairSync,sign} from 'node:crypto';
@@ -9,9 +10,9 @@ let mf,base,control;
 before(async()=>{
  const reserve=createServer();await new Promise(resolve=>reserve.listen(0,'127.0.0.1',resolve));const port=reserve.address().port;await new Promise(resolve=>reserve.close(resolve));
  base=`http://127.0.0.1:${port}`;
- mf=new Miniflare({host:'127.0.0.1',port,workers:[
-  {name:'app',modules:true,scriptPath:new URL('./fixture-worker.mjs',import.meta.url).pathname,compatibilityDate:'2026-07-30',compatibilityFlags:['nodejs_compat'],modulesRules:[{type:'Text',include:['**/*.sql'],fallthrough:true}],bindings:{TEST_ISSUER:issuer,TEST_PUBLIC_JWK:JSON.stringify(publicKey.export({format:'jwk'})),TEST_ORIGIN:base},durableObjects:{WORKSPACE:{className:'FixtureWorkspace',useSQLite:true}}},
-  {name:'control',modules:true,scriptPath:new URL('./control-worker.mjs',import.meta.url).pathname,compatibilityDate:'2026-07-30',durableObjects:{WORKSPACE:{className:'FixtureWorkspace',scriptName:'app',useSQLite:true}}}
+ mf=new Miniflare({cf:false,host:'127.0.0.1',port,workers:[
+  {name:'app',fetchMock:denyOutbound(),modules:true,scriptPath:new URL('./fixture-worker.mjs',import.meta.url).pathname,compatibilityDate:'2026-07-30',compatibilityFlags:['nodejs_compat'],modulesRules:[{type:'Text',include:['**/*.sql'],fallthrough:true}],bindings:{TEST_ISSUER:issuer,TEST_PUBLIC_JWK:JSON.stringify(publicKey.export({format:'jwk'})),TEST_ORIGIN:base},durableObjects:{WORKSPACE:{className:'FixtureWorkspace',useSQLite:true}}},
+  {name:'control',fetchMock:denyOutbound(),modules:true,scriptPath:new URL('./control-worker.mjs',import.meta.url).pathname,compatibilityDate:'2026-07-30',durableObjects:{WORKSPACE:{className:'FixtureWorkspace',scriptName:'app',useSQLite:true}}}
  ]});base=(await mf.ready).origin;control=await mf.getWorker('control');
 });
 after(async()=>{await mf?.dispose();});

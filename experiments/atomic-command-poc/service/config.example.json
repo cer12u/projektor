@@ -1,0 +1,16 @@
+{
+  "notice": "Unprovisioned input template, not a deployment manifest. Fill only after authorized provider/workspace selection; placeholders intentionally fail validation.",
+  "entrypoint": "service/entry.mjs",
+  "class": "WorkspaceService",
+  "runtime": { "compatibilityDate": "2026-07-30", "compatibilityFlags": ["nodejs_compat"], "sqlite": true },
+  "vars": {
+    "APP_ORIGIN": "REQUIRES_AUTHORIZED_HTTPS_ORIGIN",
+    "WORKSPACE_IDS": "REQUIRES_APPROVED_UUID_REGISTRY",
+    "REQUEST_TIMEOUT_MS": "5000",
+    "BODY_TIMEOUT_MS": "1000",
+    "PROVIDER_CONFIG": "REQUIRES_VALIDATED_PROVIDER_JSON"
+  },
+  "providerConfigFields": ["issuer", "jwksUrl", "humanAudience", "machineAudience", "jwksCacheMs", "jwksTimeoutMs"],
+  "binding": { "name": "WORKSPACE", "provisioned": false },
+  "deploymentAuthorized": false
+}

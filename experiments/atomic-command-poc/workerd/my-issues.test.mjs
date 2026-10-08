@@ -1,10 +1,11 @@
+import { denyOutbound } from '../test-support/offline.mjs';
 import { test,before,after } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { Miniflare } from 'miniflare';
 import { ids,actor } from '../test/fixture.mjs';
 let mf;
-before(async()=>{mf=new Miniflare({modules:true,scriptPath:new URL('./harness.mjs',import.meta.url).pathname,compatibilityDate:'2026-07-30',compatibilityFlags:['nodejs_compat'],modulesRules:[{type:'Text',include:['**/*.sql'],fallthrough:true}],durableObjects:{WORKSPACE:{className:'FixtureWorkspace',useSQLite:true}}});await mf.ready;});
+before(async()=>{mf=new Miniflare({cf:false,fetchMock:denyOutbound(),modules:true,scriptPath:new URL('./harness.mjs',import.meta.url).pathname,compatibilityDate:'2026-07-30',compatibilityFlags:['nodejs_compat'],modulesRules:[{type:'Text',include:['**/*.sql'],fallthrough:true}],durableObjects:{WORKSPACE:{className:'FixtureWorkspace',useSQLite:true}}});await mf.ready;});
 after(async()=>{await mf?.dispose();});
 async function setup(){const object=randomUUID();async function call(action,...args){const r=await mf.dispatchFetch('http://fixture.test',{method:'POST',body:JSON.stringify({object,action,args})});return r.json();}assert.equal((await call('seed')).seeded,true);return {sql:(sql,args=[])=>call('sql',sql,args),query:(q,a=actor)=>call('myIssues',q,a),close:()=>{}};}
 

@@ -1,3 +1,4 @@
+import { denyOutbound } from '../test-support/offline.mjs';
 // Local-only server for real-browser tests. No production credentials or deploy.
 import { createServer } from 'node:http';
 import { randomUUID, generateKeyPairSync, sign } from 'node:crypto';
@@ -67,9 +68,9 @@ export async function startHarness() {
  await new Promise((resolve,reject) => {server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
  const base = `http://127.0.0.1:${server.address().port}`;
  try {
-  mf = new Miniflare({host:'127.0.0.1',port:0,workers:[
-   {name:'app',modules:true,scriptPath:fileURLToPath(new URL('./fixture-worker.mjs',import.meta.url)),compatibilityDate:'2026-07-30',compatibilityFlags:['nodejs_compat'],modulesRules:[{type:'Text',include:['**/*.sql'],fallthrough:true}],bindings:{TEST_ISSUER:issuer,TEST_PUBLIC_JWK:JSON.stringify(publicKey.export({format:'jwk'})),TEST_ORIGIN:base},durableObjects:{WORKSPACE:{className:'BrowserFixtureWorkspace',useSQLite:true}}},
-   {name:'control',modules:true,scriptPath:fileURLToPath(new URL('../transport-test/control-worker.mjs',import.meta.url)),compatibilityDate:'2026-07-30',durableObjects:{WORKSPACE:{className:'BrowserFixtureWorkspace',scriptName:'app',useSQLite:true}}}
+  mf = new Miniflare({cf:false,host:'127.0.0.1',port:0,workers:[
+   {name:'app',fetchMock:denyOutbound(),modules:true,scriptPath:fileURLToPath(new URL('./fixture-worker.mjs',import.meta.url)),compatibilityDate:'2026-07-30',compatibilityFlags:['nodejs_compat'],modulesRules:[{type:'Text',include:['**/*.sql'],fallthrough:true}],bindings:{TEST_ISSUER:issuer,TEST_PUBLIC_JWK:JSON.stringify(publicKey.export({format:'jwk'})),TEST_ORIGIN:base},durableObjects:{WORKSPACE:{className:'BrowserFixtureWorkspace',useSQLite:true}}},
+   {name:'control',fetchMock:denyOutbound(),modules:true,scriptPath:fileURLToPath(new URL('../transport-test/control-worker.mjs',import.meta.url)),compatibilityDate:'2026-07-30',durableObjects:{WORKSPACE:{className:'BrowserFixtureWorkspace',scriptName:'app',useSQLite:true}}}
   ]});
   await mf.ready;
   privateControl = await mf.getWorker('control');

@@ -1,3 +1,4 @@
+import { denyOutbound } from '../test-support/offline.mjs';
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -8,7 +9,7 @@ import { Miniflare } from 'miniflare';
 import { MUTATION_STEPS } from '../src/shared-core.mjs';
 import { command, ids } from '../test/fixture.mjs';
 const persistence=mkdtempSync(join(tmpdir(),'projektor-workerd-'));
-const config={durableObjectsPersist:persistence,modules:true,scriptPath:new URL('./harness.mjs',import.meta.url).pathname,compatibilityDate:'2026-07-30',compatibilityFlags:['nodejs_compat'],modulesRules:[{type:'Text',include:['**/*.sql'],fallthrough:true}],durableObjects:{WORKSPACE:{className:'FixtureWorkspace',useSQLite:true}}};
+const config={cf:false,fetchMock:denyOutbound(),durableObjectsPersist:persistence,modules:true,scriptPath:new URL('./harness.mjs',import.meta.url).pathname,compatibilityDate:'2026-07-30',compatibilityFlags:['nodejs_compat'],modulesRules:[{type:'Text',include:['**/*.sql'],fallthrough:true}],durableObjects:{WORKSPACE:{className:'FixtureWorkspace',useSQLite:true}}};
 let mf;
 before(async()=>{mf=new Miniflare(config);await mf.ready;});
 after(async()=>{await mf?.dispose();rmSync(persistence,{recursive:true,force:true});});

@@ -100,3 +100,9 @@ receipt はこの PoC では削除・期限切れさせない。90日 compaction
 - https://developers.cloudflare.com/workers/testing/miniflare/ （actual workerd の local testing）
 - https://developers.cloudflare.com/workers/testing/vitest-integration/write-your-first-test/ （現行 Vitest integration。今回の runner は Node＋Miniflare）
 - https://developers.cloudflare.com/durable-objects/examples/testing-with-durable-objects/
+
+## Product service boundary candidate
+
+The callable product entry is `service/entry.mjs`, exporting only `WorkspaceService` and the authenticated fetch handler. It imports no fixture worker, local issuer or external ActorContext API. `npm run test:service` exercises provider-shaped Cloudflare Access JWTs and exact workerd product routing. The test runner alone seeds SQLite through Miniflare storage inspection. `service/config.example.json` is an unprovisioned template, not a deployment manifest. Actual provider enrollment/configuration, migration, production MCP, SPA adoption, old-writer fencing, deployment and cutover remain unverified or gated. See the candidate SERVICE-BOUNDARY-CONTRACT.md for the complete boundary and operational gates.
+
+Machine support is app-level Bearer validation of an Access service application JWT only. The upstream service-token/client-secret exchange, strict service client headers and Access assertion forwarding on machine paths are not integrated. Human Access assertion plus matching cookie is supported.

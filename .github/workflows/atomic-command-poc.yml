@@ -6,10 +6,15 @@ on:
       - 'experiments/atomic-command-poc/**'
       - 'browser-review-evidence/*.mjs'
       - 'query-review-evidence/*.mjs'
+      - 'service-review-evidence/*.mjs'
       - '.github/workflows/atomic-command-poc.yml'
 
 permissions:
   contents: read
+
+# Keep local runtime metadata synthetic; do not fetch Cloudflare cf.json.
+env:
+  CLOUDFLARE_CF_FETCH_ENABLED: 'false'
 
 concurrency:
   group: atomic-command-poc-${{ github.event.pull_request.number }}
@@ -184,5 +189,43 @@ jobs:
         with:
           name: local-my-issues-query-${{ github.event.pull_request.head.sha }}
           path: experiments/atomic-command-poc/evidence/query/
+          if-no-files-found: warn
+          retention-days: 7
+
+  product-service-boundary:
+    name: Product service entry and mock-provider contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+      - name: Install locked local test runtime
+        working-directory: experiments/atomic-command-poc
+        run: npm ci
+      - name: Test product entry on actual workerd with mocked provider
+        working-directory: experiments/atomic-command-poc
+        run: |
+          mkdir -p evidence/service
+          set -o pipefail
+          npm run test:service 2>&1 | tee evidence/service/service-suite.log
+      - name: Independently probe provider validation and actual product runtime
+        if: ${{ !cancelled() }}
+        run: |
+          set -o pipefail
+          node --test --test-reporter=tap service-review-evidence/provider-probes.mjs service-review-evidence/runtime-probes.mjs 2>&1 | tee experiments/atomic-command-poc/evidence/service/independent-probes.tap
+      - name: Verify tests leave tracked files unchanged
+        if: ${{ !cancelled() }}
+        run: git diff --exit-code
+      - name: Upload synthetic product-service test logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-product-service-${{ github.event.pull_request.head.sha }}
+          path: experiments/atomic-command-poc/evidence/service/
           if-no-files-found: warn
           retention-days: 7

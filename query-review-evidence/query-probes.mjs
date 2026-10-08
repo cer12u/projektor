@@ -1,3 +1,4 @@
+import { denyOutbound } from '../experiments/atomic-command-poc/test-support/offline.mjs';
 // Independent assertions against the shared query and real SQLite runtimes.
 import {test,before,after} from 'node:test';
 import assert from 'node:assert/strict';
@@ -14,7 +15,7 @@ const actor={principalId:ids.actor,credentialId:ids.credential,workspaceId:ids.w
 const human={...actor,principalId:ids.human,credentialId:ids.humanCredential,actorKind:'human'};
 const args={workspaceId:ids.workspace,workspaceEpoch:ids.epoch};
 let mf;
-before(async()=>{if(runtime==='workerd'){const {Miniflare}=req('miniflare');mf=new Miniflare({modules:true,scriptPath:new URL('./workerd-fixture.mjs',import.meta.url).pathname,compatibilityDate:'2026-07-30',compatibilityFlags:['nodejs_compat'],modulesRules:[{type:'Text',include:['**/*.sql'],fallthrough:true}],durableObjects:{WORKSPACE:{className:'ReviewWorkspace',useSQLite:true}}});await mf.ready;}});
+before(async()=>{if(runtime==='workerd'){const {Miniflare}=req('miniflare');mf=new Miniflare({cf:false,fetchMock:denyOutbound(),modules:true,scriptPath:new URL('./workerd-fixture.mjs',import.meta.url).pathname,compatibilityDate:'2026-07-30',compatibilityFlags:['nodejs_compat'],modulesRules:[{type:'Text',include:['**/*.sql'],fallthrough:true}],durableObjects:{WORKSPACE:{className:'ReviewWorkspace',useSQLite:true}}});await mf.ready;}});
 after(async()=>{await mf?.dispose();});
 async function setup(t) {
  let invoke;
