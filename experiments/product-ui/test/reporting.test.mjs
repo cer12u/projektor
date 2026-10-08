@@ -4,7 +4,7 @@ import {mkdtempSync,writeFileSync,rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join,resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
-import reporter from '../e2e/github-reporter.mjs';
+import reporter,{failureCategory} from '../e2e/github-reporter.mjs';
 import {CASES,PREFIX,phase} from '../e2e/trace.mjs';
 async function report(events){let output='';for await(const line of reporter((async function*(){yield*events;})()))output+=line;return output;}
 test('custom reporter never forwards raw errors, hostile names, headers, editor text or URLs',async()=>{
@@ -59,7 +59,8 @@ test('phase and Node failure duplicates produce one case annotation plus one fin
       {type:'test:stdout',data:{message:PREFIX+'{"id":"C01","phase":"draft_protect","state":"timeout"}\n'+PREFIX+'{"id":"C01","phase":"scenario_body","state":"fail"}\n'}},
       {type:'test:fail',data:{name:CASES[0]}},{type:'test:fail',data:{name:CASES[0]}},
     ]);
-    assert.equal((out.match(/^::error /gm)||[]).length,2);
+    assert.equal((out.match(/^::error /gm)||[]).length,3);
+    assert.equal((out.match(/title=UI E2E failure category::/g)||[]).length,1);
     assert.match(out,/::error title=UI E2E diagnostic::UI E2E C01 draft_protect fail/);
   }finally{if(previous===undefined)delete process.env.GITHUB_ACTIONS;else process.env.GITHUB_ACTIONS=previous;}
 });
@@ -70,3 +71,6 @@ test('suite cleanup failure is not hidden by seventeen passing cases',async()=>{
 
 test('Wiki C13–C17 cases are individually reported and unknown case IDs remain suppressed',async()=>{assert.equal(CASES.length,17);const events=CASES.map((name,index)=>({type:index>=12?'test:fail':'test:pass',data:{name}}));for(let n=13;n<=17;n++)events.unshift({type:'test:stdout',data:{message:PREFIX+JSON.stringify({id:'C'+n,phase:'scenario_body',state:'fail'})+'\n'}});events.unshift({type:'test:stdout',data:{message:PREFIX+JSON.stringify({id:'C18',phase:'scenario_body',state:'fail'})+'\n'}});const out=await report(events);assert.match(out,/passed=12 failed=5 incomplete=0 runner_failed=false failed_ids=C13,C14,C15,C16,C17/);for(let n=13;n<=17;n++)assert.match(out,new RegExp('C'+n+' scenario_body fail'));assert.ok(!out.includes('C18'));});
 test('Wiki diagnostic phases are allowlisted and never forward raw lock codes or response details',async()=>{const out=await report([{type:'test:stdout',data:{message:PREFIX+JSON.stringify({id:'C13',phase:'wiki_editor_ready',state:'fail'})+'\n'+PREFIX+JSON.stringify({id:'C13',phase:'wiki_http_403',state:'fail'})+'\n'+PREFIX+JSON.stringify({id:'C13',phase:'wiki_lock_binding',state:'fail'})+'\n'+PREFIX+JSON.stringify({id:'C13',phase:'PRIVATE_DRAFT_SENTINEL',state:'fail'})+'\n'+PREFIX+JSON.stringify({id:'C13',phase:'wiki_lock_other',state:'fail',body:'SECRET_KEY_SENTINEL'})+'\n'}}]);assert.match(out,/wiki_editor_ready fail/);assert.match(out,/wiki_http_403 fail/);assert.match(out,/wiki_lock_binding fail/);assert.ok(!out.includes('PRIVATE_DRAFT_SENTINEL'));assert.ok(!out.includes('SECRET_KEY_SENTINEL'));});
+
+test('outer failure categories inspect only finite error names/types and retain last completed step',async()=>{const error=Object.assign(Error('SECRET_MESSAGE'),{failureType:'testCodeFailure',cause:new TypeError('SECRET_BODY')});assert.deepEqual(failureCategory(error),{errorClass:'TypeError',failureType:'testCodeFailure'});const out=await report([{type:'test:stdout',data:{message:PREFIX+JSON.stringify({id:'C13',phase:'wiki_commit_confirm',state:'pass'})+'\n'+PREFIX+JSON.stringify({id:'C13',phase:'scenario_body',state:'fail'})+'\n'}},{type:'test:fail',data:{name:CASES[12],details:{error}}}]);assert.match(out,/class=TypeError type=testCodeFailure last_step=wiki_commit_confirm/);assert.ok(!out.includes('SECRET_MESSAGE'));assert.ok(!out.includes('SECRET_BODY'));assert.deepEqual(failureCategory({name:'PRIVATE_NAME',failureType:'PRIVATE_TYPE'}),{errorClass:'Other',failureType:'other'});});
+test('changing error getters are read once and cannot escape finite classifications',async()=>{let names=0,types=0;const error={get name(){return ++names===1?'TypeError':'PRIVATE_NAME_SENTINEL';},get failureType(){return ++types===1?'testCodeFailure':'PRIVATE_TYPE_SENTINEL';}};assert.deepEqual(failureCategory(error),{errorClass:'TypeError',failureType:'testCodeFailure'});assert.equal(names,1);assert.equal(types,1);assert.deepEqual(failureCategory({get name(){throw Error('PRIVATE_THROW_SENTINEL');}}),{errorClass:'Other',failureType:'other'});const out=await report([{type:'test:fail',data:{name:CASES[12],details:{error:{get name(){return 'PRIVATE_NAME_SENTINEL';},get failureType(){return 'PRIVATE_TYPE_SENTINEL';}}}}}]);for(const value of ['PRIVATE_NAME_SENTINEL','PRIVATE_TYPE_SENTINEL','PRIVATE_THROW_SENTINEL'])assert.ok(!out.includes(value));});
