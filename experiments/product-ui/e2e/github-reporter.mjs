@@ -10,7 +10,7 @@ export function failureCategory(error){
 }
 export default async function* reporter(source){
   const selection=process.env.PROJEKTOR_UI_E2E_CASES??'';
-  if(selection!==''&&selection!=='C22,C23')throw Error('INVALID_UI_E2E_SELECTION');
+  if(!['','C22,C23','C24,C25,C26,C27'].includes(selection))throw Error('INVALID_UI_E2E_SELECTION');
   const expectedIDs=new Set(selection?selection.split(','):CASES.map(caseID));
   let buffer='';const last=new Map(),failed=new Map(),results=new Map(),annotated=new Set(),categoryAnnotated=new Set(),suiteAnnotated=new Set(),lastStep=new Map(),bodyContext=new Map();let runnerFailed=false;const github=process.env.GITHUB_ACTIONS==='true';
   function line(id,phase,state,annotate=false){
@@ -27,7 +27,7 @@ export default async function* reporter(source){
         const raw=buffer.slice(0,index);buffer=buffer.slice(index+1);
         if(!raw.startsWith(PREFIX))continue;
         let value;try{value=JSON.parse(raw.slice(PREFIX.length));}catch{continue;}
-        if(!value||Object.keys(value).sort().join(',')!=='id,phase,state'||!/^C(?:0[1-9]|1[0-9]|2[0-3])$|^S00$/.test(value.id)||!PHASES.includes(value.phase)||!STATES.includes(value.state))continue;
+        if(!value||Object.keys(value).sort().join(',')!=='id,phase,state'||!/^C(?:0[1-9]|1[0-9]|2[0-7])$|^S00$/.test(value.id)||!PHASES.includes(value.phase)||!STATES.includes(value.state))continue;
         if(value.phase!=='scenario_body')lastStep.set(value.id,value.phase);else if(['fail','timeout'].includes(value.state)&&!bodyContext.has(value.id))bodyContext.set(value.id,lastStep.get(value.id)??'none');
         last.set(value.id,value.phase);if(value.id==='S00'&&['fail','timeout'].includes(value.state))runnerFailed=true;if(['fail','timeout'].includes(value.state)&&(!failed.has(value.id)||failed.get(value.id)==='scenario_body'))failed.set(value.id,value.phase);const suiteFailure=value.id==='S00'&&['fail','timeout'].includes(value.state)&&!suiteAnnotated.has(value.phase);if(suiteFailure){suiteAnnotated.add(value.phase);annotated.add(value.id);}yield line(value.id,value.phase,value.state,suiteFailure);
       }

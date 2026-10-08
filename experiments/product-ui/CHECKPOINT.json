@@ -1,34 +1,24 @@
 {
-  "scope": "Reviewed C23 HTTP rejection-classification repair; two selected transport/controller cases and exact-head C22/C23 CI",
-  "baselineCommit": "be51e97823c5c4fe670502bf15ddc066174218ef",
-  "sourceManifestSHA256": "2c7f70e6ca705bec96100ad315c90e2c2589cce949c95513cb2f85cc17b2635c",
+  "scope": "Local legacy URL continuity candidate; project identity and authenticated Issue/Wiki/project navigation",
+  "baselineCommit": "f042b054318a1ce74cafef1436c5bf0820d52c7e",
+  "sourceManifestSHA256": "5c7fb8d6521bda1480b84f388b938090d01ec266958709eca361f3b97df0e77d",
   "verification": {
-    "typecheck": "PASS (local reviewed source)",
-    "productionBuild": "PASS (local reviewed source)",
-    "nativeIntegration": "Nine native cases and six selected contracts reused from passing be51e978 CI",
-    "protectedController": "Production Request/Response transport now replaces bypass classifier; updated controller and finite classification cases both passed locally",
+    "productionBuild": "PASS after final product changes",
+    "routerState": "7 isolated cases pass; not browser integration",
+    "adapterIntegration": "1 NodeSQLite HTTP envelope integration pass; synthetic session provider",
+    "existingContracts": "22 selected router/bootstrap/SSR/Wiki checks pass",
+    "reporter": "15 existing plus1 focused selection check pass",
     "chromiumE2E": {
-      "prepared": 23,
-      "originalCasesPreserved": 21,
       "selectedCaseIds": [
-        "C22",
-        "C23"
+        "C24",
+        "C25",
+        "C26",
+        "C27"
       ],
-      "reusedCaseIds": "C01-C21",
-      "reusedEvidenceCommit": "949869f129223d7b8d2cb4cb188d92f8e50219ee",
-      "reusedEvidenceRun": "https://github.com/cer12u/projektor/actions/runs/37801413590",
-      "status": "C22 passed and C23 failed at be51e978 due to missing RESULT_REQUIRED transport classification; both selected again for reviewed shared transport repair"
-    },
-    "scopedReporter": "Five unchanged reporter cases reused from passing be51e978 CI"
+      "status": "NOT RUN; known local socket EPERM; fixture routes do not prove deployed host fallback"
+    }
   },
-  "releaseAccepted": false,
-  "candidateCommit": null,
-  "sourceReview": "Independent C23 transport repair review PASS; finite Issue.Transition lanes, explicit zero-effect rejection proof and unknown/auth fail-closed behavior retained",
-  "publication": {
-    "status": "repair_prepared",
-    "previousPublishedCommit": "be51e97823c5c4fe670502bf15ddc066174218ef",
-    "repairCommit": null,
-    "candidateCI": "pending",
-    "priorRun": "https://github.com/cer12u/projektor/actions/runs/37814827945"
-  }
+  "publication": "not performed",
+  "productionUpgrade": "not performed",
+  "privateDataIncluded": false
 }

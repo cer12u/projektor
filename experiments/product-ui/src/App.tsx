@@ -3,6 +3,8 @@ import {Component,useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import {flushSync} from 'react-dom';
 import {checkBootstrap,chooseWorkspace,retainViewSelection,workspaceAccessNotice,type Bootstrap,type ProductPorts,type PrepareLeave,type Route,type Selected} from './contracts.ts';
 import {UIRouter,nextRoute} from './router.ts';
+import {resolveLegacyNavigation} from './legacy-navigation.ts';
+import {ProjectView} from './ProjectView.tsx';
 import {ConnectionNotice,Expiry,Notice} from './components.tsx';
 import {ListView,ContentView,ProjectPicker} from './views.tsx';
 export class Boundary extends Component<{children:React.ReactNode},{failed:boolean}>{
@@ -13,6 +15,7 @@ export function App({ports}:{ports:ProductPorts}){
   const router=useMemo(()=>new UIRouter(window),[]);const[,redraw]=useState(0);
   const[data,setData]=useState<Bootstrap|null>(null);const[phase,setPhase]=useState('loading');const[code,setCode]=useState<string|null>(null);
   const[masked,setMasked]=useState(true);const[accessRevision,setAccessRevision]=useState(0);const[workspacePicker,setWorkspacePicker]=useState(false);
+  const[legacyState,setLegacyState]=useState<{binding:string;phase:string}|null>(null);
   const flight=useRef<AbortController|null>(null);const seq=useRef(0);
   const prepare=useRef<PrepareLeave>(async()=>true);const workspaceButton=useRef<HTMLButtonElement>(null);
   const guard=useCallback((fn:PrepareLeave)=>{prepare.current=fn;return()=>{if(prepare.current===fn)prepare.current=async()=>true;};},[]);
@@ -46,7 +49,15 @@ export function App({ports}:{ports:ProductPorts}){
   const viewSelection=retainedSelection.current;
   // Explicitly bind route to the sole authorized workspace without interpreting
   // an old hint as authorization. Invalid deep links never fall back to home.
-  useEffect(()=>{if(selected&&!route.workspaceId)router.replace({...route,workspaceId:selected.workspace.id});},[selected,route.workspaceId]);
+  useEffect(()=>{if(selected&&!route.workspaceId)router.bindWorkspace(selected.workspace.id);},[selected,route.workspaceId]);
+  const legacyBinding=JSON.stringify([router.legacyPath,router.navigationGeneration,router.busy,selected?.principal.id,selected?.principal.kind,selected?.workspace.id,selected?.workspace.epoch,accessRevision,masked]);
+  useEffect(()=>{
+    const abort=new AbortController();
+    if(masked||router.busy||!selected||!router.legacyPath||route.workspaceId!==selected.workspace.id)return()=>abort.abort();
+    setLegacyState({binding:legacyBinding,phase:'loading'});
+    void resolveLegacyNavigation(router,ports,selected,{signal:abort.signal,visible:()=>document.visibilityState!=='hidden'&&seq.current===accessRevision&&Date.now()<(data?.expiresAt??0)}).then(result=>{if(!abort.signal.aborted&&result==='unavailable')setLegacyState({binding:legacyBinding,phase:'unavailable'});});
+    return()=>abort.abort();
+  },[router,ports,selected,legacyBinding,route.workspaceId]);
   const navigate=useCallback((patch:Partial<Route>)=>{void router.go(nextRoute(router.route,patch)).then(ok=>{if(ok){setWorkspacePicker(false);requestAnimationFrame(()=>document.querySelector<HTMLElement>('main h1')?.focus());}});},[router]);
   const replace=useCallback((patch:Partial<Route>)=>router.replace(nextRoute(router.route,patch)),[router]);
   const restoreView=useCallback(()=>router.restoreView(),[router]);
@@ -58,17 +69,18 @@ export function App({ports}:{ports:ProductPorts}){
       <button disabled={!selected||masked||router.busy} onClick={()=>navigate({view:'list',issueId:null,projectId:null,draftId:null,projectAtProtection:null})}>My Issues</button>
       <button disabled={!selected||masked||router.busy} onClick={()=>navigate({view:'board',issueId:null,projectId:null,draftId:null,projectAtProtection:null})}>Board</button>
       <button ref={workspaceButton} disabled={masked||router.busy} onClick={()=>setWorkspacePicker(true)}>Choose workspace</button>
-      <button disabled={!selected||masked||router.busy} onClick={()=>navigate({view:'wiki',pageId:null,draftId:null,projectAtProtection:null,wikiProtectionScope:null})}>Wiki</button>
+      <button disabled={!selected||masked||router.busy} onClick={()=>navigate({view:'wiki',projectId:null,pageId:null,draftId:null,projectAtProtection:null,wikiProtectionScope:null})}>Wiki</button>
     </nav><main id="main">
       {router.error&&<Notice error>{router.error}</Notice>}
       {phase==='loading'&&<Notice>Checking authenticated workspace access…</Notice>}
       {phase==='error'&&<><h1 tabIndex={-1}>Product connection incomplete</h1><Notice error>{code}. Workspace content remains locked; bootstrap has not authorized this view.</Notice><button onClick={()=>boot()}>Retry bootstrap</button></>}
       {!masked&&accessNotice==='no-workspaces'&&<><h1>No workspace access</h1><Notice>Your identity is verified, but no workspace membership is available</Notice><button onClick={()=>boot()}>Recheck workspace access</button></>}
       {!masked&&accessNotice==='selection-unavailable'&&<><h1>Workspace unavailable</h1><Notice error>This deep link does not select an authorized workspace. Choose a workspace explicitly.</Notice><button onClick={()=>boot()}>Recheck workspace access</button></>}
-      {!masked&&data&&(workspacePicker||!selected||selectionError)&&data.workspaces.length>0&&<section aria-label="Workspace selection"><h1 data-workspace-heading tabIndex={-1}>Choose a workspace</h1>{workspacePicker&&selected&&<button onClick={()=>{setWorkspacePicker(false);workspaceButton.current?.focus();}}>Cancel workspace selection</button>}<ul>{data.workspaces.map(w=><li key={w.id}><button onClick={()=>navigate({workspaceId:w.id,view:'list',issueId:null,projectId:null,draftId:null,projectAtProtection:null})}>{w.title}</button></li>)}</ul></section>}
-      {viewSelection&&props&&<div key={viewSelection.principal.id+viewSelection.workspace.id+viewSelection.workspace.epoch}>
+      {!masked&&data&&(workspacePicker||!selected||selectionError)&&data.workspaces.length>0&&<section aria-label="Workspace selection"><h1 data-workspace-heading tabIndex={-1}>Choose a workspace</h1>{workspacePicker&&selected&&<button onClick={()=>{setWorkspacePicker(false);workspaceButton.current?.focus();}}>Cancel workspace selection</button>}<ul>{data.workspaces.map(w=><li key={w.id}><button onClick={()=>{if(router.legacyPath){router.bindWorkspace(w.id);setWorkspacePicker(false);}else navigate({workspaceId:w.id,view:'list',issueId:null,projectId:null,draftId:null,projectAtProtection:null});}}>{w.title}</button></li>)}</ul></section>}
+      {!masked&&selected&&router.pendingLocation&&<section aria-label="Legacy navigation"><h1 tabIndex={-1}>{router.unavailable||legacyState?.binding===legacyBinding&&legacyState.phase==='unavailable'?'Link unavailable':'Opening link'}</h1><Notice>{router.unavailable||legacyState?.binding===legacyBinding&&legacyState.phase==='unavailable'?'This link is unavailable in the selected workspace.':'Checking access to this link…'}</Notice>{!router.unavailable&&legacyState?.binding===legacyBinding&&legacyState.phase==='unavailable'&&<button onClick={()=>boot()}>Recheck link access</button>}</section>}
+      {viewSelection&&props&&!router.pendingLocation&&<div key={viewSelection.principal.id+viewSelection.workspace.id+viewSelection.workspace.epoch}>
         {!masked&&data&&<Expiry expiresAt={data.expiresAt}/>}
-        {route.view.startsWith('wiki')?<WikiView key={route.view+route.pageId} {...props} accessRevision={accessRevision}/>:['list','board'].includes(route.view)?<><ListView {...props}/><ProjectPicker ports={ports} selected={viewSelection} navigate={navigate} locked={masked||!selected} accessRevision={accessRevision}/></>:<ContentView key={route.view+route.issueId+route.projectId} {...props}/>}
+        {route.view==='project'?<ProjectView {...props} accessRevision={accessRevision}/>:route.view.startsWith('wiki')?<WikiView key={route.view+route.pageId} {...props} accessRevision={accessRevision}/>:['list','board'].includes(route.view)?<><ListView {...props}/><ProjectPicker ports={ports} selected={viewSelection} navigate={navigate} locked={masked||!selected} accessRevision={accessRevision}/></>:<ContentView key={route.view+route.issueId+route.projectId} {...props}/>}
       </div>}
       {masked&&phase!=='loading'&&phase!=='error'&&<Notice>Content locked. Verify your session before restoring drafts <button onClick={()=>boot()}>Verify access</button></Notice>}
     </main></div></>;

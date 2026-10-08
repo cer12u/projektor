@@ -3,13 +3,16 @@
 export interface Workspace { id:string; epoch:string; title:string; principal?:Principal }
 export interface Principal { id:string; kind:'human'|'machine'; displayName:string }
 export interface Bootstrap { principal:Principal|null; workspaces:Workspace[]; expiresAt:number }
-export interface Route { view:'list'|'board'|'issue'|'create'|'wiki'|'wiki-page'|'wiki-create'; pageId:string|null; wikiProtectionScope:'project'|'workspace_shared'|null; workspaceId:string|null; issueId:string|null; projectId:string|null; status:'all'|'unresolved'; draftId:string|null; projectAtProtection:string|null }
+export interface Route { view:'list'|'board'|'issue'|'create'|'project'|'wiki'|'wiki-page'|'wiki-create'; pageId:string|null; wikiProtectionScope:'project'|'workspace_shared'|null; workspaceId:string|null; issueId:string|null; projectId:string|null; status:'all'|'unresolved'; draftId:string|null; projectAtProtection:string|null }
 export interface Selected { principal:Principal; workspace:Workspace }
+export interface LegacyTarget { kind:'issue'|'wiki'|'project'; id:string; canonicalPath:string }
 export interface ProductPorts {
   evidence:'product'|'contract-fixture';
   bootstrap(options:{signal:AbortSignal}):Promise<Bootstrap>;
   /** Must freshly verify selected workspace and principal. Never select by email. */
   session(selected:Selected,options?:{signal?:AbortSignal}):Promise<any>;
+  /** Fresh session and exact response binding required. Direct navigation only. */
+  legacyURL?(selected:Selected,options:{path:string;signal:AbortSignal}):Promise<LegacyTarget>;
   wikiAPI?(selected:Selected):any;
   wikiProtection?(options:any):any;
   contentAPI(selected:Selected):any;

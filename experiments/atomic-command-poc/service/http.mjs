@@ -17,6 +17,7 @@ export function route(request,config) {
  else if(tail==='wiki/resolve')action='wikiResolve';
  else if(tail==='links')action='links';
  else if(tail==='backlinks')action='backlinks';
+ else if(tail==='legacy-url')action='legacyUrl';
  else if(tail==='my-issues')action='myIssues';
  else if(tail==='capabilities')action='capabilities';
  else if(tail==='projects')action='projects';
@@ -58,7 +59,7 @@ export async function body(request,deadlineMs,parse=JSON.parse){
  return parsed;
 }
 export function queryArgs(r){
- const p=r.url.searchParams,wikiAllowed={wiki:['workspaceEpoch','scopeKind','projectId','search','includeDeleted','limit','cursor'],wikiRevisions:['workspaceEpoch','limit','cursor'],wikiResolve:['workspaceEpoch','scopeKind','projectId','kind','rawKey'],links:['workspaceEpoch','resourceType','resourceId','revisionId','linkViewId','resourceVersion','limit','cursor'],backlinks:['workspaceEpoch','resourceType','resourceId','limit','cursor']},allowed=wikiAllowed[r.action]??(r.action==='myIssues'?['workspaceEpoch','status','projectId','limit','cursor']:['entries','revisions','resolutions'].includes(r.action)?['workspaceEpoch','cursor','limit']:['workspaceEpoch']);
+ const p=r.url.searchParams,wikiAllowed={wiki:['workspaceEpoch','scopeKind','projectId','search','includeDeleted','limit','cursor'],wikiRevisions:['workspaceEpoch','limit','cursor'],wikiResolve:['workspaceEpoch','scopeKind','projectId','kind','rawKey'],links:['workspaceEpoch','resourceType','resourceId','revisionId','linkViewId','resourceVersion','limit','cursor'],backlinks:['workspaceEpoch','resourceType','resourceId','limit','cursor']},allowed=wikiAllowed[r.action]??(r.action==='legacyUrl'?['workspaceEpoch','path']:r.action==='myIssues'?['workspaceEpoch','status','projectId','limit','cursor']:['entries','revisions','resolutions'].includes(r.action)?['workspaceEpoch','cursor','limit']:['workspaceEpoch']);
  if([...p.keys()].some(k=>!allowed.includes(k)||p.getAll(k).length!==1)||!p.has('workspaceEpoch'))throw new AuthError('VALIDATION',400);
  const args={workspaceId:r.workspaceId,...Object.fromEntries(p)};
  if(args.limit!==undefined){if(!/^[1-9][0-9]{0,2}$/.test(args.limit))throw new AuthError('VALIDATION',400);args.limit=Number(args.limit);}

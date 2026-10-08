@@ -31,6 +31,7 @@ jobs:
       browser: ${{ steps.impact.outputs.browser }}
       focused: ${{ steps.impact.outputs.focused }}
       repair: ${{ steps.impact.outputs.repair }}
+      legacy: ${{ steps.impact.outputs.legacy }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -44,10 +45,10 @@ jobs:
         id: impact
         env:
           REVIEWED_HEAD: ${{ github.event.pull_request.head.sha }}
-          # Native9, selected6, reporter5 passed at be51e978 in run 37814827945.
-          NATIVE_EVIDENCE_BASE: be51e97823c5c4fe670502bf15ddc066174218ef
-          # All 21 prior browser cases passed at 949869f1; C23 subsequently failed at be51e978.
-          BROWSER_EVIDENCE_BASE: 949869f129223d7b8d2cb4cb188d92f8e50219ee
+          # f042b054 passed its affected transport/controller and C22/C23 boundaries.
+          # Prior C01-C21 evidence remains historical 949869f1 evidence.
+          NATIVE_EVIDENCE_BASE: f042b054318a1ce74cafef1436c5bf0820d52c7e
+          BROWSER_EVIDENCE_BASE: f042b054318a1ce74cafef1436c5bf0820d52c7e
         run: |
           node --input-type=module <<'NODE'
           import {execFileSync} from 'node:child_process';
@@ -67,13 +68,16 @@ jobs:
           const focused=native.length>0&&native.every(p=>focusedPaths.has(p))&&Object.entries(reviewedIssueBytes).every(([p,hash])=>createHash('sha256').update(readFileSync(p)).digest('hex')===hash);
           const repairPaths=new Set([".github/workflows/atomic-command-poc.yml","experiments/atomic-command-poc/client/recovery.mjs","experiments/product-ui/CHECKPOINT.json","experiments/product-ui/SOURCE-SHA256SUMS","experiments/product-ui/test/issue-compatibility-boundary.test.mjs","experiments/product-ui/vendor/client/recovery.mjs"]);
           const repair=focused&&native.every(p=>repairPaths.has(p));
+          const legacyPaths=new Set([".github/workflows/atomic-command-poc.yml","experiments/atomic-command-poc/release/reviewed-product.json","experiments/atomic-command-poc/scripts/legacy-url-upgrade.sql","experiments/atomic-command-poc/service-test/legacy-url-fixture.mjs","experiments/atomic-command-poc/service-test/legacy-url.integration.test.mjs","experiments/atomic-command-poc/service/http.mjs","experiments/atomic-command-poc/service/workspace.mjs","experiments/atomic-command-poc/src/issue-content.mjs","experiments/atomic-command-poc/src/legacy-url.mjs","experiments/atomic-command-poc/src/schema.sql","experiments/product-ui/CHECKPOINT.json","experiments/product-ui/SOURCE-SHA256SUMS","experiments/product-ui/e2e/github-reporter.mjs","experiments/product-ui/e2e/legacy-navigation.test.mjs","experiments/product-ui/e2e/trace.mjs","experiments/product-ui/src/App.tsx","experiments/product-ui/src/ProjectView.tsx","experiments/product-ui/src/WikiView.tsx","experiments/product-ui/src/contracts.ts","experiments/product-ui/src/legacy-navigation.ts","experiments/product-ui/src/product-ports.ts","experiments/product-ui/src/router.ts","experiments/product-ui/test/legacy-navigation.test.mjs","experiments/product-ui/test/legacy-url-boundary.test.mjs","experiments/product-ui/test/reporting.test.mjs","experiments/product-ui/test/ui-contracts.test.mjs"]);
+          const reviewedLegacyBytes={"experiments/atomic-command-poc/release/reviewed-product.json":"9c352d0b1a7382cefeb51c9d827ceef8205ec24594707a06f83ea8860dd17784","experiments/atomic-command-poc/scripts/legacy-url-upgrade.sql":"e299532f2c903717bffa35263a959a88cba27e204c13aa08af475eb587751319","experiments/atomic-command-poc/service-test/legacy-url-fixture.mjs":"17d3f723be721c0a50e0d8a47b6db00fb4960c453639e25b4158cb433b22af23","experiments/atomic-command-poc/service-test/legacy-url.integration.test.mjs":"92af88544c38ff248fe311ed9433628e2e59c7515003fcc60065bb69606ee83f","experiments/atomic-command-poc/service/http.mjs":"36dd23ad1b86861d9c3c5b390fbd8006325e3619769b33cff97e1249d971ce61","experiments/atomic-command-poc/service/workspace.mjs":"94dfdf5d8fd47a9fb1fc093731a469df802ce5d38f716fd8f1dc6afb30d09d8d","experiments/atomic-command-poc/src/issue-content.mjs":"153b9014c3b971cd3d53afda74b3893abe19ee0f23698831222206ebce65220d","experiments/atomic-command-poc/src/legacy-url.mjs":"1105343c4561e0bac1f436201aed1d4a3d50187fbe1bfe5b96803c81c6a1c057","experiments/atomic-command-poc/src/schema.sql":"f4299482f0031ace721497417b4c002ae0b22636acb78a89c000c370947ce273","experiments/product-ui/CHECKPOINT.json":"b463b9267ebb4bf1ec5348963415587b78899c8be14e94049220cfff22db8d5b","experiments/product-ui/SOURCE-SHA256SUMS":"5c7fb8d6521bda1480b84f388b938090d01ec266958709eca361f3b97df0e77d","experiments/product-ui/e2e/github-reporter.mjs":"5bf92f1db780ed14157c8351e4fe4fdd895e8150a80fa5269726c56f6b64798a","experiments/product-ui/e2e/legacy-navigation.test.mjs":"02497b957d679504087e98b24c5708f0977c8257adc8c0d3a32e5730e9f44cfb","experiments/product-ui/e2e/trace.mjs":"997b9b637fd09d41eb0543597c9f6d325360129f94a01fed4a325d92253c4d8e","experiments/product-ui/src/App.tsx":"eb501500a38813a8afc0eb335355da7e352101452a0be0401366d7dd57ce305b","experiments/product-ui/src/ProjectView.tsx":"b4973dd85132d331e03219238b40dbcc68a573f5414e658ee38db9f2e1743a8d","experiments/product-ui/src/WikiView.tsx":"afc4a7d01c4e9228d19cb66059c9c0517f8d3e7d87005214a8fa12f45bb3e2c3","experiments/product-ui/src/contracts.ts":"d30fb540697e28a363dec4a1124fe9144e5cd274217c7df8637542fd3862c887","experiments/product-ui/src/legacy-navigation.ts":"2b8ca433f60bd46281b93c265e5a8fa42eca2721c3d51cbac762f9b99d981bf3","experiments/product-ui/src/product-ports.ts":"1d638f4142f7be6d06d88573bdc3acd12c2df549a16782456dc834aaaf2a3ea2","experiments/product-ui/src/router.ts":"530684097e14a972e0036a37d2cc6a30a9fdcd3e890d637585bc03fc6fbc655e","experiments/product-ui/test/legacy-navigation.test.mjs":"6c751f33bcca83d1701e00df32242d1b591cb254cedfec9a11536aa4f0dfa07d","experiments/product-ui/test/legacy-url-boundary.test.mjs":"e34298ca9c0a94848c96ad84ccb53ba928922e1b1c71ba3fbe078f31a47c46f9","experiments/product-ui/test/reporting.test.mjs":"764cedbcb52fd422cccff3f90270f69e8e5a6175ce2237e9df1f7f5e5d57e164","experiments/product-ui/test/ui-contracts.test.mjs":"026fd08346c8e00c11fbd17ecaf4053f709faedb2fff287e096f1c6076ee181e"};
+          const legacy=native.length>0&&native.every(p=>legacyPaths.has(p))&&Object.entries(reviewedLegacyBytes).every(([p,hash])=>createHash('sha256').update(readFileSync(p)).digest('hex')===hash);
           const runtime=/^experiments\/atomic-command-poc\/(src\/|service\/|session-ports\/|transport\/|client\/|mcp\/|test\/|service-test\/|test-support\/|package(?:-lock)?\.json$)/;
           const sharedBrowser=/^experiments\/atomic-command-poc\/(browser\/|browser-test\/|src\/|service\/(?:auth|config|entry|http|store|workspace)\.mjs$|session-ports\/|client\/(?:issue-content|recovery|access-policy|wiki-[^/]+)\.mjs$|package(?:-lock)?\.json$)/;
           const ui=/^experiments\/product-ui\/(src\/|vendor\/|fixtures\/|e2e\/|.*\.html$|.*config\.mjs$|package(?:-lock)?\.json$)/;
-          const integration=native.some(p=>runtime.test(p)||/^experiments\/product-ui\/test\//.test(p));
+          const integration=!legacy&&native.some(p=>runtime.test(p)||/^experiments\/product-ui\/test\//.test(p));
           const runBrowser=browser.some(p=>ui.test(p)||sharedBrowser.test(p));
-          appendFileSync(process.env.GITHUB_OUTPUT,`integration=${integration}\nbrowser=${runBrowser}\nfocused=${focused}\nrepair=${repair}\n`);
-          appendFileSync(process.env.GITHUB_STEP_SUMMARY,`Head: ${head}\n\nNative evidence: ${process.env.NATIVE_EVIDENCE_BASE}; selected: ${integration}\nBrowser evidence: ${process.env.BROWSER_EVIDENCE_BASE}; selected: ${runBrowser}\nFocused Issue compatibility delta: ${focused}; C23 transport repair: ${repair}. Successful be51e978 native9, selected6 and reporter5 evidence is reused for the exact repair. Updated actual transport/controller2 and C22/C23 are required. Only C22/C23 run for this allowlisted delta; C01-C21 and unrelated native evidence are reused. Non-allowlisted changes fall back to prior gates plus the compatibility boundaries.\n\nSelection is dependency-based, not a waiver of a failed gate. Advance a baseline only with passing exact-head evidence. Unit aggregates and unrelated canonical app checks are not rerun here.\n\nChanged native paths:\n${native.join('\n')}\n\nChanged browser paths:\n${browser.join('\n')}\n`);
+          appendFileSync(process.env.GITHUB_OUTPUT,`integration=${integration}\nbrowser=${runBrowser}\nfocused=${focused}\nrepair=${repair}\nlegacy=${legacy}\n`);
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY,`Head: ${head}\n\nNative evidence: ${process.env.NATIVE_EVIDENCE_BASE}; selected: ${integration}\nBrowser evidence: ${process.env.BROWSER_EVIDENCE_BASE}; selected: ${runBrowser}\nLegacy URL frozen delta: ${legacy}. When selected, local reviewed actual-workerd/adapter/router/typecheck evidence is reused and only C24-C27 browser integration is executed here. Focused Issue compatibility delta: ${focused}; C23 transport repair: ${repair}. Successful be51e978 native9, selected6 and reporter5 evidence is reused for the exact repair. Updated actual transport/controller2 and C22/C23 are required. Only C22/C23 run for this allowlisted delta; C01-C21 and unrelated native evidence are reused. Non-allowlisted changes fall back to prior gates plus the compatibility boundaries.\n\nSelection is dependency-based, not a waiver of a failed gate. Advance a baseline only with passing exact-head evidence. Unit aggregates and unrelated canonical app checks are not rerun here.\n\nChanged native paths:\n${native.join('\n')}\n\nChanged browser paths:\n${browser.join('\n')}\n`);
           NODE
       - name: Verify tracked formatting and UI byte inventory
         run: |
@@ -204,7 +208,7 @@ jobs:
           npm ci
           npx --no-install playwright install --with-deps chromium
       - name: Integration - legacy fixture auth and exact module allowlist failures
-        if: ${{ needs.source-integrity.outputs.focused != 'true' }}
+        if: ${{ needs.source-integrity.outputs.legacy != 'true' && needs.source-integrity.outputs.focused != 'true' }}
         working-directory: experiments/atomic-command-poc
         run: |
           mkdir -p evidence/browser
@@ -222,18 +226,25 @@ jobs:
         env:
           PROJEKTOR_CORE_SOURCE: ../atomic-command-poc
           FOCUSED_ISSUE_COMPAT: ${{ needs.source-integrity.outputs.focused }}
+          LEGACY_URL_CONTINUITY: ${{ needs.source-integrity.outputs.legacy }}
         run: |
           mkdir -p ../atomic-command-poc/evidence/browser
           set -o pipefail
           # This entry builds its fixture. Unchanged unit/typecheck/build evidence is reused.
-          if [ "$FOCUSED_ISSUE_COMPAT" = true ]; then
+          if [ "$LEGACY_URL_CONTINUITY" = true ]; then
+            PROJEKTOR_UI_E2E_CASES=C24,C25,C26,C27 node --test --test-timeout=90000 --test-reporter=./e2e/github-reporter.mjs e2e/legacy-navigation.test.mjs 2>&1 | tee ../atomic-command-poc/evidence/browser/product-ui-e2e.log
+            grep -Eq 'UI E2E summary passed=4 failed=0 incomplete=0 runner_failed=false failed_ids=none$' ../atomic-command-poc/evidence/browser/product-ui-e2e.log
+            for case_id in C24 C25 C26 C27; do
+              grep -Eq "UI E2E $case_id scenario_body pass$" ../atomic-command-poc/evidence/browser/product-ui-e2e.log
+            done
+          elif [ "$FOCUSED_ISSUE_COMPAT" = true ]; then
             PROJEKTOR_UI_E2E_CASES=C22,C23 node --test --test-timeout=90000 --test-reporter=./e2e/github-reporter.mjs e2e/issue-compatibility.test.mjs 2>&1 | tee ../atomic-command-poc/evidence/browser/product-ui-e2e.log
             grep -Eq 'UI E2E summary passed=2 failed=0 incomplete=0 runner_failed=false failed_ids=none$' ../atomic-command-poc/evidence/browser/product-ui-e2e.log
             grep -Eq 'UI E2E C22 scenario_body pass$' ../atomic-command-poc/evidence/browser/product-ui-e2e.log
             grep -Eq 'UI E2E C23 scenario_body pass$' ../atomic-command-poc/evidence/browser/product-ui-e2e.log
           else
             npm run test:e2e 2>&1 | tee ../atomic-command-poc/evidence/browser/product-ui-e2e.log
-            grep -Eq 'UI E2E summary passed=23 failed=0 incomplete=0 runner_failed=false failed_ids=none$' ../atomic-command-poc/evidence/browser/product-ui-e2e.log
+            grep -Eq 'UI E2E summary passed=27 failed=0 incomplete=0 runner_failed=false failed_ids=none$' ../atomic-command-poc/evidence/browser/product-ui-e2e.log
           fi
       - name: Verify browser integration leaves tracked source unchanged
         if: ${{ !cancelled() }}

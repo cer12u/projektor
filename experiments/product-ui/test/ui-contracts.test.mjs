@@ -6,7 +6,7 @@ import {renderToStaticMarkup} from 'react-dom/server';
 import {checkBootstrap,chooseWorkspace,missingProductPorts} from '../src/contracts.ts';
 import {parseRoute,routeURL,nextRoute,UIRouter} from '../src/router.ts';
 let vite,components,fixtures;
-before(async()=>{vite=await createServer({server:{middlewareMode:true},appType:'custom'});components=await vite.ssrLoadModule('/src/components.tsx');fixtures=(await vite.ssrLoadModule('/fixtures/pages.ts')).pageFixtures;});
+before(async()=>{vite=await createServer({server:{middlewareMode:true,hmr:false},appType:'custom'});components=await vite.ssrLoadModule('/src/components.tsx');fixtures=(await vite.ssrLoadModule('/fixtures/pages.ts')).pageFixtures;});
 after(async()=>vite?.close());
 const uuid=n=>'00000000-0000-4000-8000-'+String(n).padStart(12,'0');
 const workspace=n=>({id:uuid(n),epoch:uuid(n+100),title:'Workspace '+n});
