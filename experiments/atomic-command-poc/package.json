@@ -13,7 +13,8 @@
     "test:transport": "node --test transport-test/*.test.mjs",
     "test:client": "node --test client-test/*.test.mjs",
     "test:browser": "node --test browser-test/browser.test.mjs browser-test/my-issues.test.mjs",
-    "test:service": "node --test service-test/*.test.mjs"
+    "test:service": "node --test service-test/*.test.mjs && npm run test:release",
+    "test:release": "node --experimental-vm-modules --test release/*.test.mjs"
   },
   "devDependencies": {
     "miniflare": "4.20260730.0",

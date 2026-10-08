@@ -74,3 +74,12 @@ test('unmarked existing schema is preserved; unknown verified subject gets no me
  const db=await storage(legacy);await db.exec('CREATE TABLE preserved_source(id TEXT PRIMARY KEY,value TEXT)');await db.exec("INSERT INTO preserved_source VALUES('old','keep verbatim')");await db.exec('DROP TABLE service_schema');await mf.unsafeEvictDurableObject('product','WorkspaceService',{name:legacy.workspace});const r=await get(legacy,`my-issues?workspaceEpoch=${legacy.epoch}`);assert.equal(r.status,503);assert.equal((await r.json()).error.code,'STORE_SCHEMA_UNSUPPORTED');assert.deepEqual(await db.exec('SELECT * FROM preserved_source'),[{id:'old',value:'keep verbatim'}]);
  const current=await storage(a),before=(await current.exec('SELECT count(*) AS n FROM membership'))[0].n;assert.equal((await get(a,`my-issues?workspaceEpoch=${a.epoch}`,headers(jwt({sub:'unknown-subject'})))).status,401);assert.equal((await current.exec('SELECT count(*) AS n FROM membership'))[0].n,before);
 });
+test('removed enrollment and automatic purge routes cannot create membership or delete data',async()=>{
+ const db=await storage(a);
+ const counts=async()=>Object.fromEntries(await Promise.all(['membership','identity_binding','issue','activity','outbox','operation'].map(async table=>[table,(await db.exec(`SELECT count(*) AS n FROM ${table}`))[0].n])));
+ const before=await counts();
+ for(const path of ['/auto-join','/autoprovisionmembership','/cron','/scheduled','/trash/purge',`/v1/workspaces/${a.workspace}/auto-join`,`/v1/workspaces/${a.workspace}/trash/purge`])for(const method of ['GET','POST'])assert.equal((await mf.dispatchFetch(origin+path,{method,headers:headers()})).status,404);
+ const ns=await mf.getDurableObjectNamespace('WORKSPACE'),stub=ns.get(ns.idFromName(a.workspace));
+ for(const method of ['autoJoin','autoProvisionMembership','purgeTrash'])await assert.rejects(async()=>await stub[method]());
+ assert.deepEqual(await counts(),before);
+});

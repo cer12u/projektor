@@ -1,6 +1,8 @@
 // Deployment-owned values only; request headers never supply configuration.
 export function configuration(env) {
  const fail=()=>{throw Object.assign(new Error('SERVICE_CONFIG_INVALID'),{code:'SERVICE_CONFIG_INVALID',status:503});};
+ // Removed capabilities have no disabled/compatibility switch: even 'none' is rejected.
+ if (Object.keys(env).some(key => /auto.?join|auto.?provision|trash.?purge|purge.?trash|cron|scheduled/i.test(key))) fail();
  let origin;try{origin=new URL(env.APP_ORIGIN);}catch{fail();}
  if(origin.protocol!=='https:'||origin.origin!==env.APP_ORIGIN||origin.username||origin.password)fail();
  const deadline=Number(env.REQUEST_TIMEOUT_MS),bodyDeadline=Number(env.BODY_TIMEOUT_MS);
