@@ -42,7 +42,7 @@ export class BrowserFixtureWorkspace extends AuthenticatedWorkspace {
    for(const project of [ids.project,ids.otherProject])sql.exec('INSERT INTO project VALUES(?,?,1,0)',project,'Content fixture project');
    for (const actor of [ids.actorA,ids.actorB]) {
     sql.exec('INSERT INTO membership VALUES(?,?,0,1)',actor,'human');
-    for(const scope of ['operations:read_own','issue:read','issue:write','comment:write','history:read'])sql.exec('INSERT INTO principal_scope VALUES(?,?)',actor,scope);
+    for(const scope of ['operations:read_own','issue:read','issue:write','comment:write','history:read','progress:write','issue:transition'])sql.exec('INSERT INTO principal_scope VALUES(?,?)',actor,scope);
     for (const project of [ids.project,ids.otherProject]) sql.exec('INSERT INTO project_grant VALUES(?,?,1,1)',actor,project);
    }
    sql.exec('INSERT INTO issue VALUES(?,?,?,7,0)',ids.issue,ids.project,'original title');
@@ -65,7 +65,7 @@ export class BrowserFixtureWorkspace extends AuthenticatedWorkspace {
     this.ctx.storage.sql.exec('UPDATE credential SET expires_at=? WHERE id=?',expiresAt,credentialId);
    } else {
     this.ctx.storage.sql.exec('INSERT INTO credential VALUES(?,?,?,0,1,1)',credentialId,actor,expiresAt);
-    for(const scope of ['operations:read_own','issue:read','issue:write','comment:write','history:read'])this.ctx.storage.sql.exec('INSERT INTO credential_scope VALUES(?,?)',credentialId,scope);
+    for(const scope of ['operations:read_own','issue:read','issue:write','comment:write','history:read','progress:write','issue:transition'])this.ctx.storage.sql.exec('INSERT INTO credential_scope VALUES(?,?)',credentialId,scope);
     this.ctx.storage.sql.exec('INSERT INTO identity_binding VALUES(?,?,?,?,?)',issuer,subject,credentialId,actor,'human');
     this.ctx.storage.sql.exec('INSERT INTO browser_session VALUES(?,?,0)',credentialId,sessionId);
    }

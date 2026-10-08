@@ -1,3 +1,11 @@
+# I2 runtime-neutral Issue workflow candidate
+
+The I2 additions are documented in [I2-CONTRACT.md](I2-CONTRACT.md). Shared schema v4 adds atomic claim/renew/release, progress/status/resolution history, parent/move/alias and bounded external-outcome checkpoints. It preserves the prior title/content/query/receipt surface and release guard. Real workerd and authenticated synthetic-provider HTTP tests are included. Artifact capture is explicitly unavailable; production provider, full connector, Wiki integration, migration/restore and cutover remain separate gates.
+
+Reproduce: `npm run verify` for all local Node/workerd/transport/client/service/release/browser-fixture suites; `RUN_BROWSER=1 npm run verify` additionally runs actual Chromium in the approved exact-head CI environment. No production credentials, deployment or external effects are exercised.
+
+---
+
 # Authenticated transport candidate, 2026-10-08
 
 This candidate extends PR7 with a local-only signed-token HTTP ingress and memory-only recovery client. Read transport/README.md and client/README.md for the current slice. The historical PoC description below is retained for baseline context; its original scope limits remain in force except for this explicitly tested local extension. No production/provider enrollment or deployment is claimed.

@@ -1,3 +1,4 @@
+import {queryClaim,queryResolutionRecords,queryCapabilities,queryAttemptCheckpoint,queryIssueAlias} from './agent-workflow.mjs';
 import { queryMyIssues } from './my-issues.mjs';
 import { executeCommand, failure, operationGet, queryIssues, queryProjects, queryIssueEntries, queryContentRevisions, StorageFailure } from './shared-core.mjs';
 // ActorContext is supplied by a trusted fixture authenticator, never request JSON.
@@ -15,7 +16,7 @@ export function restUpdate(db,actor,{workspaceId,entityId,idempotencyKey,body},o
 }
 export const commandTools=Object.freeze({
  issue_update_title:'Issue.UpdateTitle',issue_create:'Issue.Create',issue_update_body:'Issue.UpdateBody',
- issue_assign:'Issue.Assign',issue_set_priority:'Issue.SetPriority',issue_add_comment:'Issue.AddComment',issue_edit_comment:'Issue.EditComment'
+ issue_assign:'Issue.Assign',issue_set_priority:'Issue.SetPriority',issue_add_comment:'Issue.AddComment',issue_edit_comment:'Issue.EditComment',issue_claim:'Issue.Claim',issue_renew_claim:'Issue.RenewClaim',issue_release_claim:'Issue.ReleaseClaim',issue_append_progress:'Issue.AppendProgress',issue_transition:'Issue.Transition',issue_reparent:'Issue.Reparent',issue_move_tree:'Issue.MoveTree'
 });
 export function mcpUpdate(db,actor,{name,arguments:args},options){
  const result=!Object.hasOwn(commandTools,name)||args?.commandType!==commandTools[name]?failure('VALIDATION'):invoke(db,actor,args,options);
@@ -50,3 +51,8 @@ export function restIssueEntries(db,actor,args,now){return restRead(queryIssueEn
 export function mcpIssueEntries(db,actor,request,now){return mcpRead(queryIssueEntries,['issue_entries_list'],db,actor,request,now);}
 export function restContentRevisions(db,actor,args,now){return restRead(queryContentRevisions,db,actor,args,now);}
 export function mcpContentRevisions(db,actor,request,now){return mcpRead(queryContentRevisions,['content_revision_get','content_revision_list'],db,actor,request,now);}
+
+export function restClaim(db,actor,args,now){return restRead(queryClaim,db,actor,args,now);}
+export function restResolutions(db,actor,args,now){return restRead(queryResolutionRecords,db,actor,args,now);}
+export function restCapabilities(db,actor,args,now){return restRead(queryCapabilities,db,actor,args,now);}
+export function mcpWorkflowQuery(db,actor,{name,arguments:args},now){const q={claim_get:queryClaim,resolution_records_list:queryResolutionRecords,capabilities_get:queryCapabilities,attempt_checkpoint_get:queryAttemptCheckpoint,issue_alias_get:queryIssueAlias}[name];const result=q?read(q,db,actor,args,now):failure('VALIDATION');return {isError:Boolean(result.error),structuredContent:result};}

@@ -1,3 +1,5 @@
+import {WORKFLOW_COMMANDS,validateWorkflow,executeWorkflowCommand} from './agent-workflow.mjs';
+export {queryClaim,queryResolutionRecords,queryCapabilities,queryAttemptCheckpoint,queryIssueAlias} from './agent-workflow.mjs';
 import { CONTENT_COMMANDS, validateContent, executeContentCommand, issueProjection, captureAccess } from './issue-content.mjs';
 import { currentRead, currentWrite, receiptScope } from './resource-access.mjs';
 export { currentRead, currentWrite, historicRead, receiptScope } from './resource-access.mjs';
@@ -14,8 +16,9 @@ export function validate(c){
   const keys=['schemaVersion','workspaceId','workspaceEpoch','operationId','commandType','entityId','expectedVersion','payload'];
   if(Object.keys(c).some(k=>!keys.includes(k)))return 'VALIDATION';
   if(c.schemaVersion!==1)return 'SCHEMA_UNSUPPORTED';
-  if(!['workspaceId','workspaceEpoch','operationId','entityId'].every(k=>validId(c[k]))||!['Issue.UpdateTitle',...CONTENT_COMMANDS].includes(c.commandType))return 'VALIDATION';
+  if(!['workspaceId','workspaceEpoch','operationId','entityId'].every(k=>validId(c[k]))||!['Issue.UpdateTitle',...CONTENT_COMMANDS,...WORKFLOW_COMMANDS].includes(c.commandType))return 'VALIDATION';
   if(c.expectedVersion===undefined)return 'PRECONDITION_REQUIRED';
+  if(WORKFLOW_COMMANDS.includes(c.commandType))return validateWorkflow(c);
   if(CONTENT_COMMANDS.includes(c.commandType))return validateContent(c);
   if(!Number.isSafeInteger(c.expectedVersion)||c.expectedVersion<1)return 'VALIDATION';
   if(!plain(c.payload)||Object.keys(c.payload).length!==1||typeof c.payload.title!=='string'||!c.payload.title.isWellFormed()||Buffer.byteLength(c.payload.title)>4096)return 'VALIDATION';
@@ -71,6 +74,7 @@ export const MUTATION_STEPS=['before_issue','after_issue','after_sequence','afte
 export function executeCommand(db,actor,c,{now,fault=()=>{},contentLinks=null}={}){
  const invalid=validate(c);if(invalid)return failure(invalid);
  if(!actor||typeof actor!=='object')return failure('UNAUTHENTICATED');
+ if(WORKFLOW_COMMANDS.includes(c.commandType))return executeWorkflowCommand(db,actor,c,{now,fault});
  if(CONTENT_COMMANDS.includes(c.commandType))return executeContentCommand(db,actor,c,{now,fault,contentLinks});
  const hash=fingerprint(actor,c);
  return transaction(db,()=>{

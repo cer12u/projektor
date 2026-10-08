@@ -1,0 +1,77 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {fixture,actor,ids,now,command} from './fixture.mjs';
+import {executeCommand,queryIssues,queryIssueEntries,operationGet,queryClaim,queryResolutionRecords,queryCapabilities} from '../src/shared-core.mjs';
+const cmd=(type,entityId,version,payload)=>command({commandType:type,entityId,expectedVersion:version,payload:{payloadVersion:['Issue.AppendProgress','Issue.Transition'].includes(type)?2:1,...payload}});
+function setup(){const f=fixture();f.db.prepare('INSERT INTO project VALUES(?,?,1,0)').run(ids.project,'Workflow');for(const scope of ['operations:read_own','issue:read','issue:write','comment:write','history:read','claim:write','progress:write','issue:transition']){f.db.prepare('INSERT INTO principal_scope VALUES(?,?)').run(ids.actor,scope);f.db.prepare('INSERT INTO credential_scope VALUES(?,?)').run(ids.credential,scope);}const issue=randomUUID();const create=command({commandType:'Issue.Create',entityId:issue,expectedVersion:0,payload:{projectId:ids.project,title:'Workflow',description:'日本語\r\n',assigneeId:ids.actor,priority:'P1',parentId:null,initialStatus:'ready'}});assert.ok(executeCommand(f.db,actor,create,{now}).data);return {...f,issue};}
+const args=entityId=>({workspaceId:ids.workspace,workspaceEpoch:ids.epoch,entityId});
+const claimCommand=(issue,v=1,slot=0)=>cmd('Issue.Claim',issue,v,{runtimeInstanceId:randomUUID(),attemptId:randomUUID(),agentDefinition:{id:'local-dot',revision:'1'},expectedClaimVersion:slot});
+const ref=c=>Object.fromEntries(['claimId','fencingToken','runtimeInstanceId','attemptId'].map(k=>[k,c[k]]));
+const run=(f,c,time=now)=>executeCommand(f.db,actor,c,{now:time});
+const transition=(f,v,toStatus,claim,extra={})=>cmd('Issue.Transition',f.issue,v,{entryId:randomUUID(),toStatus,claim,...extra});
+test('real SQLite machine vertical claim/progress/done/reopen/re-done/release immutable history and replay',()=>{const f=setup();try{
+ const acquire=claimCommand(f.issue),receipt=run(f,acquire);assert.ok(receipt.data,JSON.stringify(receipt));const claim=ref(receipt.data.claim);assert.equal(queryIssues(f.db,actor,args(f.issue),now).data.version,1);
+ assert.equal(run(f,transition(f,1,'in_progress',claim)).data.committedVersion,2);
+ assert.equal(run(f,cmd('Issue.AppendProgress',f.issue,2,{entryId:randomUUID(),bodyMarkdown:'進捗\r\n',claim})).data.committedVersion,3);
+ assert.equal(run(f,transition(f,3,'done',claim,{result:{summary:'完了',artifactIds:[]}})).data.committedVersion,4);
+ assert.equal(run(f,transition(f,4,'ready',claim,{reason:{text:'再開'}})).data.committedVersion,5);
+ assert.equal(queryIssues(f.db,actor,args(f.issue),now).data.resolvedAt,null);
+ assert.equal(run(f,transition(f,5,'done',claim,{result:{summary:'再完了',artifactIds:[]}})).data.committedVersion,6);
+ assert.deepEqual(queryResolutionRecords(f.db,actor,args(f.issue),now).data.items.map(x=>x.kind),['done','reopened','done']);
+ assert.equal(queryIssueEntries(f.db,actor,args(f.issue),now).data.items.length,5);
+ const release=cmd('Issue.ReleaseClaim',f.issue,1,{claim,reason:'finished'});assert.equal(run(f,release).data.claim.live,false);
+ assert.deepEqual(run(f,acquire,now+400000),receipt);assert.equal(queryClaim(f.db,actor,args(f.issue),now+400000).data.claim.live,false);
+ assert.equal(f.db.prepare('SELECT count(*) AS n FROM execution_attempt').get().n,1);
+ assert.throws(()=>f.db.prepare("UPDATE resolution_record SET kind='canceled'").run(),/immutable/);
+ }finally{f.close();}});
+test('runtime isolation, claim precision, expiry, earliest renewal and immutable retry identities',()=>{const f=setup();try{
+ const acq=claimCommand(f.issue),r=run(f,acq),claim=ref(r.data.claim);
+ assert.equal(run(f,claimCommand(f.issue,1,1)).error.code,'CLAIM_HELD');
+ assert.equal(run(f,transition(f,1,'in_progress',{...claim,runtimeInstanceId:randomUUID()})).error.code,'CLAIM_STALE');
+ assert.equal(run(f,cmd('Issue.RenewClaim',f.issue,1,{claim})).error.code,'RENEW_TOO_EARLY');
+ const renew=cmd('Issue.RenewClaim',f.issue,1,{claim}),rr=run(f,renew,now+100000);assert.equal(rr.data.claim.version,2);assert.deepEqual(run(f,renew,now+399999),rr);
+ assert.equal(run(f,transition(f,1,'in_progress',claim),now+400000).error.code,'CLAIM_STALE');
+ assert.equal(run(f,{...acq,operationId:randomUUID(),payload:{...acq.payload,expectedClaimVersion:2}},now+400000).error.code,'ATTEMPT_REUSED');
+ f.db.prepare("UPDATE execution_claim SET fencing_token='9007199254740992'").run();
+ const second=run(f,claimCommand(f.issue,1,2),now+400000);assert.equal(second.data.claim.fencingToken,'9007199254740993');
+ assert.equal(run(f,cmd('Issue.ReleaseClaim',f.issue,3,{claim,reason:'old'}),now+400001).error.code,'CLAIM_STALE');
+ assert.equal(run(f,{...acq,payload:{...acq.payload,runtimeInstanceId:randomUUID()}}).error.code,'KEY_REUSE');
+ }finally{f.close();}});
+test('current scope/revocation, human claim omission, CAS and safe receipt recovery',()=>{const f=setup();try{
+ const c=claimCommand(f.issue),receipt=run(f,c),claim=ref(receipt.data.claim);
+ f.db.prepare("DELETE FROM credential_scope WHERE scope='claim:write'").run();assert.equal(run(f,transition(f,1,'in_progress',claim)).error.code,'CLAIM_STALE');assert.deepEqual(run(f,c),receipt);
+ f.db.prepare("UPDATE membership SET kind='human' WHERE principal_id=?").run(ids.actor);const human={...actor,actorKind:'human'};
+ const h=transition(f,1,'in_progress',claim);assert.equal(executeCommand(f.db,human,h,{now}).error.code,'ACTOR_KIND_MISMATCH');delete h.payload.claim;h.operationId=randomUUID();assert.equal(executeCommand(f.db,human,h,{now}).data.committedVersion,2);
+ f.db.prepare('UPDATE credential SET revoked=1').run();assert.equal(executeCommand(f.db,human,{...h,operationId:randomUUID()},{now}).error.code,'FORBIDDEN');
+ }finally{f.close();}});
+test('transition evidence/artifact gap/parent unresolved gates reject without domain effects',()=>{const f=setup();try{const claim=ref(run(f,claimCommand(f.issue)).data.claim);
+ for(const [toStatus,extra,code]of [['done',{},'RESULT_REQUIRED'],['blocked',{reason:{text:'waiting'}},'BLOCKED_EVIDENCE_REQUIRED'],['canceled',{},'REASON_REQUIRED'],['done',{result:{artifactIds:[randomUUID()]}},'ARTIFACT_CAPTURE_UNAVAILABLE']])assert.equal(run(f,transition(f,1,toStatus,claim,extra)).error.code,code);
+ const child=randomUUID();const create=command({commandType:'Issue.Create',entityId:child,expectedVersion:0,payload:{projectId:ids.project,title:'Child',description:'',assigneeId:null,priority:null,parentId:f.issue,initialStatus:'ready'}});assert.ok(run(f,create).data);
+ assert.equal(run(f,transition(f,1,'done',claim,{result:{summary:'done',artifactIds:[]}})).error.code,'UNRESOLVED_CHILDREN');
+ assert.equal(queryIssues(f.db,actor,args(f.issue),now).data.status,'ready');
+ }finally{f.close();}});
+test('payload version strict; discovery does not claim artifact/checkpoint/execution authority',()=>{const f=setup();try{const c=claimCommand(f.issue);delete c.payload.payloadVersion;assert.equal(run(f,c).error.code,'CAPABILITY_MISMATCH');const d=queryCapabilities(f.db,actor,{workspaceId:ids.workspace,workspaceEpoch:ids.epoch},now).data;assert.equal(d.principalId,ids.actor);assert.equal(d.features['artifact-revision-capture-v1'],false);assert.equal(d.executionAuthority,'none');}finally{f.close();}});
+test('unknown external outcome survives release/reclaim and blocks completion until explicit reconciliation',async()=>{const {queryAttemptCheckpoint}=await import('../src/agent-workflow.mjs');const f=setup();try{
+ const claim=ref(run(f,claimCommand(f.issue)).data.claim),effectId=randomUUID();
+ assert.ok(run(f,cmd('Issue.AppendProgress',f.issue,1,{entryId:randomUUID(),bodyMarkdown:'response lost; paused',claim,effectCheckpoint:{effectId,state:'external_outcome_unknown',reference:'destination receipt pending'}})).data);
+ assert.equal(queryAttemptCheckpoint(f.db,actor,args(f.issue),now).data.blocked,true);
+ assert.ok(run(f,cmd('Issue.ReleaseClaim',f.issue,1,{claim,reason:'paused'})).data);
+ const next=ref(run(f,claimCommand(f.issue,2,2)).data.claim);
+ assert.equal(run(f,transition(f,2,'done',next,{result:{summary:'done',artifactIds:[]}})).error.code,'EXTERNAL_OUTCOME_UNKNOWN');
+ assert.ok(run(f,cmd('Issue.AppendProgress',f.issue,2,{entryId:randomUUID(),bodyMarkdown:'destination receipt verified',claim:next,effectCheckpoint:{effectId,state:'reconciled',reference:'receipt-123'}})).data);
+ const checkpoint=queryAttemptCheckpoint(f.db,actor,args(f.issue),now).data;assert.equal(checkpoint.blocked,false);assert.equal(checkpoint.effects[0].originalAttemptId,claim.attemptId);
+ assert.ok(run(f,transition(f,3,'done',next,{result:{summary:'verified result',artifactIds:[]}})).data);
+ }finally{f.close();}});
+test('restored epoch invalidates old claim read and maximum escaped progress remains readable',()=>{const f=setup();try{const claim=ref(run(f,claimCommand(f.issue)).data.claim);assert.ok(run(f,cmd('Issue.AppendProgress',f.issue,1,{entryId:randomUUID(),bodyMarkdown:'\u0000'.repeat(256*1024),claim})).data);assert.equal(queryIssueEntries(f.db,actor,args(f.issue),now).data.items[0].bodyMarkdown.length,256*1024);const epoch=randomUUID();f.db.prepare('UPDATE workspace SET epoch=?').run(epoch);assert.equal(queryClaim(f.db,actor,{...args(f.issue),workspaceEpoch:epoch},now).data.claim.live,false);}finally{f.close();}});
+test('MCP envelopes use the same persistent claim/progress/receipt/history registry',async()=>{const {mcpCommand,mcpWorkflowQuery,mcpIssueEntries,mcpOperationGet}=await import('../src/adapters.mjs');const f=setup();try{const c=claimCommand(f.issue);const r=mcpCommand(f.db,actor,{name:'issue_claim',arguments:c},{now});assert.equal(r.isError,false);const claim=ref(r.structuredContent.data.claim);const p=cmd('Issue.AppendProgress',f.issue,1,{claim,entryId:randomUUID(),bodyMarkdown:'MCP semantic progress'});assert.equal(mcpCommand(f.db,actor,{name:'issue_append_progress',arguments:p},{now}).isError,false);assert.deepEqual(mcpOperationGet(f.db,actor,{workspaceId:ids.workspace,workspaceEpoch:ids.epoch,operationId:c.operationId},now).structuredContent,r.structuredContent);assert.equal(mcpWorkflowQuery(f.db,actor,{name:'claim_get',arguments:args(f.issue)},now).structuredContent.data.claim.live,true);assert.equal(mcpIssueEntries(f.db,actor,{name:'issue_entries_list',arguments:args(f.issue)},now).structuredContent.data.items[0].bodyMarkdown,'MCP semantic progress');}finally{f.close();}});
+test('Reparent cycle/version/depth and full-tree Move target/ACL checks are atomic',()=>{const f=setup();try{
+ const child=randomUUID(),create=command({commandType:'Issue.Create',entityId:child,expectedVersion:0,payload:{projectId:ids.project,title:'Child',description:'',assigneeId:null,priority:null,parentId:f.issue,initialStatus:'ready'}});assert.ok(run(f,create).data);
+ assert.equal(run(f,cmd('Issue.Reparent',f.issue,1,{parentId:child,expectedParentVersion:1})).error.code,'PARENT_INVALID');
+ const dest=randomUUID();f.db.prepare('INSERT INTO project VALUES(?,?,1,0)').run(dest,'Destination');f.db.prepare('INSERT INTO project_grant VALUES(?,?,1,1)').run(ids.actor,dest);
+ assert.equal(run(f,cmd('Issue.MoveTree',f.issue,1,{targetProjectId:dest,targets:[{id:f.issue,expectedVersion:1}]})).error.code,'TREE_TARGETS_MISMATCH');
+ const move=cmd('Issue.MoveTree',f.issue,1,{targetProjectId:dest,targets:[{id:f.issue,expectedVersion:1},{id:child,expectedVersion:1}]});
+ f.db.prepare('UPDATE project_grant SET can_write=0 WHERE project_id=?').run(dest);assert.equal(run(f,move).error.code,'FORBIDDEN');assert.equal(queryIssues(f.db,actor,args(child),now).data.project_id,ids.project);
+ f.db.prepare('UPDATE project_grant SET can_write=1 WHERE project_id=?').run(dest);move.operationId=randomUUID();const done=run(f,move);assert.equal(done.data.targets.length,2);assert.equal(queryIssues(f.db,actor,args(child),now).data.project_id,dest);assert.equal(f.db.prepare('SELECT count(*) AS n FROM issue_alias').get().n,2);
+ assert.deepEqual(run(f,move),done);f.db.prepare('UPDATE project_grant SET can_read=0 WHERE project_id=?').run(ids.project);assert.equal(run(f,move).error.code,'FORBIDDEN');
+ }finally{f.close();}});

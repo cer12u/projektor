@@ -1,5 +1,5 @@
 {
-  "sourceCommit": "69e9e2ca6876c95808dd09968beb7358545cfe5a",
+  "sourceCommit": "23f9a069de99cfbab4d2402d6548e9bb38a949ef",
   "entrypoint": "service/entry.mjs",
   "exports": [
     "WorkspaceService",
@@ -9,14 +9,16 @@
     "service/auth.mjs": "11d3d0df9392212b569ae52ba3b4d136dd515041bd038feee4823ee209054428",
     "service/config.mjs": "23b730f38b700a3eae5313e5ec9d062f7ded28f6ffc2bcaadfcbf19bdc51c912",
     "service/entry.mjs": "6eb37c6eed47e2107a2507eb29754f223764d2ef754e4a80030d08d5f70faacf",
-    "service/http.mjs": "fba94c1dde8b4f7b721055d486f9a07e870a0fffa75d05ec4617fa8b61025e59",
+    "service/http.mjs": "b1ab1d00564e0fe193d7c1aa76836b84d9f851f06e61255e154a2f474a1e1231",
     "service/store.mjs": "bf4e96cd39df75e85c5a0ede8d4fb86b534093b3f3cbe56c5a56c0e917b9e939",
-    "service/workspace.mjs": "f06be8a2ce109bab6bd2b04935ee0845e51755328fabbe42266207d251dd5a2e",
-    "src/content-page.mjs": "00be9872142d18885b845cf399b1ba8d9d33bf751f1f4631a3b10f87613e2800",
-    "src/issue-content.mjs": "e42328012941d78a7fac881096624a7a465f0d89771da8e0cb8ce63d5f3b18fb",
+    "service/workspace.mjs": "eaaeab7f289b9cd726c5833c2c9f061e3b4a79a33fe2799631789922da26da64",
+    "src/agent-workflow.mjs": "0cda9c0697bf2506992504235117f84b754d38e76dfa7e5b9d2ca342a67d00d4",
+    "src/command-pipeline.mjs": "6d79bdc871193f859028df3c6dba73c2caa4fd75febf07f7759ebfded21f932f",
+    "src/content-page.mjs": "468c62d6abbd592eeaec46f744533dba480dbff4da8d3883b0ff79bdf3af3d44",
+    "src/issue-content.mjs": "0da0005dffc583de4c5db5b58fc598ed06d8b05358a0660ff6340965a7a7ea5c",
     "src/my-issues.mjs": "906b1a0178dc6fcb8413dbf9d5facb88f5fc2509ce2f48bfd47225b2945d3d8a",
     "src/resource-access.mjs": "4bff3e762906a111e34d3b65e990bf6fbee314f2a61eeb833a204fe58378ef71",
-    "src/schema.sql": "2005a83b6c9ffe3c8a20df1c02cad343ade4ee13498faf35a280703844bc14e9",
-    "src/shared-core.mjs": "187d80d788baa197bade865b256d551278205e46d74e377afef10a996cea5c2d"
+    "src/schema.sql": "4c9a1e64be9e89fe239320e67a687f309f99f3c8dd9c46633143ed71f9d9a19a",
+    "src/shared-core.mjs": "00a04f0bc033116fb4fe3f1b37d3cde64421ff7b4e106eb2a47b007f27805bf6"
   }
 }
