@@ -1,3 +1,4 @@
+import {isCompatibilityStatusId,planCompatibilityTransition,applyCompatibilityTransition} from './issue-compat.mjs';
 import {wikiCommandTools} from './wiki-surface.mjs';
 import {currentLinkView,carryLinkView} from './content-links.mjs';
 // Runtime-neutral workflow on the existing WorkspaceStore transaction boundary.
@@ -39,13 +40,14 @@ export function validateWorkflow(c){
  'Issue.AppendProgress':['entryId','bodyMarkdown'],'Issue.Transition':['entryId','toStatus'],
  'Issue.Reparent':['parentId'],'Issue.MoveTree':['targetProjectId','targets']
  }[c.commandType];
- const optional=c.commandType==='Issue.AppendProgress'?['reason','result','claim','effectCheckpoint']:c.commandType==='Issue.Transition'?['reason','waitingFor','nextStep','result','claim']:c.commandType==='Issue.Reparent'?['expectedParentVersion']:[];
+ const optional=c.commandType==='Issue.AppendProgress'?['reason','result','claim','effectCheckpoint']:c.commandType==='Issue.Transition'?['reason','waitingFor','nextStep','result','claim','statusId']:c.commandType==='Issue.Reparent'?['expectedParentVersion']:[];
  if(!shape(p,['payloadVersion',...required],optional))return 'VALIDATION';
  if(p.effectCheckpoint!==undefined&&(!shape(p.effectCheckpoint,['effectId','state','reference'])||!id(p.effectCheckpoint.effectId)||!['external_outcome_unknown','reconciled'].includes(p.effectCheckpoint.state)||!nonempty(p.effectCheckpoint.reference)||Buffer.byteLength(p.effectCheckpoint.reference)>4096))return 'VALIDATION';
  if(p.claim!==undefined&&!validClaimRef(p.claim))return 'VALIDATION';
  if(c.commandType==='Issue.Claim'&&(!id(p.attemptId)||!id(p.runtimeInstanceId)||!shape(p.agentDefinition,['id','revision'])||!nonempty(p.agentDefinition.id)||!nonempty(p.agentDefinition.revision)||p.agentDefinition.id.length>200||p.agentDefinition.revision.length>200||!Number.isSafeInteger(p.expectedClaimVersion)||p.expectedClaimVersion<0))return 'VALIDATION';
  if(p.entryId!==undefined&&!id(p.entryId))return 'VALIDATION';
  if(p.toStatus!==undefined&&!statuses.includes(p.toStatus))return 'VALIDATION';
+ if(p.statusId!==undefined&&!isCompatibilityStatusId(p.statusId))return 'VALIDATION';
  if(c.commandType==='Issue.ReleaseClaim'&&(!nonempty(p.reason)||Buffer.byteLength(p.reason)>4096))return 'VALIDATION';
  if(c.commandType!=='Issue.ReleaseClaim'&&p.reason!==undefined&&(!shape(p.reason,['text'],['code'])||!nonempty(p.reason.text)||p.reason.code!==undefined&&(!nonempty(p.reason.code)||Buffer.byteLength(p.reason.code)>200)))return 'VALIDATION';
  if(p.result!==undefined&&(!shape(p.result,['artifactIds'],['summary'])||!Array.isArray(p.result.artifactIds)||p.result.artifactIds.length>100||new Set(p.result.artifactIds).size!==p.result.artifactIds.length||p.result.artifactIds.some(x=>!id(x))||p.result.summary!==undefined&&!text(p.result.summary)))return 'VALIDATION';
@@ -73,7 +75,7 @@ export function executeWorkflowCommand(db,actor,c,options={}){
   if((WORKFLOW_REGISTRY[c.commandType].cas==='claim'?(claim?.version??0):issue.version)!==c.expectedVersion)return deny('VERSION_CONFLICT');
   const q=get(db,'SELECT * FROM issue_queue WHERE issue_id=?',issue.id);
   if(!q)return deny('WORKFLOW_STATE_UNAVAILABLE');
-  let claimResult=null,entryId=null,revisionId=null,resolutionRecordId=null,metadata={},version=issue.version;
+  let claimResult=null,entryId=null,revisionId=null,resolutionRecordId=null,metadata={},version=issue.version,compatPlan={changed:false};
   if(c.commandType==='Issue.Claim'){
    if((claim?.version??0)!==p.expectedClaimVersion)return deny('VERSION_CONFLICT');
    if(claim&&claim.released_at===null&&claim.workspace_epoch===c.workspaceEpoch&&now<claim.lease_expires_at)return deny('CLAIM_HELD');
@@ -100,7 +102,8 @@ export function executeWorkflowCommand(db,actor,c,options={}){
    const from=q.status_category,to=p.toStatus,reason=nonempty(p.reason?.text),result=nonempty(p.result?.summary);
    if(c.commandType==='Issue.AppendProgress'&&!nonempty(p.bodyMarkdown)&&!result)return deny('PROGRESS_EMPTY');
    if(c.commandType==='Issue.Transition'){
-    if(to===from)return commitResourceMutation(db,actor,c,{resource,version,now,save,targets:evidence(),effectApplied:false});
+    compatPlan=planCompatibilityTransition(db,issue.id,to,p.statusId);if(compatPlan.error)return deny(compatPlan.error);
+    if(to===from&&!compatPlan.changed)return commitResourceMutation(db,actor,c,{resource,version,now,save,targets:evidence(),effectApplied:false});
     if(resolved(from)&&resolved(to))return deny('REOPEN_REQUIRED');
     if((resolved(from)||from==='blocked'||to==='canceled'||to==='ready'&&['in_progress','blocked'].includes(from))&&!reason)return deny('REASON_REQUIRED');
     if(to==='blocked'&&(!reason||!nonempty(p.waitingFor)&&!nonempty(p.nextStep)))return deny('BLOCKED_EVIDENCE_REQUIRED');
@@ -111,7 +114,7 @@ export function executeWorkflowCommand(db,actor,c,options={}){
    if(p.effectCheckpoint){const old=effectStates(db,issue.id).find(e=>e.effect_id===p.effectCheckpoint.effectId);if(p.effectCheckpoint.state==='reconciled'&&(!old||old.state!=='external_outcome_unknown'))return deny('EFFECT_CHECKPOINT_INVALID');if(p.effectCheckpoint.state==='reconciled'&&!effectReadable(db,actor,old))return deny('CHECKPOINT_ACCESS_REQUIRED');if(p.effectCheckpoint.state==='external_outcome_unknown'&&old)return deny('EFFECT_ID_REUSED');if(p.effectCheckpoint.state==='external_outcome_unknown'&&effectStates(db,issue.id).length>=64)return deny('EFFECT_CHECKPOINT_LIMIT');}
    if(get(db,'SELECT id FROM issue_entry WHERE id=?',p.entryId))return deny('ENTRY_EXISTS');
    const a=evidence()[0],kind=c.commandType==='Issue.AppendProgress'?'progress':'transition';version++;entryId=p.entryId;
-   metadata={...(p.effectCheckpoint?{effectCheckpoint:p.effectCheckpoint}:{}),...(kind==='transition'?{fromStatus:from,toStatus:to}:{}),...(p.reason?{reason:p.reason}:{}),...(p.result?{result:p.result}:{}),...(p.waitingFor!==undefined?{waitingFor:p.waitingFor}:{}),...(p.nextStep!==undefined?{nextStep:p.nextStep}:{}),...(actor.actorKind==='machine'?{claim:p.claim}:{})};
+   metadata={...(p.effectCheckpoint?{effectCheckpoint:p.effectCheckpoint}:{}),...(kind==='transition'?{fromStatus:from,toStatus:to,...(compatPlan.statusId!==undefined?{compatibility:{beforeStatusId:compatPlan.beforeStatusId,statusId:compatPlan.statusId,beforeReviewStep:compatPlan.beforeReviewStep,isReviewStep:compatPlan.isReviewStep}}:{})}:{}),...(p.reason?{reason:p.reason}:{}),...(p.result?{result:p.result}:{}),...(p.waitingFor!==undefined?{waitingFor:p.waitingFor}:{}),...(p.nextStep!==undefined?{nextStep:p.nextStep}:{}),...(actor.actorKind==='machine'?{claim:p.claim}:{})};
    if(kind==='transition'&&(resolved(to)||resolved(from)))resolutionRecordId=randomUUID();
    if(resolutionRecordId)metadata.resolutionRecordId=resolutionRecordId;
    fault('before_domain');one(db,'UPDATE issue SET version=version+1 WHERE id=? AND version=?',issue.id,issue.version);
@@ -121,6 +124,7 @@ export function executeWorkflowCommand(db,actor,c,options={}){
    if(p.effectCheckpoint){const old=effectStates(db,issue.id).find(e=>e.effect_id===p.effectCheckpoint.effectId);one(db,'INSERT INTO effect_checkpoint VALUES(?,?,?,?,?,?)',entryId,issue.id,p.effectCheckpoint.effectId,p.effectCheckpoint.state,p.effectCheckpoint.reference,old?.original_attempt_id??(actor.actorKind==='machine'?p.claim.attemptId:null));}
    if(kind==='transition'){
     one(db,'UPDATE issue_queue SET status_category=? WHERE issue_id=?',to,issue.id);
+    applyCompatibilityTransition(db,issue.id,compatPlan);fault('after_compatibility');
     if(resolutionRecordId){
      one(db,'INSERT INTO resolution_record VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',resolutionRecordId,issue.id,resolved(to)?to:'reopened',JSON.stringify({quality:'exact',value:now,rawSourceValue:new Date(now).toISOString(),basis:'native_transition',sourceEvidenceIds:[]}),'transition',JSON.stringify(nativeAuthor(actor)),null,null,null,now,actor.principalId,entryId,JSON.stringify(a.originalScope),a.accessSnapshotId);
      const kind=resolved(to)?to:null,at=resolved(to)?now:null,rid=resolved(to)?resolutionRecordId:null;

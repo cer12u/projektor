@@ -49,8 +49,8 @@ test('cleanup failure does not replace the first failing phase with a later succ
 });
 test('reporter final summary gives exact static failed IDs without depending on capped pass notices',async()=>{
   const events=CASES.map((name,index)=>({type:[2,3,10].includes(index)?'test:fail':'test:pass',data:{name}}));
-  const out=await report(events);assert.match(out,/summary passed=18 failed=3 incomplete=0 runner_failed=false failed_ids=C03,C04,C11/);
-  const incomplete=await report([{type:'test:pass',data:{name:CASES[0]}}]);assert.match(incomplete,/passed=1 failed=0 incomplete=20/);
+  const out=await report(events);assert.match(out,/summary passed=20 failed=3 incomplete=0 runner_failed=false failed_ids=C03,C04,C11/);
+  const incomplete=await report([{type:'test:pass',data:{name:CASES[0]}}]);assert.match(incomplete,/passed=1 failed=0 incomplete=22/);
 });
 test('phase and Node failure duplicates produce one case annotation plus one final summary',async()=>{
   const previous=process.env.GITHUB_ACTIONS;process.env.GITHUB_ACTIONS='true';
@@ -66,11 +66,42 @@ test('phase and Node failure duplicates produce one case annotation plus one fin
 });
 test('suite cleanup failure is not hidden by seventeen passing cases',async()=>{
   const out=await report([...CASES.map(name=>({type:'test:pass',data:{name}})),{type:'test:stdout',data:{message:PREFIX+'{"id":"S00","phase":"browser_close","state":"fail"}\n'}}]);
-  assert.match(out,/passed=21 failed=0 incomplete=0 runner_failed=true/);
+  assert.match(out,/passed=23 failed=0 incomplete=0 runner_failed=true/);
 });
 
-test('Wiki C13–C21 cases are individually reported and unknown case IDs remain suppressed',async()=>{assert.equal(CASES.length,21);const events=CASES.map((name,index)=>({type:index>=12?'test:fail':'test:pass',data:{name}}));for(let n=13;n<=21;n++)events.unshift({type:'test:stdout',data:{message:PREFIX+JSON.stringify({id:'C'+n,phase:'scenario_body',state:'fail'})+'\n'}});events.unshift({type:'test:stdout',data:{message:PREFIX+JSON.stringify({id:'C22',phase:'scenario_body',state:'fail'})+'\n'}});const out=await report(events);assert.match(out,/passed=12 failed=9 incomplete=0 runner_failed=false failed_ids=C13,C14,C15,C16,C17,C18,C19,C20,C21/);for(let n=13;n<=21;n++)assert.match(out,new RegExp('C'+n+' scenario_body fail'));assert.ok(!out.includes('C22'));});
+test('Wiki C13–C21 cases are individually reported and unknown case IDs remain suppressed',async()=>{assert.equal(CASES.length,23);const events=CASES.slice(0,21).map((name,index)=>({type:index>=12?'test:fail':'test:pass',data:{name}}));for(let n=13;n<=21;n++)events.unshift({type:'test:stdout',data:{message:PREFIX+JSON.stringify({id:'C'+n,phase:'scenario_body',state:'fail'})+'\n'}});events.unshift({type:'test:stdout',data:{message:PREFIX+JSON.stringify({id:'C24',phase:'scenario_body',state:'fail'})+'\n'}});const out=await report(events);assert.match(out,/passed=12 failed=9 incomplete=2 runner_failed=false failed_ids=C13,C14,C15,C16,C17,C18,C19,C20,C21/);for(let n=13;n<=21;n++)assert.match(out,new RegExp('C'+n+' scenario_body fail'));assert.ok(!out.includes('C24'));});
 test('Wiki diagnostic phases are allowlisted and never forward raw lock codes or response details',async()=>{const out=await report([{type:'test:stdout',data:{message:PREFIX+JSON.stringify({id:'C13',phase:'wiki_editor_ready',state:'fail'})+'\n'+PREFIX+JSON.stringify({id:'C13',phase:'wiki_http_403',state:'fail'})+'\n'+PREFIX+JSON.stringify({id:'C13',phase:'wiki_lock_binding',state:'fail'})+'\n'+PREFIX+JSON.stringify({id:'C13',phase:'PRIVATE_DRAFT_SENTINEL',state:'fail'})+'\n'+PREFIX+JSON.stringify({id:'C13',phase:'wiki_lock_other',state:'fail',body:'SECRET_KEY_SENTINEL'})+'\n'}}]);assert.match(out,/wiki_editor_ready fail/);assert.match(out,/wiki_http_403 fail/);assert.match(out,/wiki_lock_binding fail/);assert.ok(!out.includes('PRIVATE_DRAFT_SENTINEL'));assert.ok(!out.includes('SECRET_KEY_SENTINEL'));});
 
 test('outer failure categories inspect only finite error names/types and retain last completed step',async()=>{const error=Object.assign(Error('SECRET_MESSAGE'),{failureType:'testCodeFailure',cause:new TypeError('SECRET_BODY')});assert.deepEqual(failureCategory(error),{errorClass:'TypeError',failureType:'testCodeFailure'});const out=await report([{type:'test:stdout',data:{message:PREFIX+JSON.stringify({id:'C13',phase:'wiki_commit_confirm',state:'pass'})+'\n'+PREFIX+JSON.stringify({id:'C13',phase:'scenario_body',state:'fail'})+'\n'}},{type:'test:fail',data:{name:CASES[12],details:{error}}}]);assert.match(out,/class=TypeError type=testCodeFailure last_step=wiki_commit_confirm/);assert.ok(!out.includes('SECRET_MESSAGE'));assert.ok(!out.includes('SECRET_BODY'));assert.deepEqual(failureCategory({name:'PRIVATE_NAME',failureType:'PRIVATE_TYPE'}),{errorClass:'Other',failureType:'other'});});
 test('changing error getters are read once and cannot escape finite classifications',async()=>{let names=0,types=0;const error={get name(){return ++names===1?'TypeError':'PRIVATE_NAME_SENTINEL';},get failureType(){return ++types===1?'testCodeFailure':'PRIVATE_TYPE_SENTINEL';}};assert.deepEqual(failureCategory(error),{errorClass:'TypeError',failureType:'testCodeFailure'});assert.equal(names,1);assert.equal(types,1);assert.deepEqual(failureCategory({get name(){throw Error('PRIVATE_THROW_SENTINEL');}}),{errorClass:'Other',failureType:'other'});const out=await report([{type:'test:fail',data:{name:CASES[12],details:{error:{get name(){return 'PRIVATE_NAME_SENTINEL';},get failureType(){return 'PRIVATE_TYPE_SENTINEL';}}}}}]);for(const value of ['PRIVATE_NAME_SENTINEL','PRIVATE_TYPE_SENTINEL','PRIVATE_THROW_SENTINEL'])assert.ok(!out.includes(value));});
+
+test('Issue compatibility C22 and C23 remain individually visible to CI reporting',async()=>{const out=await report(CASES.map(name=>({type:'test:pass',data:{name}})));assert.match(out,/C22 scenario_body pass/);assert.match(out,/C23 scenario_body pass/);assert.match(out,/passed=23 failed=0 incomplete=0 runner_failed=false/);});
+
+
+test('explicit C22/C23 reporter selection counts only observed selected cases and fails closed',async()=>{
+ const previous=process.env.PROJEKTOR_UI_E2E_CASES;
+ try{
+  process.env.PROJEKTOR_UI_E2E_CASES='C22,C23';
+  const selected=CASES.slice(21).map(name=>({type:'test:pass',data:{name}}));
+  const out=await report(selected);
+  assert.match(out,/C22 scenario_body pass/);assert.match(out,/C23 scenario_body pass/);
+  assert.match(out,/passed=2 failed=0 incomplete=0 runner_failed=false failed_ids=none/);
+  assert.ok(!/C(?:0[1-9]|1[0-9]|2[01]) scenario_body pass/.test(out));
+  const dir=mkdtempSync(join(tmpdir(),'projektor-selected-reporter-'));
+  try{
+   const file=join(dir,'selected.test.mjs');
+   const run=()=>spawnSync(process.execPath,['--test','--test-timeout=2000','--test-reporter='+resolve('e2e/github-reporter.mjs'),file],{encoding:'utf8',env:{...process.env,NODE_TEST_CONTEXT:undefined,GITHUB_ACTIONS:'true'},timeout:10000});
+   writeFileSync(file,`import {test} from 'node:test';test(${JSON.stringify(CASES[21])},()=>{});test(${JSON.stringify(CASES[22])},()=>{});`);
+   const pass=run();assert.equal(pass.status,0);assert.match(pass.stdout,/passed=2 failed=0 incomplete=0 runner_failed=false/);
+   writeFileSync(file,`import {test} from 'node:test';test(${JSON.stringify(CASES[21])},()=>{});test(${JSON.stringify(CASES[22])},()=>{throw Error('SECRET_SCOPED_SENTINEL');});`);
+   const fail=run();assert.equal(fail.status,1);assert.match(fail.stdout,/passed=1 failed=1 incomplete=0 runner_failed=false failed_ids=C23/);assert.ok(!fail.stdout.includes('SECRET_SCOPED_SENTINEL'));assert.ok(!fail.stderr.includes('SECRET_SCOPED_SENTINEL'));
+  }finally{rmSync(dir,{recursive:true,force:true});}
+  assert.match(await report(selected.slice(0,1)),/passed=1 failed=0 incomplete=1 runner_failed=false/);
+  assert.match(await report([...selected,{type:'test:fail',data:{name:CASES[22]}}]),/passed=1 failed=1 incomplete=0 runner_failed=false failed_ids=C23/);
+  assert.match(await report([...selected,{type:'test:pass',data:{name:CASES[0]}}]),/passed=2 failed=0 incomplete=0 runner_failed=true/);
+  assert.match(await report([{type:'test:pass',data:{name:CASES[21],skip:true}},selected[1]]),/passed=1 failed=0 incomplete=1 runner_failed=true/);
+  assert.match(await report([...selected,{type:'test:fail',data:{name:'unknown runner failure'}}]),/passed=2 failed=0 incomplete=0 runner_failed=true/);
+  process.env.PROJEKTOR_UI_E2E_CASES='C22';await assert.rejects(report(selected),/INVALID_UI_E2E_SELECTION/);
+  process.env.PROJEKTOR_UI_E2E_CASES='';assert.match(await report(selected),/passed=2 failed=0 incomplete=21 runner_failed=false/);
+ }finally{if(previous===undefined)delete process.env.PROJEKTOR_UI_E2E_CASES;else process.env.PROJEKTOR_UI_E2E_CASES=previous;}
+});

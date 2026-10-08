@@ -29,6 +29,7 @@ jobs:
     outputs:
       integration: ${{ steps.impact.outputs.integration }}
       browser: ${{ steps.impact.outputs.browser }}
+      focused: ${{ steps.impact.outputs.focused }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -42,14 +43,14 @@ jobs:
         id: impact
         env:
           REVIEWED_HEAD: ${{ github.event.pull_request.head.sha }}
-          # Native contract checks passed here; its browser job did not.
-          NATIVE_EVIDENCE_BASE: 0a8d28dbd473b148b88279c09320abbe45ee01f4
-          # Last accepted browser boundary: 17 cases, all passed.
-          BROWSER_EVIDENCE_BASE: 94637dd4ae3690758671c46bab705260ec218b15
+          # Exact-head actual-service and all 21 prior browser cases passed in run 37801413590.
+          NATIVE_EVIDENCE_BASE: 949869f129223d7b8d2cb4cb188d92f8e50219ee
+          BROWSER_EVIDENCE_BASE: 949869f129223d7b8d2cb4cb188d92f8e50219ee
         run: |
           node --input-type=module <<'NODE'
           import {execFileSync} from 'node:child_process';
-          import {appendFileSync} from 'node:fs';
+          import {appendFileSync,readFileSync} from 'node:fs';
+          import {createHash} from 'node:crypto';
           const head=process.env.REVIEWED_HEAD;
           const git=(...args)=>execFileSync('git',args,{encoding:'utf8'}).trim();
           if(!/^[a-f0-9]{40}$/.test(head)||git('rev-parse','HEAD')!==head)throw Error('Unexpected checkout');
@@ -59,13 +60,16 @@ jobs:
             return git('diff','--name-only','--no-renames','-z',base,head).split('\0').filter(Boolean);
           }
           const native=changes(process.env.NATIVE_EVIDENCE_BASE),browser=changes(process.env.BROWSER_EVIDENCE_BASE);
-          const runtime=/^experiments\/atomic-command-poc\/(src\/|service\/|session-ports\/|transport\/|client\/|mcp\/|service-test\/|test-support\/|package(?:-lock)?\.json$)/;
+          const focusedPaths=new Set([".github/workflows/atomic-command-poc.yml","experiments/atomic-command-poc/browser/my-issues.mjs","experiments/atomic-command-poc/release/reviewed-product.json","experiments/atomic-command-poc/scripts/issue-compat-upgrade.sql","experiments/atomic-command-poc/service/mcp-tools.mjs","experiments/atomic-command-poc/session-ports/human-workflow.mjs","experiments/atomic-command-poc/src/agent-workflow.mjs","experiments/atomic-command-poc/src/content-page.mjs","experiments/atomic-command-poc/src/issue-compat.mjs","experiments/atomic-command-poc/src/issue-content.mjs","experiments/atomic-command-poc/src/my-issues.mjs","experiments/atomic-command-poc/src/schema.sql","experiments/atomic-command-poc/src/shared-core.mjs","experiments/atomic-command-poc/test/issue-compat.integration.test.mjs","experiments/product-ui/CHECKPOINT.json","experiments/product-ui/SOURCE-SHA256SUMS","experiments/product-ui/e2e/github-reporter.mjs","experiments/product-ui/e2e/issue-compatibility.test.mjs","experiments/product-ui/e2e/trace.mjs","experiments/product-ui/src/components.tsx","experiments/product-ui/src/contracts.ts","experiments/product-ui/src/views.tsx","experiments/product-ui/test/human-view-port.test.mjs","experiments/product-ui/test/i2-my-issues.test.mjs","experiments/product-ui/test/issue-compatibility-boundary.test.mjs","experiments/product-ui/test/reporting.test.mjs","experiments/product-ui/vendor/browser/my-issues.mjs","experiments/product-ui/vendor/session-ports/human-workflow.mjs"]);
+          const reviewedIssueBytes={"experiments/product-ui/test/issue-compatibility-boundary.test.mjs":"168be2d77b48c3d42862f0544663dd2b457aca3020ccbd75ea9c148e6e3e7bc9","experiments/product-ui/test/human-view-port.test.mjs":"ff75dafee308b570658468ea610d7e5a52ab1f7cc035fde1812d59c772dc62d6","experiments/product-ui/test/reporting.test.mjs":"13762b7e5394e6f68a5e1af0d6e47dc00c8649dc7dc06e70e404684d05b06a4d","experiments/product-ui/test/i2-my-issues.test.mjs":"2a686a2ba59a6878230c1442667df02ba3c7df32935ccfee6bdac1bf61329c59","experiments/product-ui/e2e/issue-compatibility.test.mjs":"21f075f577c8c569a8456ab39d2bcbd511d4442af2745b3d7f959387434607ac","experiments/product-ui/e2e/trace.mjs":"5d5676f2f8d7926170494174ac637afdc71295cac7ea177b7819ae29c6aec4a9","experiments/product-ui/e2e/github-reporter.mjs":"5c1b9904888c3973d5e38e326238fd24b714f3e05899cedfb16319bf3f0c68e6","experiments/product-ui/src/views.tsx":"adc2d8f10084cadd18d3d2c44ad2fe87f423d187ae0ec85f28db946dcba20050","experiments/product-ui/src/contracts.ts":"8301fa5f2d77dbef27edafb8116a5a0ccae46fc4755b817605ffccb04c436589","experiments/product-ui/src/components.tsx":"087ff30ccfccd87fbd6182428b0e292650cdcfda566039f53d0fed26cb9e9a34","experiments/product-ui/vendor/browser/my-issues.mjs":"a7200c1ca5ef45d745915deb8d4a439a313f09ef610f67bfbcfde96426e0ad57","experiments/product-ui/vendor/session-ports/human-workflow.mjs":"fb2bac78c0bddcc8a5ac0f89fcfcb301199a8e025991b22d87aa1e8bff2f3eb6","experiments/atomic-command-poc/browser/my-issues.mjs":"a7200c1ca5ef45d745915deb8d4a439a313f09ef610f67bfbcfde96426e0ad57","experiments/atomic-command-poc/scripts/issue-compat-upgrade.sql":"a4f39fd640408701f0e897a25e7f0d87afe1a199e2682338c5746a81e9ccc9cd","experiments/atomic-command-poc/service/mcp-tools.mjs":"446de74e1494da6780e09f9aa66c389871daf5a64f0402023d4819161a17f6e9","experiments/atomic-command-poc/test/issue-compat.integration.test.mjs":"a6b98c3b5fc7d1703249a730cf04d1e1bb4dc5fac0663a8024c14149e6afe71f","experiments/atomic-command-poc/session-ports/human-workflow.mjs":"fb2bac78c0bddcc8a5ac0f89fcfcb301199a8e025991b22d87aa1e8bff2f3eb6","experiments/atomic-command-poc/src/my-issues.mjs":"c7c718af42c2f51e8bf92486388d65661ea9624c468e844bb1f542d101920dfa","experiments/atomic-command-poc/src/issue-compat.mjs":"d5cde8f719814158dc33d131518442d20ca545d62e6873063f3a42e086c635ee","experiments/atomic-command-poc/src/agent-workflow.mjs":"ecf28c726ef37ea13b42403e6cc3ab91035b393422e17b7e52c80cf6c3f4a3ac","experiments/atomic-command-poc/src/schema.sql":"524e6303c0e02615298e46847b19d3e83463e4572a53ea00bbc6b5027b882e2b","experiments/atomic-command-poc/src/issue-content.mjs":"c8ac4df7b9dd2eb69ff5bb6f67a3deb71cbc60a22bf8f3e846b568d0624f7f6d","experiments/atomic-command-poc/src/shared-core.mjs":"fdfdf12878900d1472e938ae7b4a47236034be95fa25974f55a6a906614d141b","experiments/atomic-command-poc/src/content-page.mjs":"0e5aa62ec178cb4088751251be900fc4c506feb26a6675a693ee9e0f5e2147d1"};
+          const focused=native.length>0&&native.every(p=>focusedPaths.has(p))&&Object.entries(reviewedIssueBytes).every(([p,hash])=>createHash('sha256').update(readFileSync(p)).digest('hex')===hash);
+          const runtime=/^experiments\/atomic-command-poc\/(src\/|service\/|session-ports\/|transport\/|client\/|mcp\/|test\/|service-test\/|test-support\/|package(?:-lock)?\.json$)/;
           const sharedBrowser=/^experiments\/atomic-command-poc\/(browser\/|browser-test\/|src\/|service\/(?:auth|config|entry|http|store|workspace)\.mjs$|session-ports\/|client\/(?:issue-content|recovery|access-policy|wiki-[^/]+)\.mjs$|package(?:-lock)?\.json$)/;
           const ui=/^experiments\/product-ui\/(src\/|vendor\/|fixtures\/|e2e\/|.*\.html$|.*config\.mjs$|package(?:-lock)?\.json$)/;
-          const integration=native.some(p=>runtime.test(p));
+          const integration=native.some(p=>runtime.test(p)||/^experiments\/product-ui\/test\//.test(p));
           const runBrowser=browser.some(p=>ui.test(p)||sharedBrowser.test(p));
-          appendFileSync(process.env.GITHUB_OUTPUT,`integration=${integration}\nbrowser=${runBrowser}\n`);
-          appendFileSync(process.env.GITHUB_STEP_SUMMARY,`Head: ${head}\n\nNative evidence: ${process.env.NATIVE_EVIDENCE_BASE}; selected: ${integration}\nBrowser evidence: ${process.env.BROWSER_EVIDENCE_BASE}; selected: ${runBrowser}\n\nSelection is dependency-based, not a waiver of a failed gate. Advance a baseline only with passing exact-head evidence. Unit aggregates and unrelated canonical app checks are not rerun here.\n\nChanged native paths:\n${native.join('\n')}\n\nChanged browser paths:\n${browser.join('\n')}\n`);
+          appendFileSync(process.env.GITHUB_OUTPUT,`integration=${integration}\nbrowser=${runBrowser}\nfocused=${focused}\n`);
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY,`Head: ${head}\n\nNative evidence: ${process.env.NATIVE_EVIDENCE_BASE}; selected: ${integration}\nBrowser evidence: ${process.env.BROWSER_EVIDENCE_BASE}; selected: ${runBrowser}\nFocused Issue compatibility delta: ${focused}. Only C22/C23 run for this allowlisted delta; C01-C21 and unrelated native evidence are reused. Non-allowlisted changes fall back to prior gates plus the compatibility boundaries.\n\nSelection is dependency-based, not a waiver of a failed gate. Advance a baseline only with passing exact-head evidence. Unit aggregates and unrelated canonical app checks are not rerun here.\n\nChanged native paths:\n${native.join('\n')}\n\nChanged browser paths:\n${browser.join('\n')}\n`);
           NODE
       - name: Verify tracked formatting and UI byte inventory
         run: |
@@ -102,13 +106,14 @@ jobs:
         working-directory: experiments/atomic-command-poc
         run: npm ci
       - name: Integration - actual MCP entry Store policy receipt and client anomalies
+        if: ${{ needs.source-integrity.outputs.focused != 'true' }}
         working-directory: experiments/atomic-command-poc
         run: |
           mkdir -p evidence/combined
           set -o pipefail
           node --test --test-reporter=tap service-test/combined-policy-mcp.integration.test.mjs 2>&1 | tee evidence/combined/entry-policy-mcp.tap
       - name: Integration - affected existing machine REST and policy path
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && needs.source-integrity.outputs.focused != 'true' }}
         working-directory: experiments/atomic-command-poc
         run: |
           mkdir -p evidence/combined
@@ -117,7 +122,7 @@ jobs:
           # A name-filter miss must not become a file-only green result.
           awk '/^[[:space:]]*ok [0-9]+ - machine: authenticated REST/ && !/# SKIP/ {found++} END {exit found != 1}' evidence/combined/existing-policy-mcp.tap
       - name: Integration - scoped Wiki lifecycle authorization and existing restore
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && needs.source-integrity.outputs.focused != 'true' }}
         working-directory: experiments/atomic-command-poc
         run: |
           mkdir -p evidence/combined
@@ -128,6 +133,39 @@ jobs:
           node --test --test-reporter=tap --test-name-pattern='rename/move/trash|actual existing Wiki key|existing Wiki trash key' service-test/wiki-native.test.mjs session-ports/wiki-create.test.mjs 2>&1 | tee evidence/combined/wiki-lifecycle-restore.tap
           grep -Eq '^# tests 3$' evidence/combined/wiki-lifecycle-restore.tap
           grep -Eq '^# pass 3$' evidence/combined/wiki-lifecycle-restore.tap
+      - name: Integration - imported Issue query edit transition and receipt boundaries
+        if: ${{ !cancelled() }}
+        working-directory: experiments/atomic-command-poc
+        run: |
+          mkdir -p evidence/combined
+          set -o pipefail
+          node --test --test-reporter=tap test/issue-compat.integration.test.mjs 2>&1 | tee evidence/combined/issue-compat.tap
+          grep -Eq '^# tests 9$' evidence/combined/issue-compat.tap
+          grep -Eq '^# pass 9$' evidence/combined/issue-compat.tap
+      - name: Integration - actual imported Issue protected human controller
+        if: ${{ !cancelled() }}
+        working-directory: experiments/product-ui
+        run: |
+          set -o pipefail
+          node --test --test-reporter=tap test/issue-compatibility-boundary.test.mjs 2>&1 | tee ../atomic-command-poc/evidence/combined/issue-controller.tap
+          grep -Eq '^# tests 1$' ../atomic-command-poc/evidence/combined/issue-controller.tap
+          grep -Eq '^# pass 1$' ../atomic-command-poc/evidence/combined/issue-controller.tap
+      - name: Contract - selected compatibility and protected no-op regressions
+        if: ${{ !cancelled() }}
+        working-directory: experiments/product-ui
+        run: |
+          set -o pipefail
+          node --test --test-reporter=tap --test-name-pattern='imported same-category|dirty pre-import|false no-op|genuine no-op|only the compact compatibility' test/human-view-port.test.mjs test/i2-my-issues.test.mjs 2>&1 | tee ../atomic-command-poc/evidence/combined/issue-selected-contracts.tap
+          grep -Eq '^# tests 6$' ../atomic-command-poc/evidence/combined/issue-selected-contracts.tap
+          grep -Eq '^# pass 6$' ../atomic-command-poc/evidence/combined/issue-selected-contracts.tap
+      - name: Contract - scoped browser reporter preserves failures and exact case counts
+        if: ${{ !cancelled() }}
+        working-directory: experiments/product-ui
+        run: |
+          set -o pipefail
+          node --test --test-reporter=tap --test-name-pattern='explicit C22/C23 reporter selection|Issue compatibility C22 and C23|custom reporter never forwards|real Node reporter|reporter final summary' test/reporting.test.mjs 2>&1 | tee ../atomic-command-poc/evidence/combined/issue-reporter.tap
+          grep -Eq '^# tests 5$' ../atomic-command-poc/evidence/combined/issue-reporter.tap
+          grep -Eq '^# pass 5$' ../atomic-command-poc/evidence/combined/issue-reporter.tap
       - name: Verify integration leaves tracked source unchanged
         if: ${{ !cancelled() }}
         run: git diff --exit-code
@@ -161,6 +199,7 @@ jobs:
           npm ci
           npx --no-install playwright install --with-deps chromium
       - name: Integration - legacy fixture auth and exact module allowlist failures
+        if: ${{ needs.source-integrity.outputs.focused != 'true' }}
         working-directory: experiments/atomic-command-poc
         run: |
           mkdir -p evidence/browser
@@ -171,17 +210,26 @@ jobs:
         if: ${{ !cancelled() && steps.runtime.outcome == 'success' }}
         working-directory: experiments/product-ui
         run: npm ci --ignore-scripts
-      - name: Integration - twenty-one real Chromium product boundary scenarios
+      - name: Integration - selected real Chromium product boundary scenarios
         if: ${{ !cancelled() && steps.ui.outcome == 'success' }}
         timeout-minutes: 5
         working-directory: experiments/product-ui
         env:
           PROJEKTOR_CORE_SOURCE: ../atomic-command-poc
+          FOCUSED_ISSUE_COMPAT: ${{ needs.source-integrity.outputs.focused }}
         run: |
           mkdir -p ../atomic-command-poc/evidence/browser
           set -o pipefail
           # This entry builds its fixture. Unchanged unit/typecheck/build evidence is reused.
-          npm run test:e2e 2>&1 | tee ../atomic-command-poc/evidence/browser/product-ui-e2e.log
+          if [ "$FOCUSED_ISSUE_COMPAT" = true ]; then
+            PROJEKTOR_UI_E2E_CASES=C22,C23 node --test --test-timeout=90000 --test-reporter=./e2e/github-reporter.mjs e2e/issue-compatibility.test.mjs 2>&1 | tee ../atomic-command-poc/evidence/browser/product-ui-e2e.log
+            grep -Eq 'UI E2E summary passed=2 failed=0 incomplete=0 runner_failed=false failed_ids=none$' ../atomic-command-poc/evidence/browser/product-ui-e2e.log
+            grep -Eq 'UI E2E C22 scenario_body pass$' ../atomic-command-poc/evidence/browser/product-ui-e2e.log
+            grep -Eq 'UI E2E C23 scenario_body pass$' ../atomic-command-poc/evidence/browser/product-ui-e2e.log
+          else
+            npm run test:e2e 2>&1 | tee ../atomic-command-poc/evidence/browser/product-ui-e2e.log
+            grep -Eq 'UI E2E summary passed=23 failed=0 incomplete=0 runner_failed=false failed_ids=none$' ../atomic-command-poc/evidence/browser/product-ui-e2e.log
+          fi
       - name: Verify browser integration leaves tracked source unchanged
         if: ${{ !cancelled() }}
         run: git diff --exit-code

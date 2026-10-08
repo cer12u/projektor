@@ -7,6 +7,7 @@ import {queryMyIssues} from '../src/my-issues.mjs';
 import {queryClaim,queryResolutionRecords,queryCapabilities,queryAttemptCheckpoint,queryIssueAlias} from '../src/agent-workflow.mjs';
 import {wikiQuery,wikiQueryFields} from '../src/wiki-surface.mjs';
 const uuid={type:'string',pattern:'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'};
+const statusId={type:'string',pattern:'^(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12})$'};
 const integer={type:'integer',minimum:1,maximum:Number.MAX_SAFE_INTEGER};
 const common={workspaceId:uuid,workspaceEpoch:uuid};
 const object=(properties,required=Object.keys(properties))=>({type:'object',properties,required,additionalProperties:false});
@@ -27,7 +28,7 @@ const payloads={
  'Issue.Claim':object({payloadVersion:{const:1},attemptId:uuid,runtimeInstanceId:uuid,agentDefinition:object({id:{type:'string',minLength:1,maxLength:200},revision:{type:'string',minLength:1,maxLength:200}}),expectedClaimVersion:{type:'integer',minimum:0,maximum:Number.MAX_SAFE_INTEGER}}),
  'Issue.RenewClaim':object({payloadVersion:{const:1},claim}), 'Issue.ReleaseClaim':object({payloadVersion:{const:1},claim,reason:short}),
  'Issue.AppendProgress':object({payloadVersion:{const:2},entryId:uuid,bodyMarkdown:markdown,reason,result:outcome,claim,effectCheckpoint:object({effectId:uuid,state:{enum:['external_outcome_unknown','reconciled']},reference:short})},['payloadVersion','entryId','bodyMarkdown']),
- 'Issue.Transition':object({payloadVersion:{const:2},entryId:uuid,toStatus:{enum:['backlog','ready','in_progress','blocked','done','canceled']},reason,waitingFor:markdown,nextStep:markdown,result:outcome,claim},['payloadVersion','entryId','toStatus']),
+ 'Issue.Transition':object({payloadVersion:{const:2},entryId:uuid,toStatus:{enum:['backlog','ready','in_progress','blocked','done','canceled']},statusId,reason,waitingFor:markdown,nextStep:markdown,result:outcome,claim},['payloadVersion','entryId','toStatus']),
  'Issue.Reparent':object({payloadVersion:{const:1},parentId:nullableId,expectedParentVersion:integer},['payloadVersion','parentId']),
  'Issue.MoveTree':object({payloadVersion:{const:1},targetProjectId:uuid,targets}),
  'Wiki.Create':object({pageId:uuid,scope,parentId:nullableId,title:short,slug:short,contentMarkdown:markdown,summary:short},['pageId','scope','parentId','title','slug','contentMarkdown']),
@@ -38,7 +39,7 @@ const payloads={
 };
 if(Object.values(commandTools).includes('SetResourceAccess'))payloads.SetResourceAccess=object({resource:ref,expectedPolicyVersion:integer,policy:object({mode:{enum:['inherit','restricted']},readerPrincipalIds:{type:'array',items:uuid,maxItems:4096,uniqueItems:true},writerPrincipalIds:{type:'array',items:uuid,maxItems:4096,uniqueItems:true}})});
 const queries={
- issue_get:{query:queryIssues,required:['entityId'],fields:['entityId']},issue_list:{query:queryIssues,required:[],fields:[]},
+ issue_get:{query:queryIssues,required:['entityId'],fields:['entityId']},issue_list:{query:queryIssues,required:[],fields:['limit','cursor']},
  project_get:{query:queryProjects,required:['entityId'],fields:['entityId']},project_list:{query:queryProjects,required:[],fields:[]},
  my_issues:{query:queryMyIssues,required:[],fields:['status','projectId','limit','cursor']},
  issue_entries_list:{query:queryIssueEntries,required:['entityId'],fields:['entityId','limit','cursor']},

@@ -2,7 +2,7 @@ import {useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import {flushSync} from 'react-dom';
 import {isID,type ProductPorts,type Selected,type Route,type PrepareLeave} from './contracts.ts';
 import {IssueContentController,MyIssuesController,preserveMarkdownInput} from './core.ts';
-import {Notice,IssueRows,listMessage,EntryList,History,editorMessage,states,actionResultText} from './components.tsx';
+import {Notice,IssueRows,listMessage,EntryList,History,editorMessage,states,actionResultText,IssueCompatibilityDetails} from './components.tsx';
 export interface ViewProps {ports:ProductPorts;selected:Selected;route:Route;navigate:(patch:Partial<Route>)=>void;replace:(patch:Partial<Route>)=>void;guard:(prepare:PrepareLeave)=>()=>void;locked:boolean;restoreView:()=>void}
 export function useLifecycle(controller:any,allowed:boolean,revision?:number){
   const canRun=useRef(allowed);canRun.current=allowed;
@@ -102,18 +102,19 @@ export function ContentView(props:ViewProps){
     {positionError&&<Notice error>Cursor position could not be retained. Text protection is reported separately above.</Notice>}
     <button disabled={locked||s.busy} onClick={()=>controller.revalidate()}>Verify session and reload current data</button>
     {!isLocked&&<>
-      {s.issue&&<article className="current"><h2>Current saved issue</h2><p className="meta">v{s.issue.version} · {s.issue.status} · {s.issue.priority??'No priority'} · Assignee {s.issue.assigneeId??'Unassigned'}{s.issue.assigneeKind==='machine'?' · Agent':''}</p><pre>{s.issue.description}</pre>
+      {s.issue&&<article className="current"><h2>Current saved issue</h2><p className="meta">v{s.issue.version} · {s.issue.status} · {s.issue.priority??'No priority'} · Assignee {s.issue.assigneeId??'Unassigned'}{s.issue.assigneeKind==='machine'?' · Agent':''}</p>{s.issue.compatibility&&<IssueCompatibilityDetails value={s.issue.compatibility}/>}<pre>{s.issue.description}</pre>
       {route.view==='create'&&<button onClick={()=>navigate({view:'issue',issueId:s.issue.id,projectId:null,draftId:crypto.randomUUID(),projectAtProtection:null})}>Open created issue</button>}</article>}
       <div className="editor">
         <label>Editor<select aria-label="Editor" value={s.record.active} onChange={e=>{const[mode,id]=e.target.value.split(':');controller.select(mode,id);}}>
           {(route.view==='create'?[['create','Create issue']]:[['title','Issue title'],['body','Issue body'],['add-comment','New comment'],['assign','Assignee'],['priority','Priority'],['progress','Progress update'],['transition','Status transition'],...(s.issue?.canManageAccess?[['access','Resource access']]:[])]).map(([value,label])=><option value={value} key={value}>{label}</option>)}
           {Object.keys(s.record.drafts).filter(k=>k.startsWith('edit-comment:')).map(k=><option key={k} value={k}>Edit comment {k.slice(13)}</option>)}
         </select></label>
-        {draft&&Object.entries(draft.value).filter(([key])=>!['projectId','resource','expectedPolicyVersion'].includes(key)).map(([key,value]:[string,any])=>{
+        {draft&&Object.entries(draft.value).filter(([key])=>!['projectId','resource','expectedPolicyVersion','statusId'].includes(key)).map(([key,value]:[string,any])=>{
           const change=(next:string)=>{let v:any=next;if(['priority','assigneeId','parentId'].includes(key)&&next==='')v=null;if(['description','bodyMarkdown','reason','waitingFor','nextStep','resultSummary'].includes(key))v=preserveMarkdownInput(draft.value[key],next);controller.edit({[key]:v});};
           const label=key==='bodyMarkdown'&&draft.mode==='progress'?'Progress Markdown':labels[key]??key;
           return <label key={s.record.active+key}>{label}{key==='policy'?<textarea aria-label="Access policy JSON" value={draft.rawJSON?.policy??JSON.stringify(value)} aria-invalid={!!draft.rawJSONErrors?.policy} onChange={e=>controller.editAccessPolicy(e.target.value)}/>:['description','bodyMarkdown','reason','waitingFor','nextStep','resultSummary'].includes(key)?
             <textarea rows={12} data-editor-field={key} onSelect={e=>capturePosition(e.currentTarget,key)} aria-label={label} value={(value??'').replace(/\r\n?/g,'\n')} onChange={e=>change(e.target.value)} spellCheck={false}/>:
+            key==='toStatus'&&s.issue?.compatibility?<select aria-label={label} value={draft.value.statusId??''} onChange={e=>{const option=s.issue.compatibility.statuses.find((option:any)=>option.id===e.target.value);if(option)controller.edit({statusId:option.id,toStatus:option.toStatus});}}>{!s.issue.compatibility.statuses.some((option:any)=>option.id===draft.value.statusId)&&<option value={draft.value.statusId??''} disabled>Select a current status</option>}{s.issue.compatibility.statuses.map((option:any)=><option value={option.id} key={option.id}>{option.name}{option.isReviewStep?' · Review step':''}</option>)}</select>:
             ['priority','initialStatus','toStatus'].includes(key)?<select aria-label={label} value={value??''} onChange={e=>change(e.target.value)}>{(key==='priority'?['','P0','P1','P2','P3','P4']:key==='toStatus'?states:['backlog','ready']).map(v=><option value={v} key={v}>{v||'No priority'}</option>)}</select>:
             <input data-editor-field={key} onSelect={e=>capturePosition(e.currentTarget,key)} aria-label={label} value={value??''} onChange={e=>change(e.target.value)} autoComplete="off"/>}</label>;
         })}

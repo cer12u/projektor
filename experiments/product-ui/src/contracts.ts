@@ -49,3 +49,15 @@ export function workspaceAccessNotice(workspaceCount:number|null,selectionError:
   if(workspaceCount===0)return 'no-workspaces';
   return workspaceCount!==null&&workspaceCount>0&&selectionError?'selection-unavailable':'none';
 }
+
+/** Imported current-state metadata stays distinct from canonical workflow rules. */
+export interface IssueStatusOption { id:string; key:string; name:string; toStatus:string; isReviewStep:boolean }
+export interface IssueCompatibilitySummary {
+  statusId:string|null; statusKey:string|null; statusName:string|null; isReviewStep:boolean;
+  typeId:string|null; typeName:string|null;
+}
+export interface IssueCompatibility extends IssueCompatibilitySummary {
+  completionReportAt:number|null;
+  dor:{ready:boolean|null; missingRaw:string|null; missing:unknown[]|null; evidenceState:'current'|'stale_after_edit'; evaluatedRevisionId:string|null};
+  statuses:IssueStatusOption[];
+}

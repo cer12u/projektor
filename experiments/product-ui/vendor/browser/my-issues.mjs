@@ -130,6 +130,16 @@ export function createMyIssuesTransport({baseUrl = globalThis.location?.origin, 
   }};
 }
 
+/** The optional imported projection is explicit; arbitrary server fields remain rejected. */
+function validCompatibility(value) {
+  if(value===null)return true;
+  const text=v=>typeof v==='string'&&v.isWellFormed();
+  const nullable=(v,check)=>v===null||check(v);
+  const compatID=v=>typeof v==='string'&&/^(?:[0-9a-f]{32}|[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i.test(v);
+  if(!exact(value,['statusId','statusKey','statusName','isReviewStep','typeId','typeName'])||!nullable(value.statusId,compatID)||!nullable(value.statusKey,text)||!nullable(value.statusName,text)||typeof value.isReviewStep!=='boolean'||!nullable(value.typeId,compatID)||!nullable(value.typeName,text))return false;
+  return true;
+}
+
 /** Strict selected projection; unknown fields never reach the view. */
 export function validateMyIssuesPage(body, {session, filters}) {
   if (!exact(body, ['data', 'meta']) || !exact(body.data, ['items', 'nextCursor', 'total']) || !exact(body.meta, META_FIELDS)) protocol();
@@ -139,7 +149,7 @@ export function validateMyIssuesPage(body, {session, filters}) {
   if (!natural(meta.changeSeq) || !natural(meta.visibilityVersion) || typeof meta.refreshRequired !== 'boolean' || typeof meta.queryFingerprint !== 'string' || !/^[a-f0-9]{64}$/u.test(meta.queryFingerprint) || !natural(data.total) || !Array.isArray(data.items) || data.items.length > filters.limit || data.nextCursor !== null && !opaque(data.nextCursor)) protocol();
   const seen = new Set();
   for (const item of data.items) {
-    if (!exact(item, ITEM_FIELDS) || !id(item.id) || !id(item.project_id) || typeof item.title !== 'string' || !item.title.isWellFormed() || new TextEncoder().encode(item.title).byteLength > 4096 || item.title.trim().length === 0 || !Number.isSafeInteger(item.version) || item.version < 1 || item.assignee_id !== session.principalId || item.assignee_kind !== 'human' || !STATUSES.has(item.status_category) || item.priority !== null && (!Number.isSafeInteger(item.priority) || item.priority < 0 || item.priority > 4) || !natural(item.created_at) || seen.has(item.id)) protocol();
+    if (!exact(item, Object.hasOwn(item??{},'compatibility')?[...ITEM_FIELDS,'compatibility']:ITEM_FIELDS) || Object.hasOwn(item??{},'compatibility')&&!validCompatibility(item.compatibility) || !id(item.id) || !id(item.project_id) || typeof item.title !== 'string' || !item.title.isWellFormed() || new TextEncoder().encode(item.title).byteLength > 4096 || item.title.trim().length === 0 || !Number.isSafeInteger(item.version) || item.version < 1 || item.assignee_id !== session.principalId || item.assignee_kind !== 'human' || !STATUSES.has(item.status_category) || item.priority !== null && (!Number.isSafeInteger(item.priority) || item.priority < 0 || item.priority > 4) || !natural(item.created_at) || seen.has(item.id)) protocol();
     if (filters.projectId && item.project_id !== filters.projectId || filters.status === 'unresolved' && RESOLVED.has(item.status_category)) protocol();
     seen.add(item.id);
   }

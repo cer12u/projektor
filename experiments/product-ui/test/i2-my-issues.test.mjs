@@ -383,3 +383,12 @@ test('HTTP epoch mismatch and invalid cursor retain their safe recovery categori
     await assert.rejects(transport.read({session: identity(), filters: validateFilters()}), {code: expected});
   }
 });
+
+test('only the compact compatibility summary reaches rows; detail payload and malformed metadata fail closed',async t=>{
+  const compatibility={statusId:'a'.repeat(32),statusKey:'review',statusName:'Synthetic review',isReviewStep:true,typeId:'b'.repeat(32),typeName:'Synthetic task'};
+  const f=setup(t,[page([item(10,{compatibility,status_category:'in_progress'})])]);assert.equal((await f.app.refresh()).kind,'ready');assert.deepEqual(f.app.snapshot().items[0].compatibility,compatibility);
+  for(const invalid of [{...compatibility,isReviewStep:'yes'},{...compatibility,dor:{missingRaw:'["Synthetic criterion"]'},statuses:[]}]){
+    const bad=setup(t,[page([item(10,{compatibility:invalid})])]);assert.equal((await bad.app.refresh()).kind,'error');assert.equal(bad.app.snapshot().code,'PROTOCOL_ERROR');assert.deepEqual(bad.app.snapshot().items,[]);
+  }
+  const canonical=setup(t,[page([item(10,{compatibility:null})])]);assert.equal((await canonical.app.refresh()).kind,'ready');
+});

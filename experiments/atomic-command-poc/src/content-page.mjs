@@ -12,7 +12,7 @@ export function contentPage(db,actor,rows,args,kind,project,now=Date.now(),optio
  const tuple=options.tuple??(r=>[kind==='entries'?r.created_at:r.recorded_at,r.id]);
  const after=r=>!cursor||tuple(r)[0]>cursor.last[0]||tuple(r)[0]===cursor.last[0]&&tuple(r)[1]>cursor.last[1];
  const eligible=rows.filter(after),items=[];let bytes=1024,index=0;
- for(;index<eligible.length&&items.length<limit;index++){const item=project(eligible[index]),size=Buffer.byteLength(JSON.stringify(item));if(bytes+size>1900*1024){if(!items.length)return failure('RECORD_TOO_LARGE');break;}bytes+=size;items.push(item);}
+ for(;index<eligible.length&&items.length<limit;index++){const item=project(eligible[index]),size=Buffer.byteLength(JSON.stringify(item));if(bytes+size>(options.maxBytes??1900*1024)){if(!items.length)return failure('RECORD_TOO_LARGE');break;}bytes+=size;items.push(item);}
  let nextCursor=null;if(index<eligible.length&&items.length){const payload=Buffer.from(canonical({v:1,fp,seq:cursor?.seq??seq,revision:cursor?.revision??state.revision,issued:cursor?.issued??now,exp:cursor?.exp??now+TTL,last:tuple(eligible[index-1])})).toString('base64url');nextCursor=`${payload}.${sign(payload)}`;}
  return {data:{items,nextCursor},meta:{workspaceId:args.workspaceId,workspaceEpoch:args.workspaceEpoch,actorId:actor.principalId,changeSeq:seq,visibilityVersion:state.revision,refreshRequired:Boolean(cursor&&(cursor.seq!==seq||cursor.revision!==state.revision)),queryFingerprint:fp}};
 }

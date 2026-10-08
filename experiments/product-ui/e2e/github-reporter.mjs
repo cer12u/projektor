@@ -9,6 +9,9 @@ export function failureCategory(error){
  return {errorClass,failureType};
 }
 export default async function* reporter(source){
+  const selection=process.env.PROJEKTOR_UI_E2E_CASES??'';
+  if(selection!==''&&selection!=='C22,C23')throw Error('INVALID_UI_E2E_SELECTION');
+  const expectedIDs=new Set(selection?selection.split(','):CASES.map(caseID));
   let buffer='';const last=new Map(),failed=new Map(),results=new Map(),annotated=new Set(),categoryAnnotated=new Set(),suiteAnnotated=new Set(),lastStep=new Map(),bodyContext=new Map();let runnerFailed=false;const github=process.env.GITHUB_ACTIONS==='true';
   function line(id,phase,state,annotate=false){
     const text='UI E2E '+id+' '+phase+' '+state;
@@ -24,20 +27,22 @@ export default async function* reporter(source){
         const raw=buffer.slice(0,index);buffer=buffer.slice(index+1);
         if(!raw.startsWith(PREFIX))continue;
         let value;try{value=JSON.parse(raw.slice(PREFIX.length));}catch{continue;}
-        if(!value||Object.keys(value).sort().join(',')!=='id,phase,state'||!/^C(?:0[1-9]|1[0-9]|2[01])$|^S00$/.test(value.id)||!PHASES.includes(value.phase)||!STATES.includes(value.state))continue;
+        if(!value||Object.keys(value).sort().join(',')!=='id,phase,state'||!/^C(?:0[1-9]|1[0-9]|2[0-3])$|^S00$/.test(value.id)||!PHASES.includes(value.phase)||!STATES.includes(value.state))continue;
         if(value.phase!=='scenario_body')lastStep.set(value.id,value.phase);else if(['fail','timeout'].includes(value.state)&&!bodyContext.has(value.id))bodyContext.set(value.id,lastStep.get(value.id)??'none');
         last.set(value.id,value.phase);if(value.id==='S00'&&['fail','timeout'].includes(value.state))runnerFailed=true;if(['fail','timeout'].includes(value.state)&&(!failed.has(value.id)||failed.get(value.id)==='scenario_body'))failed.set(value.id,value.phase);const suiteFailure=value.id==='S00'&&['fail','timeout'].includes(value.state)&&!suiteAnnotated.has(value.phase);if(suiteFailure){suiteAnnotated.add(value.phase);annotated.add(value.id);}yield line(value.id,value.phase,value.state,suiteFailure);
       }
     }else if(event.type==='test:fail'){
-      const id=caseID(event.data?.name);if(CASES.includes(event.data?.name))results.set(id,'fail');else runnerFailed=true;
+      const id=caseID(event.data?.name);if(expectedIDs.has(id))results.set(id,'fail');else runnerFailed=true;
       yield line(id,failed.get(id)??last.get(id)??'scenario_body','fail',!annotated.has(id));annotated.add(id);
       if(!categoryAnnotated.has(id)){const {errorClass,failureType}=failureCategory(event.data?.details?.error);const context=bodyContext.get(id)??lastStep.get(id)??'none';yield (github?'::error title=UI E2E failure category::':'')+'UI E2E failure id='+id+' class='+errorClass+' type='+failureType+' last_step='+context+'\n';categoryAnnotated.add(id);}
     }else if(event.type==='test:pass'&&CASES.includes(event.data?.name)){
-      if(results.get(caseID(event.data.name))!=='fail')results.set(caseID(event.data.name),'pass');yield line(caseID(event.data.name),'scenario_body','pass');
+      const id=caseID(event.data.name);
+      if(!expectedIDs.has(id)||event.data?.skip){runnerFailed=true;continue;}
+      if(results.get(id)!=='fail')results.set(id,'pass');yield line(id,'scenario_body','pass');
     }
   }
   const failedIDs=[...results].filter(([,state])=>state==='fail').map(([id])=>id).sort();
-  const passed=[...results.values()].filter(state=>state==='pass').length,incomplete=CASES.length-results.size;
+  const passed=[...results.values()].filter(state=>state==='pass').length,incomplete=expectedIDs.size-results.size;
   const summary='UI E2E summary passed='+passed+' failed='+failedIDs.length+' incomplete='+incomplete+' runner_failed='+runnerFailed+' failed_ids='+(failedIDs.join(',')||'none');
   const level=failedIDs.length||incomplete||runnerFailed?'error':'notice';
   yield (github?'::'+level+' title=UI E2E summary::':'')+summary+'\n';

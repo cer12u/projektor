@@ -1,3 +1,4 @@
+import {issueCompatibilitySummary} from './issue-compat.mjs';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { authorized, canonical, failure, transaction } from './shared-core.mjs';
@@ -56,7 +57,14 @@ export function queryMyIssues(db,actor,args,now) {
   const total=db.prepare(`SELECT COUNT(*) AS total ${from} WHERE ${predicate.where}`).get(...predicate.values).total;
   const tail=cursor?' AND (COALESCE(q.priority,5),q.created_at,i.id) > (?,?,?)':'';
   const rows=db.prepare(`SELECT i.id,i.project_id,i.title,i.version,q.assignee_id,a.kind AS assignee_kind,q.status_category,q.priority,q.created_at ${from} WHERE ${predicate.where}${tail} ORDER BY COALESCE(q.priority,5),q.created_at,i.id LIMIT ?`).all(...predicate.values,...(cursor?cursor.last:[]),q.limit+1);
-  const more=rows.length>q.limit,items=rows.slice(0,q.limit);
+  const items=[];let bytes=4096;
+  for(const row of rows.slice(0,q.limit)){
+   const item={...row,compatibility:issueCompatibilitySummary(db,row.id)},size=Buffer.byteLength(JSON.stringify(item))+1;
+   if(bytes+size>900*1024)break;
+   items.push(item);bytes+=size;
+  }
+  if(!items.length&&rows.length)return failure('RECORD_TOO_LARGE');
+  const more=rows.length>items.length;
   let nextCursor=null;
   if(more){const last=items.at(-1);const payload=encode({v:1,fp,seq:cursor?.seq??w.change_seq,revision:cursor?.revision??state.revision,issued:cursor?.issued??at,exp:cursor?.exp??at+TTL,last:[last.priority??5,last.created_at,last.id]});nextCursor=`${payload}.${sign(payload,state.cursor_key)}`;}
   return {data:{items,nextCursor,total},meta:{workspaceId:q.workspaceId,actorId:actor.principalId,workspaceEpoch:q.workspaceEpoch,changeSeq:w.change_seq,visibilityVersion:state.revision,refreshRequired:changed,queryFingerprint:fp}};

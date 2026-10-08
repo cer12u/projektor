@@ -1,3 +1,4 @@
+import {contentPage} from './content-page.mjs';
 import {captureContentLinks,currentLinkView,carryLinkView} from './content-links.mjs';
 import {validateResourceAccess,executeResourceAccess} from './resource-policy.mjs';
 import {WIKI_COMMANDS,validateWiki,executeWikiCommand} from './wiki.mjs';
@@ -131,11 +132,11 @@ export function operationGet(db,actor,{workspaceId,workspaceEpoch,operationId},n
  if(!row)return {data:{outcome:'not_observed',absenceIsProofOfNonExecution:false}};
  return visibleReceipt(db,actor,row)?JSON.parse(row.result_json):failure('FORBIDDEN','unknown');});
 }
-export function queryIssues(db,actor,{workspaceId,workspaceEpoch,entityId},now){
- if(!validId(workspaceId)||!validId(workspaceEpoch)||(entityId!==undefined&&!validId(entityId)))return failure('VALIDATION');
+export function queryIssues(db,actor,{workspaceId,workspaceEpoch,entityId,limit,cursor},now){
+ if(!validId(workspaceId)||!validId(workspaceEpoch)||(entityId!==undefined&&!validId(entityId))||(limit!==undefined&&(!Number.isSafeInteger(limit)||limit<1||limit>100))||(cursor!==undefined&&(typeof cursor!=='string'||cursor.length<1||cursor.length>2048))||(entityId!==undefined&&(limit!==undefined||cursor!==undefined)))return failure('VALIDATION');
  return transaction(db,()=>{now ??= Date.now();const denied=authorized(db,actor,workspaceId,workspaceEpoch,now);if(denied)return failure(denied,'unknown');
  if(!get(db,'SELECT can_read FROM credential WHERE id=?',actor.credentialId)?.can_read)return failure('FORBIDDEN');
  const rows=db.prepare('SELECT * FROM issue WHERE deleted=0 ORDER BY id').all().filter(r=>resourceReadable(db,actor,r.id)&&can(db,actor,r.project_id,'read'));
  if(entityId){const row=rows.find(r=>r.id===entityId);return row?{data:issueProjection(db,row,actor)}:failure('NOT_FOUND');}
- return {data:{items:rows.map(row=>issueProjection(db,row,actor)),nextCursor:null}};});
+ return contentPage(db,actor,rows,{workspaceId,workspaceEpoch,...(limit!==undefined?{limit}:{}),...(cursor!==undefined?{cursor}:{})},'issue-list',row=>issueProjection(db,row,actor,{compact:true}),now,{tuple:r=>[r.id,r.id],maxBytes:2*1024*1024-16*1024});});
 }

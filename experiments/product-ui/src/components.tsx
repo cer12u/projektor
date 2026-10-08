@@ -1,4 +1,5 @@
 import {useEffect,useState} from 'react';
+import type {IssueCompatibility,IssueCompatibilitySummary} from './contracts.ts';
 export function Notice({children,error=false}:{children:React.ReactNode;error?:boolean}){return <p className={error?'notice error':'notice'} role={error?'alert':'status'}>{children}</p>;}
 export function ConnectionNotice({fixture}:{fixture:boolean}){return fixture?<aside className="fixture" role="note">Contract fixture only · Product connection incomplete. Synthetic data and fixture key service; no production authentication claim.</aside>:null;}
 export const states=['backlog','ready','in_progress','blocked','done','canceled'];
@@ -13,8 +14,23 @@ export function listMessage(s:any):string{
 }
 export function IssueRows({state,board,onOpen}:{state:any;board:boolean;onOpen:(id:string)=>void}){
   if(state.locked||['loading','error','stale'].includes(state.phase))return null;
-  const rows=(items:any[])=>items.map(item=><li key={item.id}><button className="issue-link" data-focus-key={"issue-"+item.id} onClick={()=>onOpen(item.id)}>{item.title}</button><p className="meta">{item.priority===null?'No priority':'P'+item.priority} · {item.status_category.replaceAll('_',' ')} · {item.assignee_kind==='machine'?'Agent':'Human'}</p></li>);
+  const rows=(items:any[])=>items.map(item=><li key={item.id}><button className="issue-link" data-focus-key={"issue-"+item.id} onClick={()=>onOpen(item.id)}>{item.title}</button><p className="meta">{item.priority===null?'No priority':'P'+item.priority} · {item.compatibility?compatibilityStatus(item.compatibility):item.status_category.replaceAll('_',' ')}{item.compatibility?.typeName?' · Type: '+item.compatibility.typeName:''} · {item.assignee_kind==='machine'?'Agent':'Human'}</p></li>);
   return board?<div className="board" aria-label="My issues board">{states.map(status=><section key={status} aria-label={status.replaceAll('_',' ')}><h2>{status.replaceAll('_',' ')}</h2><ul>{rows(state.items.filter((i:any)=>i.status_category===status))}</ul></section>)}</div>:<ul className="issue-list">{rows(state.items)}</ul>;
+}
+export function compatibilityStatus(value:IssueCompatibilitySummary):string{
+  return (value.statusName??value.statusKey??'Unknown status')+(value.isReviewStep?' · Review step':'');
+}
+export function IssueCompatibilityDetails({value}:{value:IssueCompatibility}){
+  const dor=value.dor;
+  return <section aria-label="Imported issue state">
+    <p className="meta">Status: {compatibilityStatus(value)} · Type: {value.typeName??'Unknown'}</p>
+    <p>Completion report time: {value.completionReportAt??'Not recorded'}</p>
+    <p>Recorded DoR readiness: {dor.ready===null?'Unknown':dor.ready?'Ready':'Not ready'}</p>
+    <p>{dor.evidenceState==='stale_after_edit'?'DoR evidence is stale after a body edit. Readiness has not been re-evaluated.':'DoR evidence is retained for the current body; no new evaluation has been run.'}</p>
+    {dor.missing!==null?<><p>Recorded missing DoR items: {dor.missing.length===0?'None recorded':''}</p>{dor.missing.length>0&&<ul>{dor.missing.map((item,index)=><li key={index}>{typeof item==='string'?item:JSON.stringify(item)}</li>)}</ul>}</>:<p>Recorded missing DoR items: Unknown</p>}
+    {dor.missingRaw!==null&&<details><summary>Recorded DoR evidence</summary><pre>{dor.missingRaw}</pre></details>}
+    <p className="meta">Workflow status and recorded DoR are separate. A Ready queue label does not certify DoR readiness.</p>
+  </section>;
 }
 export function Author({value}:{value:any}){
   const sourceName=typeof value?.sourceDisplayNameRaw==='string'?value.sourceDisplayNameRaw:null;

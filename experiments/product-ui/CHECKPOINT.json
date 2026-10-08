@@ -1,22 +1,35 @@
 {
-  "scope": "Scoped Wiki Trash/Restore authority guard candidate; source diff and affected CI pending",
-  "baselineCommit": "cab0f8e91154e76003c64b3ef40b0f29bb69a5e8",
-  "sourceManifestSHA256": "2ed28a325848b0de696ca8cb7f64596fc57c93252ad3e7e48bd00c875e45f1e3",
+  "scope": "Frozen unpublished Issue compatibility source checkpoint; reviewed native/query/draft boundaries; candidate CI not run",
+  "baselineCommit": "949869f129223d7b8d2cb4cb188d92f8e50219ee",
+  "sourceManifestSHA256": "fcc0de8a47dbce64913568aaed0c4138dfdfa4b1a33cc324dcdab4f662632591",
   "verification": {
-    "installedDependenciesOnly": true,
-    "typecheck": "PASS",
-    "productionBuild": "PASS",
-    "nodeComponentTests": {
-      "passed": 137,
-      "failed": 0
-    },
+    "typecheck": "PASS (local reviewed source)",
+    "productionBuild": "PASS (local reviewed source)",
+    "nativeIntegration": "Nine Issue compatibility cases prepared; six unchanged passing cases reused and three affected detail/list bounds cases passed locally",
+    "protectedController": "One actual SQLite/controller scenario and four selected compact-list/no-op boundary cases passed locally",
     "chromiumE2E": {
-      "prepared": 21,
+      "prepared": 23,
       "originalCasesPreserved": 21,
-      "status": "Prior cab0f8e9 browser21 PASS; candidate updates explicit authorized lifecycle fixture grants only; affected exact-head CI pending"
-    }
+      "selectedCaseIds": [
+        "C22",
+        "C23"
+      ],
+      "reusedCaseIds": "C01-C21",
+      "reusedEvidenceCommit": "949869f129223d7b8d2cb4cb188d92f8e50219ee",
+      "reusedEvidenceRun": "https://github.com/cer12u/projektor/actions/runs/37801413590",
+      "status": "C22/C23 not run in CI for this unpublished candidate; local Chromium was blocked, so no browser success is claimed"
+    },
+    "scopedReporter": "Five targeted reporter checks passed; scoped selection additionally verified using real Node subprocess pass/fail runs"
   },
   "releaseAccepted": false,
   "candidateCommit": null,
-  "sourceReview": "Astra PASS; independent runtime/client/receipt/overflow regressions passed"
+  "sourceReview": "Independent bounded and adjacent-contract review PASS; list/detail wire bounds, protected no-op receipts and trusted list budget reviewed",
+  "publication": {
+    "status": "not_performed",
+    "pushInvoked": false,
+    "candidateCI": "not_run",
+    "lastVerifiedRemoteHead": "949869f129223d7b8d2cb4cb188d92f8e50219ee",
+    "currentRemoteHeadAfterCancelledCheck": "unverified",
+    "reason": "Final read-only branch-head check was cancelled; no retry or alternate route was used"
+  }
 }
