@@ -1,7 +1,7 @@
 {
-  "scope": "Wiki actual-session integration candidate; final review and browser pending",
-  "baselineCommit": "13da5980811aee08d1d05b395101ec37a6d7a783",
-  "sourceManifestSHA256": "4369566044e84cf6497c5bf771515b41d9a1fd53f0c676fe7d302afe9b4c78ab",
+  "scope": "R05 SetResourceAccess source-reviewed candidate; exact-head Chromium acceptance pending",
+  "baselineCommit": "94637dd4ae3690758671c46bab705260ec218b15",
+  "sourceManifestSHA256": "9548e3b0bfe89eba77d48044327657a4a7b2c91ee7be56f4ca170c0ee9ac139b",
   "verification": {
     "installedDependenciesOnly": true,
     "typecheck": "PASS",
@@ -11,9 +11,12 @@
       "failed": 0
     },
     "chromiumE2E": {
-      "prepared": 17,
-      "status": "fb936ee: 12 passed, Wiki5 timed out at populated control lookups. Candidate06 adds explicit stable accessible labels; same17 exact-locator browser tests pending."
+      "prepared": 21,
+      "originalCasesPreserved": 17,
+      "status": "NOT_RUN_LOCAL; approved exact-head CI required"
     }
   },
-  "releaseAccepted": false
+  "releaseAccepted": false,
+  "candidateCommit": null,
+  "sourceReview": "Astra PASS; independent runtime/client/receipt/overflow regressions passed"
 }

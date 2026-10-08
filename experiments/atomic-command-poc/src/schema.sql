@@ -120,3 +120,12 @@ CREATE TRIGGER wiki_alias_no_delete BEFORE DELETE ON wiki_alias BEGIN SELECT RAI
 CREATE TABLE link_view_decision(link_view_id TEXT NOT NULL,ordinal INTEGER NOT NULL,occurrence_id TEXT NOT NULL,binding_id TEXT NOT NULL,binding_version INTEGER NOT NULL,PRIMARY KEY(link_view_id,ordinal),UNIQUE(link_view_id,occurrence_id));
 CREATE TRIGGER link_view_decision_no_update BEFORE UPDATE ON link_view_decision BEGIN SELECT RAISE(ABORT,'immutable link view decision'); END;
 CREATE TRIGGER link_view_decision_no_delete BEFORE DELETE ON link_view_decision BEGIN SELECT RAISE(ABORT,'immutable link view decision'); END;
+
+-- Explicit management authority; no read/write grant implies manage.
+CREATE TABLE scope_manage_grant(principal_id TEXT NOT NULL REFERENCES membership(principal_id),scope_kind TEXT NOT NULL CHECK(scope_kind IN ('project','workspace_shared')),scope_id TEXT NOT NULL,can_manage INTEGER NOT NULL CHECK(can_manage IN (0,1)),PRIMARY KEY(principal_id,scope_kind,scope_id));
+CREATE TABLE resource_access_identity(resource_type TEXT NOT NULL,resource_id TEXT NOT NULL,access_policy_id TEXT NOT NULL UNIQUE,PRIMARY KEY(resource_type,resource_id),FOREIGN KEY(resource_type,resource_id) REFERENCES resource_access(resource_type,resource_id));
+CREATE TRIGGER access_identity_no_update BEFORE UPDATE ON resource_access_identity BEGIN SELECT RAISE(ABORT,'immutable policy identity'); END;
+CREATE TRIGGER access_identity_no_delete BEFORE DELETE ON resource_access_identity BEGIN SELECT RAISE(ABORT,'immutable policy identity'); END;
+CREATE TRIGGER query_manage_insert AFTER INSERT ON scope_manage_grant BEGIN UPDATE query_state SET revision=revision+1 WHERE id=1; END;
+CREATE TRIGGER query_manage_update AFTER UPDATE ON scope_manage_grant BEGIN UPDATE query_state SET revision=revision+1 WHERE id=1; END;
+CREATE TRIGGER query_manage_delete AFTER DELETE ON scope_manage_grant BEGIN UPDATE query_state SET revision=revision+1 WHERE id=1; END;

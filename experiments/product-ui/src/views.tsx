@@ -106,18 +106,18 @@ export function ContentView(props:ViewProps){
       {route.view==='create'&&<button onClick={()=>navigate({view:'issue',issueId:s.issue.id,projectId:null,draftId:crypto.randomUUID(),projectAtProtection:null})}>Open created issue</button>}</article>}
       <div className="editor">
         <label>Editor<select aria-label="Editor" value={s.record.active} onChange={e=>{const[mode,id]=e.target.value.split(':');controller.select(mode,id);}}>
-          {(route.view==='create'?[['create','Create issue']]:[['title','Issue title'],['body','Issue body'],['add-comment','New comment'],['assign','Assignee'],['priority','Priority'],['progress','Progress update'],['transition','Status transition']]).map(([value,label])=><option value={value} key={value}>{label}</option>)}
+          {(route.view==='create'?[['create','Create issue']]:[['title','Issue title'],['body','Issue body'],['add-comment','New comment'],['assign','Assignee'],['priority','Priority'],['progress','Progress update'],['transition','Status transition'],...(s.issue?.canManageAccess?[['access','Resource access']]:[])]).map(([value,label])=><option value={value} key={value}>{label}</option>)}
           {Object.keys(s.record.drafts).filter(k=>k.startsWith('edit-comment:')).map(k=><option key={k} value={k}>Edit comment {k.slice(13)}</option>)}
         </select></label>
-        {draft&&Object.entries(draft.value).filter(([key])=>key!=='projectId').map(([key,value]:[string,any])=>{
+        {draft&&Object.entries(draft.value).filter(([key])=>!['projectId','resource','expectedPolicyVersion'].includes(key)).map(([key,value]:[string,any])=>{
           const change=(next:string)=>{let v:any=next;if(['priority','assigneeId','parentId'].includes(key)&&next==='')v=null;if(['description','bodyMarkdown','reason','waitingFor','nextStep','resultSummary'].includes(key))v=preserveMarkdownInput(draft.value[key],next);controller.edit({[key]:v});};
           const label=key==='bodyMarkdown'&&draft.mode==='progress'?'Progress Markdown':labels[key]??key;
-          return <label key={s.record.active+key}>{label}{['description','bodyMarkdown','reason','waitingFor','nextStep','resultSummary'].includes(key)?
+          return <label key={s.record.active+key}>{label}{key==='policy'?<textarea aria-label="Access policy JSON" value={draft.rawJSON?.policy??JSON.stringify(value)} aria-invalid={!!draft.rawJSONErrors?.policy} onChange={e=>controller.editAccessPolicy(e.target.value)}/>:['description','bodyMarkdown','reason','waitingFor','nextStep','resultSummary'].includes(key)?
             <textarea rows={12} data-editor-field={key} onSelect={e=>capturePosition(e.currentTarget,key)} aria-label={label} value={(value??'').replace(/\r\n?/g,'\n')} onChange={e=>change(e.target.value)} spellCheck={false}/>:
             ['priority','initialStatus','toStatus'].includes(key)?<select aria-label={label} value={value??''} onChange={e=>change(e.target.value)}>{(key==='priority'?['','P0','P1','P2','P3','P4']:key==='toStatus'?states:['backlog','ready']).map(v=><option value={v} key={v}>{v||'No priority'}</option>)}</select>:
             <input data-editor-field={key} onSelect={e=>capturePosition(e.currentTarget,key)} aria-label={label} value={value??''} onChange={e=>change(e.target.value)} autoComplete="off"/>}</label>;
         })}
-        {s.code&&<p id="field-error" className="error">Validation or operation code: {s.code}. Your input is retained.</p>}
+        {s.issue?.accessManagementError&&<Notice error>Access management for this issue requires policy identity migration; no policy identity was created automatically</Notice>}{draft?.mode==='access'&&<Notice>Resource and policy versions are checked together; historical audiences stay unchanged</Notice>}{s.code&&<p id="field-error" className="error">Validation or operation code: {s.code}. Your input is retained.</p>}
         <div className="actions"><button disabled={s.busy||!!unresolved||created} onClick={()=>runAction(()=>controller.save())}>Save</button>
           {unresolved&&<><button disabled={s.busy} onClick={()=>runAction(()=>controller.checkResult())}>Check existing operation</button><button disabled={s.busy} onClick={()=>runAction(()=>controller.checkResult({retry:true}))}>Retry the same protected request</button></>}
           {draft?.conflict&&<button disabled={s.busy} onClick={()=>controller.useCurrentVersion()}>Keep my draft and use current version</button>}

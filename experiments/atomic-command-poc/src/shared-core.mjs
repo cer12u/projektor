@@ -1,4 +1,5 @@
 import {captureContentLinks,currentLinkView,carryLinkView} from './content-links.mjs';
+import {validateResourceAccess,executeResourceAccess} from './resource-policy.mjs';
 import {WIKI_COMMANDS,validateWiki,executeWikiCommand} from './wiki.mjs';
 export {queryWiki,queryWikiRevisions,queryWikiResolve,queryLinks,queryBacklinks} from './wiki.mjs';
 import {WORKFLOW_COMMANDS,validateWorkflow,executeWorkflowCommand} from './agent-workflow.mjs';
@@ -19,8 +20,9 @@ export function validate(c){
   const keys=['schemaVersion','workspaceId','workspaceEpoch','operationId','commandType','entityId','expectedVersion','payload'];
   if(Object.keys(c).some(k=>!keys.includes(k)))return 'VALIDATION';
   if(c.schemaVersion!==1)return 'SCHEMA_UNSUPPORTED';
-  if(!['workspaceId','workspaceEpoch','operationId','entityId'].every(k=>validId(c[k]))||!['Issue.UpdateTitle',...CONTENT_COMMANDS,...WORKFLOW_COMMANDS,...WIKI_COMMANDS].includes(c.commandType))return 'VALIDATION';
+  if(!['workspaceId','workspaceEpoch','operationId','entityId'].every(k=>validId(c[k]))||!['SetResourceAccess','Issue.UpdateTitle',...CONTENT_COMMANDS,...WORKFLOW_COMMANDS,...WIKI_COMMANDS].includes(c.commandType))return 'VALIDATION';
   if(c.expectedVersion===undefined)return 'PRECONDITION_REQUIRED';
+  if(c.commandType==='SetResourceAccess')return validateResourceAccess(c);
   if(WIKI_COMMANDS.includes(c.commandType))return validateWiki(c);
   if(WORKFLOW_COMMANDS.includes(c.commandType))return validateWorkflow(c);
   if(CONTENT_COMMANDS.includes(c.commandType))return validateContent(c);
@@ -78,6 +80,7 @@ export const MUTATION_STEPS=['before_issue','after_issue','after_sequence','afte
 export function executeCommand(db,actor,c,{now,fault=()=>{},contentLinks=null}={}){
  const invalid=validate(c);if(invalid)return failure(invalid);
  if(!actor||typeof actor!=='object')return failure('UNAUTHENTICATED');
+ if(c.commandType==='SetResourceAccess')return executeResourceAccess(db,actor,c,{now,fault});
  if(WIKI_COMMANDS.includes(c.commandType))return executeWikiCommand(db,actor,c,{now,fault});
  if(WORKFLOW_COMMANDS.includes(c.commandType))return executeWorkflowCommand(db,actor,c,{now,fault});
  if(CONTENT_COMMANDS.includes(c.commandType))return executeContentCommand(db,actor,c,{now,fault,contentLinks:contentLinks??captureContentLinks});
@@ -133,6 +136,6 @@ export function queryIssues(db,actor,{workspaceId,workspaceEpoch,entityId},now){
  return transaction(db,()=>{now ??= Date.now();const denied=authorized(db,actor,workspaceId,workspaceEpoch,now);if(denied)return failure(denied,'unknown');
  if(!get(db,'SELECT can_read FROM credential WHERE id=?',actor.credentialId)?.can_read)return failure('FORBIDDEN');
  const rows=db.prepare('SELECT * FROM issue WHERE deleted=0 ORDER BY id').all().filter(r=>resourceReadable(db,actor,r.id)&&can(db,actor,r.project_id,'read'));
- if(entityId){const row=rows.find(r=>r.id===entityId);return row?{data:issueProjection(db,row)}:failure('NOT_FOUND');}
- return {data:{items:rows.map(row=>issueProjection(db,row)),nextCursor:null}};});
+ if(entityId){const row=rows.find(r=>r.id===entityId);return row?{data:issueProjection(db,row,actor)}:failure('NOT_FOUND');}
+ return {data:{items:rows.map(row=>issueProjection(db,row,actor)),nextCursor:null}};});
 }

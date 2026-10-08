@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 import { authorized, failure, fingerprint, HASH_VERSION, transaction } from './shared-core.mjs';
 import { currentRead,currentWrite,resourceScope,resourcePolicy,scopeAllowed,hasScope,historicRead,receiptScope } from './resource-access.mjs';
+import {accessProjection} from './resource-access.mjs';
 const get=(db,s,...a)=>db.prepare(s).get(...a);
 function run(db,s,...a){const result=db.prepare(s).run(...a);if(/^(INSERT|UPDATE)\b/.test(s)&&result.changes!==1)throw Error('Required content write invariant');return result;}
 const id=x=>typeof x==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(x);
@@ -112,7 +113,7 @@ export function executeContentCommand(db,actor,c,{now,fault=()=>{},contentLinks=
    const number=counter?.next_number??1;
    if(counter)run(db,'UPDATE project_issue_counter SET next_number=next_number+1 WHERE project_id=?',p.projectId);else run(db,'INSERT INTO project_issue_counter VALUES(?,?)',p.projectId,2);
    run(db,'INSERT INTO issue_number VALUES(?,?,?)',c.entityId,p.projectId,number);
-   run(db,'INSERT INTO resource_access VALUES(?,?,1,?,?,?)','issue',c.entityId,'inherit','[]','[]');
+   run(db,'INSERT INTO resource_access VALUES(?,?,1,?,?,?)','issue',c.entityId,'inherit','[]','[]');run(db,'INSERT INTO resource_access_identity VALUES(?,?,?)','issue',c.entityId,randomUUID());
    run(db,'INSERT INTO issue_queue VALUES(?,?,?,?,?,0)',c.entityId,p.assigneeId,p.initialStatus,p.priority===null?null:Number(p.priority.slice(1)),now);
    run(db,'INSERT INTO issue_content VALUES(?,?,?,?,?)',c.entityId,null,JSON.stringify(nativeAuthor(actor)),p.parentId,now);
   }else if(!editing){if(run(db,'UPDATE issue SET version=version+1 WHERE id=? AND version=?',issue.id,c.expectedVersion).changes!==1)throw Error('CAS failed');}
@@ -152,11 +153,11 @@ export function executeContentCommand(db,actor,c,{now,fault=()=>{},contentLinks=
   const result=save({data:{outcome:'committed',effectApplied:true,entityId:c.entityId,issueId:resource.id,committedVersion:version,commitSeq:seq,serverTime:now,revisionId,...(p.commentId?{commentId:p.commentId,commentVersion:editing?version:1}:{})},meta});fault('after_receipt');return result;
  });
 }
-export function issueProjection(db,row){
+export function issueProjection(db,row,actor){
  const c=get(db,'SELECT * FROM issue_content WHERE issue_id=?',row.id);if(!c)return row;
  const r=c.body_revision_id&&get(db,'SELECT * FROM content_revision WHERE id=?',c.body_revision_id),q=get(db,'SELECT * FROM issue_queue WHERE issue_id=?',row.id);
  const resolution=get(db,'SELECT * FROM issue_resolution WHERE issue_id=?',row.id);
- return {...row,resolutionKind:resolution?.resolution_kind??null,resolvedAt:resolution?.resolved_at??null,currentResolutionRecordId:resolution?.current_record_id??null,number:get(db,'SELECT number FROM issue_number WHERE issue_id=?',row.id)?.number??null,description:r?.content_markdown??null,bodyRevisionId:c.body_revision_id,authorRef:JSON.parse(c.author_ref),parentId:c.parent_id,assigneeId:q?.assignee_id??null,priority:q?.priority==null?null:`P${q.priority}`,status:q?.status_category??null};
+ return {...row,...accessProjection(db,actor,{type:'issue',id:row.id}),resolutionKind:resolution?.resolution_kind??null,resolvedAt:resolution?.resolved_at??null,currentResolutionRecordId:resolution?.current_record_id??null,number:get(db,'SELECT number FROM issue_number WHERE issue_id=?',row.id)?.number??null,description:r?.content_markdown??null,bodyRevisionId:c.body_revision_id,authorRef:JSON.parse(c.author_ref),parentId:c.parent_id,assigneeId:q?.assignee_id??null,priority:q?.priority==null?null:`P${q.priority}`,status:q?.status_category??null};
 }
 function query(db,actor,args,now,fn,kind){const allowed=['workspaceId','workspaceEpoch',...(kind==='archive'?['sourceMappingId']:kind==='history'?['entityId','revisionId','cursor','limit']:kind==='entries'?['entityId','cursor','limit']:['entityId'])];if(!plain(args)||args.cursor!==undefined&&(typeof args.cursor!=='string'||args.cursor.length<1||args.cursor.length>2048)||args.limit!==undefined&&(!Number.isSafeInteger(args.limit)||args.limit<1||args.limit>100)||Object.keys(args).some(k=>!allowed.includes(k))||!id(args.workspaceId)||!id(args.workspaceEpoch)||args.entityId!==undefined&&!id(args.entityId)||args.revisionId!==undefined&&!id(args.revisionId)||['entries','history'].includes(kind)&&!id(args.entityId))return failure('VALIDATION');return transaction(db,()=>{const denied=authorized(db,actor,args.workspaceId,args.workspaceEpoch,now??Date.now());if(denied)return failure(denied);return fn();});}
 export function queryProjects(db,actor,args,now){return query(db,actor,args,now,()=>{if(!get(db,'SELECT can_read FROM credential WHERE id=?',actor.credentialId)?.can_read)return failure('FORBIDDEN');const rows=db.prepare('SELECT * FROM project WHERE deleted=0 ORDER BY id').all().filter(r=>scopeAllowed(db,actor,{kind:'project',projectId:r.id}));if(args.entityId)return rows.find(r=>r.id===args.entityId)?{data:rows.find(r=>r.id===args.entityId)}:failure('NOT_FOUND');return {data:{items:rows,nextCursor:null}};});}

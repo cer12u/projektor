@@ -1,3 +1,4 @@
+import {accessDraft,validateAccessDraft} from './access-policy.mjs';
 /** Issue content editor state machine. Server sessions and protected persistence
  * are injected; no credential storage, auth provider, HTML renderer or retry loop.
  * A receipt confirms one snapshot, never the current Issue representation. */
@@ -12,7 +13,7 @@ const naturalVersion = value => Number.isSafeInteger(value) && value > 0;
 const terminal = journal => journal && ['committed', 'rejected'].includes(journal.state);
 const canon = value => JSON.stringify(value);
 const denied = code => ['AUTH_REQUIRED','UNAUTHENTICATED','FORBIDDEN','NOT_FOUND','PROJECT_NOT_FOUND','EPOCH_MISMATCH','WORKSPACE_MISMATCH','BINDING_MISMATCH'].includes(code);
-const modes = new Set(['create','body','add-comment','edit-comment','assign','priority']);
+const modes = new Set(['access','create','body','add-comment','edit-comment','assign','priority']);
 const priority = value => value === null || /^P[0-4]$/.test(value);
 const string = value => typeof value === 'string' && value.isWellFormed();
 const markdown = value => string(value) && new TextEncoder().encode(value).byteLength <= 256 * 1024;
@@ -109,6 +110,7 @@ export class IssueContentController {
   draftKey(mode, commentId) {return mode==='edit-comment' ? `${mode}:${commentId}` : mode;}
   initial(mode, commentId) {
     const version=this.issue?.version ?? 0;
+    if(mode==='access')return accessDraft(this.issue,'issue');
     if (mode==='create') return {value:{projectId:this.projectId,title:'',description:'',assigneeId:null,priority:null,parentId:null,initialStatus:'backlog'},baseVersion:0};
     if (mode==='body') return {value:{description:this.issue.description},baseVersion:version};
     if (mode==='assign') return {value:{assigneeId:this.issue.assigneeId},baseVersion:version};
@@ -119,6 +121,7 @@ export class IssueContentController {
     return {value:{bodyMarkdown:entry.bodyMarkdown},baseVersion:entry.version,commentId};
   }
   select(mode, commentId) {
+    if (mode==='access'&&!this.issue?.canManageAccess)return {kind:'stopped'};
     if (this.locked || !modes.has(mode) || (this.projectId ? mode!=='create' : mode==='create') || mode==='edit-comment' && !id(commentId)) return {kind:'stopped'};
     const key=this.draftKey(mode,commentId);
     if (!this.record.drafts[key]) this.record.drafts[key]={mode,...this.initial(mode,commentId),revision:0,ack:0};
@@ -130,6 +133,7 @@ export class IssueContentController {
     if (Object.keys(patch).some(key=>!Object.hasOwn(draft.value,key))) return {kind:'invalid'};
     draft.value={...draft.value,...copy(patch)}; draft.revision++; this.touch(); this.phase='editing';this.code=null; this.emit(); this.scheduleFlush(); return {kind:'edited'};
   }
+  editAccessPolicy(raw) {if(this.locked||this.record?.active!=='access'||typeof raw!=='string')return {kind:'stopped'};const d=this.record.drafts.access;d.rawJSON??={};d.rawJSONErrors??={};d.rawJSON.policy=raw;try{const policy=JSON.parse(raw);delete d.rawJSONErrors.policy;return this.edit({policy});}catch{d.rawJSONErrors.policy=true;d.revision++;this.touch();this.code='INVALID_JSON_FIELD';this.emit();this.scheduleFlush();return {kind:'edited'};}}
   scheduleFlush() {clearTimeout(this.flushTimer);this.flushTimer=setTimeout(()=>void this.flush(),150);this.flushTimer.unref?.();}
   async flush() {
     clearTimeout(this.flushTimer);
@@ -160,7 +164,7 @@ export class IssueContentController {
       const checkedIssue=validateContentIssue(issue,session,this.issueId);
       const entries=await this.api.entries({session,issueId:this.issueId,signal});
       if (!this.current(generation)) return false;
-      this.issue=checkedIssue;this.entries=validateContentEntries(entries,session,this.issueId);this.entriesCursor=entries.data.nextCursor??null;
+      if(this.record?.drafts?.access&&!checkedIssue.canManageAccess)throw fail('FORBIDDEN');this.issue=checkedIssue;this.entries=validateContentEntries(entries,session,this.issueId);this.entriesCursor=entries.data.nextCursor??null;
     }
     return true;
   }
@@ -169,8 +173,8 @@ export class IssueContentController {
       if (draft.mode==='create') continue;
       let latest;try {latest=this.initial(draft.mode,draft.commentId);} catch {continue;}
       draft.currentVersion=latest.baseVersion;
-      if (draft.revision===draft.ack) {draft.value=latest.value;draft.baseVersion=latest.baseVersion;}
-      draft.conflict=draft.revision>draft.ack && draft.baseVersion!==latest.baseVersion;
+      if (draft.revision===draft.ack) {draft.value=latest.value;draft.baseVersion=latest.baseVersion;delete draft.rawJSON;delete draft.rawJSONErrors;}
+      draft.conflict=draft.revision>draft.ack && (draft.baseVersion!==latest.baseVersion || draft.mode==='access'&&draft.value.expectedPolicyVersion!==latest.value.expectedPolicyVersion);
     }
     this.record.baseVersion=this.issue?.version ?? 0;
   }
@@ -211,6 +215,7 @@ export class IssueContentController {
     finally {if (generation===this.generation) {this.busy=false;this.emit();}}
   }
   validateDraft(draft) {
+    if(draft.mode==='access')return validateAccessDraft(draft,this.issue,'issue');
     const v=draft.value;
     if (Object.hasOwn(v,'description') && !markdown(v.description) || Object.hasOwn(v,'bodyMarkdown') && !markdown(v.bodyMarkdown)) return 'BODY_TOO_LARGE';
     if (Object.hasOwn(v,'bodyMarkdown') && !v.bodyMarkdown.trim()) return 'CONTENT_EMPTY';
@@ -227,7 +232,7 @@ export class IssueContentController {
     const payload=copy(draft.value);
     if (draft.mode==='add-comment') payload.commentId=this.uuid();
     if (draft.mode==='edit-comment') Object.assign(payload,{commentId:draft.commentId,expectedCommentVersion:draft.baseVersion});
-    this.record.journal={state:'prepared',key:this.record.active,revision:draft.revision,attempts:0,checks:0,firstSubmittedAt:null,nextAllowedAt:0,command:{schemaVersion:1,workspaceId:this.session.workspaceId,workspaceEpoch:this.session.workspaceEpoch,operationId:this.uuid(),commandType:`Issue.${names[draft.mode]}`,entityId:draft.mode==='create'?this.uuid():draft.mode==='edit-comment'?draft.commentId:this.issueId,expectedVersion:draft.baseVersion,payload}};
+    this.record.journal={state:'prepared',...(draft.mode==='access'?{expectedAccessPolicyId:this.issue.accessPolicyId}:{}),key:this.record.active,revision:draft.revision,attempts:0,checks:0,firstSubmittedAt:null,nextAllowedAt:0,command:{schemaVersion:1,workspaceId:this.session.workspaceId,workspaceEpoch:this.session.workspaceEpoch,operationId:this.uuid(),commandType:draft.mode==='access'?'SetResourceAccess':`Issue.${names[draft.mode]}`,entityId:draft.mode==='create'?this.uuid():draft.mode==='edit-comment'?draft.commentId:this.issueId,expectedVersion:draft.baseVersion,payload}};
     this.touch();return this.dispatch();
   }
   apply(result) {
@@ -235,6 +240,7 @@ export class IssueContentController {
     if (result.kind==='committed') {
       const {meta,data}=result.body??{};
       if (meta?.workspaceId!==this.session.workspaceId || meta?.actorId!==this.session.principalId || meta?.operationId!==journal.command.operationId || data?.entityId!==journal.command.entityId || data?.outcome!=='committed' || typeof data.effectApplied!=='boolean' || !naturalVersion(data.committedVersion) || !integer(data.commitSeq)) return {kind:'ambiguous',code:'RECEIPT_BINDING_MISMATCH'};
+      if(journal.command.commandType==='SetResourceAccess'&&(!naturalVersion(data.policyVersion)||!naturalVersion(journal.command.payload.expectedPolicyVersion)||!id(journal.expectedAccessPolicyId)||data.accessPolicyId!==journal.expectedAccessPolicyId||data.policyVersion!==journal.command.payload.expectedPolicyVersion+(data.effectApplied?1:0)||data.committedVersion!==journal.command.expectedVersion+(data.effectApplied?1:0)))return {kind:'ambiguous',code:'RECEIPT_BINDING_MISMATCH'};
       journal.state='committed';journal.effectApplied=data.effectApplied;
       const draft=this.record.drafts[journal.key]; draft.ack=Math.max(draft.ack,journal.revision);draft.baseVersion=data.committedVersion;
       // A late keystroke is not part of the acknowledged command snapshot.
@@ -257,7 +263,7 @@ export class IssueContentController {
     }
     if (!this.current(generation)) return {kind:'stale'};
     await this.flush();if(!this.current(generation))return {kind:'stale'};
-    this.phase=result.kind==='rejected' && result.code==='VERSION_CONFLICT'?'conflict':result.kind;this.code=result.code??null;this.emit();return result;
+    this.phase=result.kind==='rejected' && ['VERSION_CONFLICT','POLICY_VERSION_CONFLICT'].includes(result.code)?'conflict':result.kind;this.code=result.code??null;this.emit();return result;
   }
   async dispatch() {
     if (this.locked || this.busy) return {kind:'stopped'};
@@ -353,7 +359,7 @@ export class IssueContentController {
     if(this.locked||this.busy||this.record.journal&&!terminal(this.record.journal))return {kind:'stopped'};
     const draft=this.record.drafts[this.record.active];
     if(draft.mode==='create')return {kind:'stopped'};
-    const latest=this.initial(draft.mode,draft.commentId);draft.baseVersion=latest.baseVersion;draft.conflict=false;this.touch();this.phase='editing';this.emit();this.scheduleFlush();return {kind:'rebased'};
+    const latest=this.initial(draft.mode,draft.commentId);draft.baseVersion=latest.baseVersion;if(draft.mode==='access')draft.value.expectedPolicyVersion=this.issue.policyVersion;draft.conflict=false;this.touch();this.phase='editing';this.emit();this.scheduleFlush();return {kind:'rebased'};
   }
   async loadMoreEntries() {
     if(this.locked||this.busy||!this.entriesCursor)return {kind:'stopped'};

@@ -18,11 +18,11 @@ export function executeResourceCommand(db,actor,c,{now,fault=()=>{}}={},handler)
   return handler({now,fault,save,reject:(code,targets)=>save(failure(code,'rejected'),targets)});
  });
 }
-export function commitResourceMutation(db,actor,c,{resource,version,revisionId=null,subresourceId=null,originalAuthorRef,beforeTitle='',afterTitle='',metadata={},now,fault=()=>{},save,targets,effectApplied=true}){
- if(!effectApplied)return save({data:{outcome:'committed',effectApplied:false,entityId:c.entityId,committedVersion:version,revisionId,commitSeq:get(db,'SELECT change_seq FROM workspace WHERE id=?',c.workspaceId).change_seq,serverTime:now},meta:{workspaceId:c.workspaceId,actorId:actor.principalId,operationId:c.operationId}},targets);
+export function commitResourceMutation(db,actor,c,{resource,version,revisionId=null,subresourceId=null,originalAuthorRef,beforeTitle='',afterTitle='',metadata={},resultMetadata={},now,fault=()=>{},save,targets,effectApplied=true}){
+ if(!effectApplied)return save({data:{outcome:'committed',effectApplied:false,entityId:c.entityId,committedVersion:version,revisionId,commitSeq:get(db,'SELECT change_seq FROM workspace WHERE id=?',c.workspaceId).change_seq,serverTime:now,...resultMetadata},meta:{workspaceId:c.workspaceId,actorId:actor.principalId,operationId:c.operationId}},targets);
  one(db,'UPDATE workspace SET change_seq=change_seq+1 WHERE id=?',c.workspaceId);const seq=get(db,'SELECT change_seq FROM workspace WHERE id=?',c.workspaceId).change_seq;fault('after_sequence');
  one(db,'INSERT INTO activity VALUES(?,?,?,?,?,?,?)',seq,resource.type==='issue'?resource.id:null,c.operationId,actor.principalId,beforeTitle,afterTitle,version);
  one(db,'INSERT INTO content_activity VALUES(?,?,?,?,?,?,?,?,?)',seq,resource.type,resource.id,c.commandType,subresourceId,revisionId,JSON.stringify(originalAuthorRef),actor.principalId,JSON.stringify(metadata));fault('after_activity');
  one(db,'INSERT INTO outbox VALUES(?,?,?,?)',`${actor.principalId}:${c.operationId}`,seq,JSON.stringify({resource,version,revisionId}),'pending');fault('after_outbox');
- const result=save({data:{outcome:'committed',effectApplied:true,entityId:c.entityId,committedVersion:version,revisionId,commitSeq:seq,serverTime:now},meta:{workspaceId:c.workspaceId,actorId:actor.principalId,operationId:c.operationId}},targets);fault('after_receipt');return result;
+ const result=save({data:{outcome:'committed',effectApplied:true,entityId:c.entityId,committedVersion:version,revisionId,commitSeq:seq,serverTime:now,...resultMetadata},meta:{workspaceId:c.workspaceId,actorId:actor.principalId,operationId:c.operationId}},targets);fault('after_receipt');return result;
 }

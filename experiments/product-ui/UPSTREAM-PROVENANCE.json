@@ -19,23 +19,24 @@
   },
   {
     "path": "vendor/client/issue-content.mjs",
-    "origin": "exact canonical Wiki integration candidate copy; final independent review pending",
+    "origin": "exact independently reviewed R05 policy source copy",
     "source": "experiments/atomic-command-poc/client/issue-content.mjs",
-    "sha256": "50f7c90f77ce1fa261a92b815621984c6f635c0d388ccb801ce35dbec1bf7027",
-    "priorPublishedSHA256": "5881771e1d14a42a8c9d5073947bf34b40ac7d29cdd524a283cda26188264f99"
+    "sha256": "ca36d6f79166e4928bb080a0eeb16486497e27fee0de6f23a9494a6f188240eb",
+    "priorPublishedSHA256": "50f7c90f77ce1fa261a92b815621984c6f635c0d388ccb801ce35dbec1bf7027"
   },
   {
     "path": "vendor/client/recovery.mjs",
-    "origin": "exact canonical Wiki integration candidate copy; final independent review pending",
+    "origin": "exact independently reviewed R05 policy source copy",
     "source": "experiments/atomic-command-poc/client/recovery.mjs",
-    "sha256": "022de9d8a27a37c80b0fa8594df46acab5fdcfa235d85e6aba8401b9f10fab3f",
-    "priorPublishedSHA256": "09192a623d1a4781f13082ec90bebcce8f7a19c1c8a0d1bddff512d5dbeb322a"
+    "sha256": "1762df0ea5bbde7ada9ed36ec747f3132c614eeacdf41a8a0cb69ba6e25e6983",
+    "priorPublishedSHA256": "022de9d8a27a37c80b0fa8594df46acab5fdcfa235d85e6aba8401b9f10fab3f"
   },
   {
     "path": "vendor/client/wiki-content.mjs",
-    "origin": "exact canonical Wiki integration candidate copy; final independent review pending",
+    "origin": "exact independently reviewed R05 policy source copy",
     "source": "experiments/atomic-command-poc/client/wiki-content.mjs",
-    "sha256": "c82ec2354108f55c60b1f9d02df389754af379381e10abd3413e7f2cf489e892"
+    "sha256": "837039d6e672206283e1273eca3d0e2c1bd4a986de1060a5bc7f8219307ba2bb",
+    "priorPublishedSHA256": "c82ec2354108f55c60b1f9d02df389754af379381e10abd3413e7f2cf489e892"
   },
   {
     "path": "vendor/client/wiki-create-record.mjs",
@@ -73,5 +74,11 @@
     "origin": "exact canonical Wiki integration candidate copy; final independent review pending",
     "source": "experiments/atomic-command-poc/src/link-parser.mjs",
     "sha256": "da8ec05152c9607cf79a497799d42b2a2431981d72bf0af7b04686f167396e5d"
+  },
+  {
+    "path": "vendor/client/access-policy.mjs",
+    "origin": "exact independently reviewed R05 policy source copy",
+    "source": "experiments/atomic-command-poc/client/access-policy.mjs",
+    "sha256": "8ac716a1c44defcab212549f407a91f76e14bde6e3175c24ff5b10ba2a424330"
   }
 ]

@@ -55,3 +55,14 @@ export function receiptScope(db,actor,row){
  if(scope.creation_rejection)return original.state==='known'&&scopeAllowed(db,actor,original.scope);
  return receiptRead(db,actor,{type:scope.resource_type,id:scope.resource_id})&&originalRead(db,actor,original,scope.access_snapshot_id,{type:scope.resource_type,id:scope.resource_id});
 }
+
+export function policyIdentity(db,resource){return get(db,'SELECT access_policy_id FROM resource_access_identity WHERE resource_type=? AND resource_id=?',resource.type,resource.id)?.access_policy_id??null;}
+export function currentManage(db,actor,resource){
+ const r=resourceScope(db,resource);if(!r||!currentWrite(db,actor,resource)||!hasScope(db,actor,'resource:manage'))return false;
+ const scopeId=r.scope.kind==='project'?r.scope.projectId:actor.workspaceId;
+ return get(db,'SELECT can_manage FROM scope_manage_grant WHERE principal_id=? AND scope_kind=? AND scope_id=?',actor.principalId,r.scope.kind,scopeId)?.can_manage===1;
+}
+export function accessProjection(db,actor,resource){
+ const p=resourcePolicy(db,resource),accessPolicyId=policyIdentity(db,resource),canManage=Boolean(accessPolicyId&&actor&&currentManage(db,actor,resource));
+ return {accessPolicyId,policyVersion:p?.policy_version??null,canManageAccess:canManage,...(actor&&currentManage(db,actor,resource)&&!accessPolicyId?{accessManagementError:'POLICY_MIGRATION_REQUIRED'}:{}),...(canManage?{accessPolicy:{mode:p.mode,readerPrincipalIds:JSON.parse(p.reader_principal_ids),writerPrincipalIds:JSON.parse(p.writer_principal_ids)}}:{})};
+}
