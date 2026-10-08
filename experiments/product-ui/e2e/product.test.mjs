@@ -236,13 +236,29 @@ test('temporary missing membership keeps unpersisted input locked in memory unti
 });
 test('native Back is canceled when protection fails, then Back/Forward restores the same protected draft',async t=>{
   const f=await setup(t);await createIssue(f);
-  const body=f.page.getByRole('textbox',{name:'Markdown body',exact:true});const detailURL=f.page.url();
-  await f.page.evaluate(()=>{window.fixtureTransaction=IDBDatabase.prototype.transaction;IDBDatabase.prototype.transaction=function(){throw new DOMException('Synthetic storage failure','QuotaExceededError');};});
-  await body.fill('native history retained draft');await f.page.getByText('protection-failed',{exact:false}).waitFor();
-  await f.page.evaluate(()=>history.back());await f.page.getByText('Navigation stopped:',{exact:false}).waitFor();
-  assert.equal(f.page.url(),detailURL);assert.equal(await body.inputValue(),'native history retained draft');
-  await f.page.evaluate(()=>{IDBDatabase.prototype.transaction=window.fixtureTransaction;delete window.fixtureTransaction;history.back();});
-  await f.page.getByRole('heading',{name:'Create issue',exact:true}).waitFor();
-  await f.page.evaluate(()=>history.forward());await body.waitFor();
-  assert.equal(f.page.url(),detailURL);assert.equal(await body.inputValue(),'native history retained draft');assert.deepEqual(f.errors,[]);
+  const body=f.page.getByRole('textbox',{name:'Markdown body',exact:true});
+  await phase(f.t,'history_locator_ready',()=>f.page.waitForURL(url=>url.searchParams.get('view')==='issue'&&url.searchParams.has('draftId')&&url.searchParams.has('projectAtProtection'),{timeout:10000}));
+  const detailURL=f.page.url();
+  await phase(f.t,'history_fault',async()=>{
+    await f.page.evaluate(()=>{window.fixtureTransaction=IDBDatabase.prototype.transaction;IDBDatabase.prototype.transaction=function(){throw new DOMException('Synthetic storage failure','QuotaExceededError');};});
+    await body.fill('native history retained draft');await f.page.getByText('protection-failed',{exact:false}).waitFor();
+  });
+  await phase(f.t,'history_cancel',async()=>{
+    await f.page.evaluate(()=>history.back());await f.page.getByText('Navigation stopped:',{exact:false}).waitFor();
+    await f.page.waitForURL(detailURL,{timeout:10000});
+  });
+  await phase(f.t,'history_cancel_verify',async()=>{assert.equal(f.page.url(),detailURL);assert.equal(await body.inputValue(),'native history retained draft');});
+  await phase(f.t,'history_back_ready',async()=>{
+    await f.page.evaluate(()=>{IDBDatabase.prototype.transaction=window.fixtureTransaction;delete window.fixtureTransaction;history.back();});
+    await f.page.getByRole('heading',{name:'Create issue',exact:true}).waitFor();
+    // The heading is present while locked; this action appears only after the
+    // committed create draft and current resource have been freshly verified.
+    await f.page.getByRole('button',{name:'Open created issue',exact:true}).waitFor();
+  });
+  await phase(f.t,'history_forward_ready',async()=>{
+    await f.page.evaluate(()=>history.forward());
+    await f.page.waitForFunction(issueBodyReady,undefined,{timeout:10000});
+    await body.waitFor();
+  });
+  await phase(f.t,'history_verify',async()=>{assert.equal(f.page.url(),detailURL);assert.equal(await body.inputValue(),'native history retained draft');assert.deepEqual(f.errors,[]);});
 });
