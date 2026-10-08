@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const root=fileURLToPath(new URL('..',import.meta.url));
 const sha=file=>createHash('sha256').update(readFileSync(file)).digest('hex');
 mkdirSync(root+'/evidence',{recursive:true});
-const suites=[['node','test'],['workerd','workerd'],['transport','transport-test'],['client','client-test'],['service','service-test']].map(([name,dir])=>[name,readdirSync(root+'/'+dir).filter(f=>f.endsWith('.test.mjs')).map(f=>dir+'/'+f)]);
+const suites=[['node','test'],['workerd','workerd'],['transport','transport-test'],['client','client-test'],['service','service-test'],['session','session-ports']].map(([name,dir])=>[name,readdirSync(root+'/'+dir).filter(f=>f.endsWith('.test.mjs')).map(f=>dir+'/'+f)]);
 suites.push(['release',readdirSync(root+'/release').filter(f=>f.endsWith('.test.mjs')).map(f=>'release/'+f)]);
 suites.push(['browser-fixture',['browser-test/fixture-authz.test.mjs']]);
 if(process.env.RUN_BROWSER==='1')suites.push(['browser',['browser-test/browser.test.mjs','browser-test/my-issues.test.mjs','browser-test/issue-content.test.mjs','browser-test/agent-workflow.test.mjs']]);

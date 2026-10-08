@@ -1,7 +1,9 @@
 import {queryClaim,queryResolutionRecords,queryCapabilities,queryAttemptCheckpoint,queryIssueAlias} from '../src/agent-workflow.mjs';
 import { DurableObject } from 'cloudflare:workers';
-import { randomBytes } from 'node:crypto';
+import { randomBytes,createHash } from 'node:crypto';
 import schema from '../src/schema.sql';
+import keySchema from '../session-ports/schema.sql';
+import {currentSession,draftKey,SessionPortError} from '../session-ports/server.mjs';
 import { executeCommand, operationGet, queryIssues, queryProjects, queryIssueEntries, queryContentRevisions, failure, validate } from '../src/shared-core.mjs';
 import { queryMyIssues } from '../src/my-issues.mjs';
 import { sqliteStore } from './store.mjs';
@@ -10,6 +12,7 @@ import { authenticate,AuthError } from './auth.mjs';
 import { route,body,queryArgs,error,failureResponse,resultResponse } from './http.mjs';
 // The only public operation is fetch(Request). There are no actor/RPC, schema,
 // SQL, enrollment, reset, key or fault-injection methods on this class.
+const schemaFingerprint=createHash('sha256').update(schema).update('\nI5-session-ports\n').update(keySchema).digest('hex');
 export class WorkspaceService extends DurableObject {
  #db;#supported=false;
  constructor(ctx,env){
@@ -18,17 +21,22 @@ export class WorkspaceService extends DurableObject {
    const existing=ctx.storage.sql.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").toArray();
    if(!existing.length)ctx.storage.transactionSync(()=>{
     ctx.storage.sql.exec(schema);
+    ctx.storage.sql.exec(keySchema);
     ctx.storage.sql.exec('INSERT INTO query_state VALUES(1,0,?)',randomBytes(32).toString('hex'));
     ctx.storage.sql.exec('CREATE TABLE identity_binding(issuer TEXT NOT NULL,subject TEXT NOT NULL,credential_id TEXT PRIMARY KEY,principal_id TEXT NOT NULL,kind TEXT NOT NULL)');
     ctx.storage.sql.exec('CREATE TABLE service_schema(id INTEGER PRIMARY KEY CHECK(id=1),version INTEGER NOT NULL)');
-    ctx.storage.sql.exec('INSERT INTO service_schema VALUES(1,4)');
+    ctx.storage.sql.exec('INSERT INTO service_schema VALUES(1,5)');
+    ctx.storage.sql.exec('CREATE TABLE service_schema_variant(id INTEGER PRIMARY KEY CHECK(id=1),fingerprint TEXT NOT NULL)');
+    ctx.storage.sql.exec('INSERT INTO service_schema_variant VALUES(1,?)',schemaFingerprint);
    });
    if(!ctx.storage.sql.exec("SELECT name FROM sqlite_master WHERE name='service_schema'").toArray().length)return;
-   this.#supported=ctx.storage.sql.exec('SELECT version FROM service_schema WHERE id=1').toArray()[0]?.version===4;
+   if(!ctx.storage.sql.exec("SELECT name FROM sqlite_master WHERE name='service_schema_variant'").toArray().length)return;
+   if(ctx.storage.sql.exec('SELECT fingerprint FROM service_schema_variant WHERE id=1').toArray()[0]?.fingerprint!==schemaFingerprint)return;
+   this.#supported=ctx.storage.sql.exec('SELECT version FROM service_schema WHERE id=1').toArray()[0]?.version===5;
   });
  }
  async fetch(request){
-  const started=Date.now();
+  const started=Date.now();let sessionError;
   try{
    const config=configuration(this.env),r=route(request,config);
    if(!this.ctx.id.equals(this.env.WORKSPACE.idFromName(r.workspaceId)))return error('WORKSPACE_MISMATCH',403);
@@ -39,11 +47,16 @@ export class WorkspaceService extends DurableObject {
     args=await body(request,Math.min(config.bodyDeadline,Math.max(1,config.deadline-(Date.now()-started))));
     const invalid=validate(args);if(invalid)throw new AuthError(invalid,invalid==='PRECONDITION_REQUIRED'?428:400);
     if(args.workspaceId!==r.workspaceId||request.headers.get('idempotency-key')!==args.operationId)throw new AuthError('ENVELOPE_MISMATCH',400);
-   }else args=queryArgs(r);
+   }else if(r.action==='draftKey'){
+    args=await body(request,config.bodyDeadline);
+    if(!args||typeof args!=='object'||Array.isArray(args)||Object.keys(args).some(k=>!['binding','keyId'].includes(k)))throw new AuthError('VALIDATION',400);
+    if(args.binding?.workspaceId!==r.workspaceId)throw new AuthError('WORKSPACE_MISMATCH',403);
+   }else if(r.action!=='session')args=queryArgs(r);
    if(Date.now()-started>=config.deadline)return error('REQUEST_TIMEOUT');
    // Identity mapping and current authority share one synchronous transaction.
    // No JWT role/scope or caller-supplied ActorContext is consulted.
    const result=this.#db.transactionSync(()=>{
+    if(['session','draftKey'].includes(r.action)){try{return r.action==='session'?currentSession(this.#db,verified,r.workspaceId).session:draftKey(this.#db,verified,args);}catch(e){if(e instanceof SessionPortError)sessionError=e;throw e;}}
     const workspace=this.#db.prepare('SELECT id FROM workspace').get();
     if(!workspace)return failure('STORE_UNINITIALIZED');
     if(workspace.id!==r.workspaceId)return failure('WORKSPACE_MISMATCH');
@@ -54,6 +67,6 @@ export class WorkspaceService extends DurableObject {
     return outcome.data&&['issue','projects','entries','revisions'].includes(r.action)?{...outcome,meta:{...outcome.meta,workspaceId:r.workspaceId,workspaceEpoch:args.workspaceEpoch,actorId:actor.principalId}}:outcome;
    });
    return resultResponse(result,r.kind);
-  }catch(e){return failureResponse(e);}
+  }catch(e){if(sessionError&&e.outcome==='not_committed')return error(sessionError.code,sessionError.status);return e instanceof SessionPortError?error(e.code,e.status):failureResponse(e);}
  }
 }

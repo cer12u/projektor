@@ -1,4 +1,4 @@
-// Run only in the same approved PR CI Chromium environment. Synthetic I2 service,
+// Run only in the approved PR CI Chromium environment. Actual I5 service with synthetic provider,
 // HTTP-only loopback fixture cookie and encrypted DraftVault. No real Access login.
 import {test as nodeTest,before,after} from 'node:test';
 import assert from 'node:assert/strict';
@@ -8,7 +8,6 @@ import {pathToFileURL} from 'node:url';
 import {chromium} from 'playwright';
 import {build} from 'vite';
 import {createBarrier,safePageLocation,gateFailureMessage} from './barrier.mjs';
-import {selectedFixtureSession} from './session-fixture.mjs';
 import {phase,resourcePhase,trace} from './trace.mjs';
 import {enterFixtureRoot} from './fixture-root.mjs';
 import {issueBodyReady} from './issue-ready.mjs';
@@ -17,8 +16,8 @@ function reportBarrierTimeout(label){
   trace('S00',label==='POST /v1/workspaces/:id/commands'?'gate_command':'gate_projects','timeout');
 }
 const root=resolve(import.meta.dirname,'..');
-const core=resolve(process.env.PROJEKTOR_CORE_SOURCE??resolve(root,'../projektor_agent_workflow_20261008/experiments/atomic-command-poc'));
-const {startHarness}=await phase(null,'suite_import',()=>import(pathToFileURL(resolve(core,'browser-test/server.mjs'))),15000);
+const core=resolve(process.env.PROJEKTOR_CORE_SOURCE??resolve(root,'../experiments/atomic-command-poc'));
+const {startHarness}=await phase(null,'suite_import',()=>import(pathToFileURL(resolve(core,'browser-test/session-server.mjs'))),15000);
 let browser,restoreFixtureRoot=()=>{};
 before(async()=>{
   await phase(null,'fixture_build',()=>build({root,configFile:resolve(root,'fixture.config.mjs')}),30000);
@@ -34,7 +33,7 @@ async function setup(t,{bootstrapMode='one'}={}){
     try{if(h)await phase(t,'fixture_close',()=>h.close(),10000);}catch(error){failure??=error;}
     if(failure)throw failure;
   });
-  h=await resourcePhase(t,'fixture_start',()=>startHarness(),'fixture_close',value=>value.close(),20000);
+  h=await resourcePhase(t,'fixture_start',()=>startHarness({bootstrapMode}),'fixture_close',value=>value.close(),20000);
   context=await resourcePhase(t,'context_open',()=>browser.newContext(),'context_close',value=>value.close(),10000);
   context.setDefaultTimeout(10000);context.setDefaultNavigationTimeout(20000);
   await phase(t,'fixture_login',()=>h.login(context,'A'),10000);
@@ -44,31 +43,6 @@ async function setup(t,{bootstrapMode='one'}={}){
   },10000);
   await context.route(h.base+'/**',async route=>{
     const url=new URL(route.request().url());
-    if(url.pathname==='/v1/session'){
-      // Fixture compatibility only. Product client keeps its strict selected
-      // workspace contract; no production route is changed by this test.
-      try{
-        const result=await selectedFixtureSession({url:url.href,method:route.request().method(),workspaceId:h.ids.workspace,readVerifiedSession:async()=>{
-          const response=await context.request.get(h.base+'/v1/session',{timeout:10000,maxRedirects:0});
-          if(response.headers()['content-type']?.split(';')[0].trim()!=='application/json')throw Error('FIXTURE_SESSION_PROTOCOL_ERROR');
-          return {status:response.status(),body:await response.json()};
-        }});
-        await route.fulfill({status:result.status,json:result.body,headers:{'cache-control':'no-store'}});
-      }catch{await route.fulfill({status:502,json:{error:{code:'FIXTURE_SESSION_UNAVAILABLE'}}});}
-      return;
-    }
-    if(url.pathname==='/v1/bootstrap'){
-      try{
-      const sourceSession=await context.request.get(h.base+'/v1/session',{timeout:10000,maxRedirects:0});
-      if(sourceSession.status()!==200||sourceSession.headers()['content-type']?.split(';')[0].trim()!=='application/json'){await route.fulfill({status:sourceSession.status()===200?502:sourceSession.status(),json:{error:{code:'FIXTURE_BOOTSTRAP_UNAVAILABLE'}}});return;}
-      const session=await sourceSession.json();
-      let workspaces=[{workspaceId:session.workspaceId,workspaceEpoch:session.workspaceEpoch,principalId:session.principalId,name:'Fixture workspace'}];
-      if(bootstrapMode==='zero')workspaces=[];
-      if(bootstrapMode==='multi')workspaces.push({workspaceId:'00000000-0000-4000-8000-000000000099',workspaceEpoch:'00000000-0000-4000-8000-000000000098',principalId:session.principalId,name:'Second fixture workspace'});
-      await route.fulfill({json:{principalId:bootstrapMode==='zero'?null:session.principalId,actorKind:'human',workspaces,expiresAt:session.expiresAt,serverTime:Date.now(),renewalMode:'not-connected'}});
-      }catch{await route.fulfill({status:502,json:{error:{code:'FIXTURE_BOOTSTRAP_UNAVAILABLE'}}});}
-      return;
-    }
     if(url.pathname==='/'||url.pathname.startsWith('/assets/')){
       const file=url.pathname==='/'?'fixture.html':url.pathname.slice(1);
       const contentType=extname(file)==='.html'?'text/html':extname(file)==='.css'?'text/css':'text/javascript';
@@ -78,7 +52,7 @@ async function setup(t,{bootstrapMode='one'}={}){
     await route.continue();
   });
   const page=await phase(t,'page_open',()=>context.newPage(),10000);page.on('pageerror',e=>errors.push(e.message));
-  return {t,h,context,page,requests,errors,cleanupGates,setBootstrapMode:mode=>{bootstrapMode=mode;}};
+  return {t,h,context,page,requests,errors,cleanupGates,setBootstrapMode:mode=>h.setBootstrapMode(mode)};
 }
 async function createIssue(f){
   await phase(f.t,'create_navigate',()=>f.page.goto(f.h.base+'/'),25000);
@@ -104,7 +78,12 @@ test('zero and multi bootstrap send no workspace-scoped query before valid selec
     const f=await setup(t,{bootstrapMode:mode});await f.page.goto(f.h.base+'/');
     await f.page.getByRole('heading',{name:mode==='zero'?'No workspace access':'Choose a workspace',exact:true}).waitFor();
     assert.equal(f.requests.length,0);
-    if(mode==='multi'){await f.page.getByRole('button',{name:'Fixture workspace',exact:true}).click();await f.page.getByRole('heading',{name:'My Issues',exact:true}).waitFor();}
+    if(mode==='multi'){
+      await f.page.getByRole('button',{name:f.h.ids.workspace,exact:true}).click();await f.page.getByRole('heading',{name:'My Issues',exact:true}).waitFor();
+      const first=await (await f.context.request.get(f.h.base+'/v1/session?workspaceId='+f.h.ids.workspace)).json();assert.equal(first.principalId,f.h.ids.actorA);
+      await f.page.getByRole('button',{name:'Choose workspace',exact:true}).click();await f.page.getByRole('button',{name:f.h.ids.secondWorkspace,exact:true}).click();await f.page.getByRole('heading',{name:'My Issues',exact:true}).waitFor();
+      const second=await (await f.context.request.get(f.h.base+'/v1/session?workspaceId='+f.h.ids.secondWorkspace)).json();assert.equal(second.principalId,f.h.ids.secondActorA);assert.notEqual(second.principalId,first.principalId);await f.page.locator('header').getByText(f.h.ids.secondActorA+' · Human',{exact:true}).waitFor();assert.ok(f.page.url().includes(f.h.ids.secondWorkspace));
+    }
     assert.deepEqual(f.errors,[]);
   }
 });
@@ -229,9 +208,9 @@ test('temporary missing membership keeps unpersisted input locked in memory unti
   await f.page.evaluate(()=>{window.fixtureTransaction=IDBDatabase.prototype.transaction;IDBDatabase.prototype.transaction=function(){throw new DOMException('Synthetic storage failure','QuotaExceededError');};});
   const body=f.page.getByRole('textbox',{name:'Markdown body',exact:true});
   await phase(f.t,'storage_fault',async()=>{await body.fill('latest unpersisted revision');await f.page.getByText('protection-failed',{exact:false}).waitFor();});
-  await phase(f.t,'membership_remove',async()=>{f.setBootstrapMode('zero');await f.page.evaluate(()=>{const c=new BroadcastChannel('projektor-session');c.postMessage({changed:true});c.close();});});
+  await phase(f.t,'membership_remove',async()=>{await f.setBootstrapMode('zero');await f.page.evaluate(()=>{const c=new BroadcastChannel('projektor-session');c.postMessage({changed:true});c.close();});});
   await phase(f.t,'membership_locked',async()=>{await f.page.getByRole('heading',{name:'No workspace access',exact:true}).waitFor();assert.equal(await body.count(),0);assert.ok(!(await f.page.locator('main').textContent()).includes('latest unpersisted revision'));});
-  await phase(f.t,'membership_restore',async()=>{await f.page.evaluate(()=>{IDBDatabase.prototype.transaction=window.fixtureTransaction;delete window.fixtureTransaction;});f.setBootstrapMode('one');await f.page.getByRole('button',{name:'Recheck workspace access',exact:true}).click();});
+  await phase(f.t,'membership_restore',async()=>{await f.page.evaluate(()=>{IDBDatabase.prototype.transaction=window.fixtureTransaction;delete window.fixtureTransaction;});await f.setBootstrapMode('one');await f.page.getByRole('button',{name:'Recheck workspace access',exact:true}).click();});
   await phase(f.t,'membership_verify',async()=>{await body.waitFor();assert.equal(await body.inputValue(),'latest unpersisted revision');assert.deepEqual(f.errors,[]);});
 });
 test('native Back is canceled when protection fails, then Back/Forward restores the same protected draft',async t=>{

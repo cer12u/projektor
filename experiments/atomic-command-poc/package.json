@@ -9,12 +9,13 @@
     "test": "node --test test/*.test.mjs",
     "verify": "node scripts/verify.mjs",
     "test:workerd": "node --test workerd/*.test.mjs",
-    "test:all": "npm test && npm run test:workerd && npm run test:transport && npm run test:client && npm run test:service",
+    "test:all": "npm test && npm run test:workerd && npm run test:transport && npm run test:client && npm run test:service && npm run test:session",
     "test:transport": "node --test transport-test/*.test.mjs",
     "test:client": "node --test client-test/*.test.mjs",
     "test:browser": "node --test browser-test/browser.test.mjs browser-test/my-issues.test.mjs browser-test/issue-content.test.mjs browser-test/agent-workflow.test.mjs",
     "test:service": "node --test service-test/*.test.mjs && npm run test:release",
-    "test:release": "node --experimental-vm-modules --test release/*.test.mjs"
+    "test:release": "node --experimental-vm-modules --test release/*.test.mjs",
+    "test:session": "node --test session-ports/*.test.mjs"
   },
   "devDependencies": {
     "miniflare": "4.20260730.0",

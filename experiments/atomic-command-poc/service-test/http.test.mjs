@@ -86,3 +86,15 @@ test('removed enrollment and automatic purge routes cannot create membership or 
 test('pre-I1 version 2 stores fail closed without implicit migration or mutation',async()=>{
  const old=legacy;const db=await storage(old);await db.exec('CREATE TABLE service_schema(id INTEGER PRIMARY KEY,version INTEGER NOT NULL)');await db.exec('INSERT INTO service_schema VALUES(1,2)');await mf.unsafeEvictDurableObject('product','WorkspaceService',{name:old.workspace});const r=await get(old,`my-issues?workspaceEpoch=${old.epoch}`);assert.equal(r.status,503);assert.equal((await r.json()).error.code,'STORE_SCHEMA_UNSUPPORTED');assert.deepEqual(await db.exec('SELECT * FROM preserved_source'),[{id:'old',value:'keep verbatim'}]);assert.deepEqual(await db.exec('SELECT version FROM service_schema'),[{version:2}]);
 });
+test('I5 selected ingress independently verifies credential, DO identity, schema fingerprint and no actor RPC',async()=>{
+ const ns=await mf.getDurableObjectNamespace('WORKSPACE'),stub=ns.get(ns.idFromName(b.workspace));
+ assert.equal((await stub.fetch(`${origin}/v1/workspaces/${a.workspace}/session`,{headers:headers()})).status,403);
+ assert.equal((await stub.fetch(`${origin}/v1/workspaces/${b.workspace}/session`,{headers:{'x-principal-id':b.actor}})).status,401);
+ assert.equal((await stub.fetch(`${origin}/v1/workspaces/${b.workspace}/session`,{headers:headers(jwt({sub:'unmapped-subject',principalId:b.actor}))})).status,401);
+ for(const method of ['currentSession','draftKey','browserSession','browserKey'])await assert.rejects(async()=>stub[method]({principalId:b.actor}));
+ const db=await storage(b),fingerprint=(await db.exec('SELECT fingerprint FROM service_schema_variant'))[0].fingerprint;
+ await db.exec("UPDATE service_schema_variant SET fingerprint='different-unpublished-v5-variant'");await mf.unsafeEvictDurableObject('product','WorkspaceService',{name:b.workspace});
+ const bad=await get(b,'session');assert.equal(bad.status,503);assert.equal((await bad.json()).error.code,'STORE_SCHEMA_UNSUPPORTED');
+ await db.exec('UPDATE service_schema_variant SET fingerprint=?',fingerprint);await db.exec('UPDATE service_schema SET version=4');await mf.unsafeEvictDurableObject('product','WorkspaceService',{name:b.workspace});
+ assert.equal((await get(b,'session')).status,503);assert.deepEqual(await db.exec('SELECT version FROM service_schema'),[{version:4}]);
+});

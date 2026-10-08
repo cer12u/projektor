@@ -9,7 +9,7 @@ function directoryConfig(value){
  if(!Array.isArray(value)||value.length>10||value.some(x=>!x||Object.keys(x).some(k=>!['workspaceId','name'].includes(k))||!isId(x.workspaceId)||typeof x.name!=='string'||!x.name||x.name.length>200)||new Set(value.map(x=>x.workspaceId)).size!==value.length)throw new SessionPortError('WORKSPACE_DIRECTORY_UNAVAILABLE',503);
  return value;
 }
-export function createSessionHTTP({verify,invokeStore,directory,origin,now=Date.now,requestDeadlineMs=5000}){
+export function createSessionHTTP({verify,invokeStore,directory,origin,now=Date.now,requestDeadlineMs=5000,trackPending=()=>{}}){
  const handle=async request=>{
   try{
    const url=new URL(request.url),path=url.pathname;
@@ -48,5 +48,5 @@ export function createSessionHTTP({verify,invokeStore,directory,origin,now=Date.
    return reply(await invokeStore({request,workspaceId:args.binding.workspaceId,action:'draft-key',args}));
   }catch(e){return error(e.code??'SESSION_SERVICE_UNAVAILABLE',e.status??503);}
  };
- return async request=>{let timer;try{return await Promise.race([handle(request),new Promise(resolve=>{timer=setTimeout(()=>resolve(error('SESSION_REQUEST_TIMEOUT')),requestDeadlineMs);})]);}finally{clearTimeout(timer);}};
+ return async request=>{let timer;try{const pending=handle(request);trackPending(pending);return await Promise.race([pending,new Promise(resolve=>{timer=setTimeout(()=>resolve(error('SESSION_REQUEST_TIMEOUT')),requestDeadlineMs);})]);}finally{clearTimeout(timer);}};
 }

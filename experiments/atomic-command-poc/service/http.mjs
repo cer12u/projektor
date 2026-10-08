@@ -9,7 +9,8 @@ export function route(request,config) {
  if(url.origin!==config.origin)throw new AuthError('ORIGIN_REJECTED',403);
  const tail=match[3],resource=tail.match(resourcePattern),alias=tail.match(new RegExp(`^projects/(${uuid})/issues/([1-9][0-9]{0,14})$`));
  let action,entityId,operationId,revisionId;
- if(alias)action='alias';
+ if(!match[1]&&['session','draft-keys'].includes(tail))action=tail==='session'?'session':'draftKey';
+ else if(alias)action='alias';
  else if(tail==='commands')action='command';
  else if(tail==='my-issues')action='myIssues';
  else if(tail==='capabilities')action='capabilities';
@@ -21,10 +22,10 @@ export function route(request,config) {
   if(action==='receipt')operationId=id;else entityId=id;
   revisionId=revision;
  }else throw new AuthError('NOT_FOUND',404);
- if(request.method!==(action==='command'?'POST':'GET'))throw new AuthError('METHOD_NOT_ALLOWED',405);
+ if(request.method!==(['command','draftKey'].includes(action)?'POST':'GET'))throw new AuthError('METHOD_NOT_ALLOWED',405);
  const kind=match[1]?'machine':'human';
- if(action==='command'&&url.search)throw new AuthError('VALIDATION',400);
- if(action==='command'&&kind==='human'&&(request.headers.get('origin')!==config.origin||request.headers.get('x-projektor-csrf')!=='same-origin'||(request.headers.has('sec-fetch-site')&&request.headers.get('sec-fetch-site')!=='same-origin')))throw new AuthError('CSRF_REJECTED',403);
+ if(['command','session','draftKey'].includes(action)&&url.search)throw new AuthError('VALIDATION',400);
+ if(['command','draftKey'].includes(action)&&kind==='human'&&(request.headers.get('origin')!==config.origin||request.headers.get('x-projektor-csrf')!=='same-origin'||(request.headers.has('sec-fetch-site')&&request.headers.get('sec-fetch-site')!=='same-origin')))throw new AuthError('CSRF_REJECTED',403);
  return {url,action,kind,workspaceId:match[2],entityId,operationId,revisionId,...(alias?{projectId:alias[1],number:Number(alias[2])}:{})};
 }
 export function response(body,status=200){return Response.json(body,{status,headers:{'cache-control':'no-store','x-content-type-options':'nosniff','referrer-policy':'no-referrer'}});}
