@@ -89,3 +89,7 @@ and one R2 binding. Its actual R2 binding name is taken only from the live snaps
 Lifecycle review requires matching RateLimiter namespace/class/export resolution,
 WorkspaceService namespace/class/SQLite migration tag, and rollback code/data evidence.
 These references require independent review; the preflight cannot authenticate approvals.
+
+## I1 graph review, 2026-10-08
+
+The expanded 12-file runtime graph was independently reviewed for the limited I1 Issue-content slice. The exact reviewed inventory is in `reviewed-product.json`. Its sourceCommit identifies the already published parent baseline `69e9e2ca6876c95808dd09968beb7358545cfe5a`; it does not claim the new local I1 bytes have been published. Publication evidence must bind the final new remote head separately. The schema gate now admits only fresh I1 v3 stores and rejects old v2 stores without migration. This attestation does not authorize deployment, live data migration, Wiki integration, or real provider credentials.

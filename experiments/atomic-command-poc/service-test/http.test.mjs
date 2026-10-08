@@ -83,3 +83,6 @@ test('removed enrollment and automatic purge routes cannot create membership or 
  for(const method of ['autoJoin','autoProvisionMembership','purgeTrash'])await assert.rejects(async()=>await stub[method]());
  assert.deepEqual(await counts(),before);
 });
+test('pre-I1 version 2 stores fail closed without implicit migration or mutation',async()=>{
+ const old=legacy;const db=await storage(old);await db.exec('CREATE TABLE service_schema(id INTEGER PRIMARY KEY,version INTEGER NOT NULL)');await db.exec('INSERT INTO service_schema VALUES(1,2)');await mf.unsafeEvictDurableObject('product','WorkspaceService',{name:old.workspace});const r=await get(old,`my-issues?workspaceEpoch=${old.epoch}`);assert.equal(r.status,503);assert.equal((await r.json()).error.code,'STORE_SCHEMA_UNSUPPORTED');assert.deepEqual(await db.exec('SELECT * FROM preserved_source'),[{id:'old',value:'keep verbatim'}]);assert.deepEqual(await db.exec('SELECT version FROM service_schema'),[{version:2}]);
+});

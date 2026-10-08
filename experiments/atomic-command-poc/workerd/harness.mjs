@@ -14,6 +14,7 @@ export class FixtureWorkspace extends AtomicWorkspace {
   sql.exec('INSERT INTO issue_fts VALUES(?,?)',ids.issue,'original title');
  });return {seeded:true};}
  sql(statement,args=[]){return this.ctx.storage.sql.exec(statement,...args).toArray();}
+ contentSnapshot(){return Object.fromEntries(['workspace','issue','issue_queue','issue_content','issue_entry','issue_number','project_issue_counter','content_revision','access_snapshot','activity','content_activity','issue_fts','content_fts','outbox','operation','operation_scope','operation_targets'].map(t=>[t,this.ctx.storage.sql.exec(`SELECT * FROM ${t}`).toArray()]));}
  snapshot(){return Object.fromEntries(['workspace','issue','activity','issue_fts','outbox','operation'].map(t=>[t,this.ctx.storage.sql.exec(`SELECT * FROM ${t}`).toArray()]));}
  command(c,{faultAt,dropResponse=false}={}){
   const r=this.updateTitle(actor,c,{now,fault(step){if(step===faultAt)throw new Error('Injected callback failure');}});
@@ -30,7 +31,7 @@ export default {async fetch(request,env){
  const {object,action,args=[]}=await request.json();
  const stub=env.WORKSPACE.getByName(object);
  // Narrow dispatch used solely by the local test harness, never deployed.
- if(!['seed','sql','snapshot','command','lookup','query','myIssues'].includes(action))return new Response('',{status:404});
+ if(!['seed','sql','snapshot','contentSnapshot','command','lookup','query','myIssues'].includes(action))return new Response('',{status:404});
  try{return Response.json(await stub[action](...args));}
  catch(error) {console.error(error);return Response.json({error:{code:'TRANSPORT_UNKNOWN',outcome:'unknown',retryable:true}},{status:503});}
 }};

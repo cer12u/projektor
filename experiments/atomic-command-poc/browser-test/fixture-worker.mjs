@@ -3,6 +3,7 @@
 import ingress, { body } from '../transport/ingress.mjs';
 import { authenticate, AuthError } from '../transport/auth.mjs';
 import { AuthenticatedWorkspace } from '../transport/workspace.mjs';
+import { hasScope } from '../src/resource-access.mjs';
 import { canonical, failure, resourceReadable } from '../src/shared-core.mjs';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -18,7 +19,8 @@ function validBinding(binding) {
   && Object.keys(binding).length === bindingFields.length
   && Object.keys(binding).every(key => bindingFields.includes(key))
   && ['principalId','workspaceId','workspaceEpoch','resourceId','projectAtProtection','draftId'].every(key => validId(binding[key]))
-  && binding.resourceType === 'issue' && binding.editorId === 'title';
+  && ((binding.resourceType === 'issue' && ['title','content'].includes(binding.editorId))
+   || (binding.resourceType === 'project' && binding.editorId === 'issue-create')); 
 }
 
 export class BrowserFixtureWorkspace extends AuthenticatedWorkspace {
@@ -37,8 +39,10 @@ export class BrowserFixtureWorkspace extends AuthenticatedWorkspace {
   return this.ctx.storage.transactionSync(() => {
    const sql = this.ctx.storage.sql;
    sql.exec('INSERT INTO workspace VALUES(?,?,1,0)',ids.workspace,ids.epoch);
+   for(const project of [ids.project,ids.otherProject])sql.exec('INSERT INTO project VALUES(?,?,1,0)',project,'Content fixture project');
    for (const actor of [ids.actorA,ids.actorB]) {
     sql.exec('INSERT INTO membership VALUES(?,?,0,1)',actor,'human');
+    for(const scope of ['operations:read_own','issue:read','issue:write','comment:write','history:read'])sql.exec('INSERT INTO principal_scope VALUES(?,?)',actor,scope);
     for (const project of [ids.project,ids.otherProject]) sql.exec('INSERT INTO project_grant VALUES(?,?,1,1)',actor,project);
    }
    sql.exec('INSERT INTO issue VALUES(?,?,?,7,0)',ids.issue,ids.project,'original title');
@@ -61,6 +65,7 @@ export class BrowserFixtureWorkspace extends AuthenticatedWorkspace {
     this.ctx.storage.sql.exec('UPDATE credential SET expires_at=? WHERE id=?',expiresAt,credentialId);
    } else {
     this.ctx.storage.sql.exec('INSERT INTO credential VALUES(?,?,?,0,1,1)',credentialId,actor,expiresAt);
+    for(const scope of ['operations:read_own','issue:read','issue:write','comment:write','history:read'])this.ctx.storage.sql.exec('INSERT INTO credential_scope VALUES(?,?)',credentialId,scope);
     this.ctx.storage.sql.exec('INSERT INTO identity_binding VALUES(?,?,?,?,?)',issuer,subject,credentialId,actor,'human');
     this.ctx.storage.sql.exec('INSERT INTO browser_session VALUES(?,?,0)',credentialId,sessionId);
    }
@@ -84,7 +89,7 @@ export class BrowserFixtureWorkspace extends AuthenticatedWorkspace {
    principalId:actor.principalId,workspaceId:workspace.id,workspaceEpoch:workspace.epoch,
    actorKind:'human',authzVersion:this.row('SELECT authz_version FROM browser_fixture_state WHERE id=1').authz_version,
    sessionId:session.session_id,sessionEpoch:session.session_id,expiresAt,credentialExpiresAt:expiresAt,exp:Math.floor(expiresAt/1000),
-   scopes:credential.can_write ? ['issue:read','issue:write'] : ['issue:read']
+   scopes:this.ctx.storage.sql.exec('SELECT c.scope FROM credential_scope c JOIN principal_scope p ON p.scope=c.scope WHERE c.credential_id=? AND p.principal_id=? ORDER BY c.scope',verified.credentialId,actor.principalId).toArray().map(row=>row.scope).filter(scope=>credential.can_write||!scope.endsWith(':write'))
   };
  }
  browserSession(verified) { return this.ctx.storage.transactionSync(() => this.checkedSession(verified)); }
@@ -96,15 +101,27 @@ export class BrowserFixtureWorkspace extends AuthenticatedWorkspace {
    const binding = input.binding;
    if (binding.principalId !== session.principalId || binding.workspaceId !== session.workspaceId) return fail('DRAFT_SCOPE_MISMATCH');
    if (binding.workspaceEpoch !== session.workspaceEpoch) return fail('EPOCH_MISMATCH',409);
-   const issue = this.row('SELECT * FROM issue WHERE id=?',binding.resourceId);
-   if(issue && !resourceReadable(this.db,{principalId:session.principalId},issue.id))return fail('NOT_FOUND',404);
-   // Deletion, current resource grant, and the original protection project all
-   // gate key access. Workspace membership alone never permits key disclosure.
-   if (!issue || issue.deleted) return fail('NOT_FOUND',404);
-   for (const project of [issue.project_id,binding.projectAtProtection]) {
-    const grant = this.row('SELECT can_read FROM project_grant WHERE principal_id=? AND project_id=?',session.principalId,project);
-    if (!grant?.can_read) return fail('FORBIDDEN');
+   const actor={principalId:session.principalId,credentialId:verified.credentialId,actorKind:'human'};
+   const creating=binding.resourceType==='project';
+   const issue=creating?null:this.row('SELECT * FROM issue WHERE id=?',binding.resourceId);
+   const project=creating?this.row('SELECT * FROM project WHERE id=?',binding.resourceId):null;
+   const currentProject=creating?project?.id:issue?.project_id;
+   // Creation drafts are bound to a current writable project. Existing issue
+   // drafts retain both current-resource and original protection-scope gates.
+   if(creating){
+    if(!project||project.deleted)return fail('NOT_FOUND',404);
+    if(binding.projectAtProtection!==project.id)return fail('DRAFT_SCOPE_MISMATCH');
+    const grant=this.row('SELECT can_read,can_write FROM project_grant WHERE principal_id=? AND project_id=?',session.principalId,project.id);
+    const credential=this.row('SELECT can_write FROM credential WHERE id=?',verified.credentialId);
+    if(!grant?.can_read||!grant.can_write||!credential?.can_write||!hasScope(this.db,actor,'issue:write')||!hasScope(this.db,actor,'issue:read'))return fail('FORBIDDEN');
+   }else{
+    if(!issue||issue.deleted)return fail('NOT_FOUND',404);
    }
+   for(const projectId of [currentProject,binding.projectAtProtection]){
+    const grant=this.row('SELECT can_read FROM project_grant WHERE principal_id=? AND project_id=?',session.principalId,projectId);
+    if(!grant?.can_read)return fail('FORBIDDEN');
+   }
+   if(!creating&&!resourceReadable(this.db,actor,issue.id))return fail('NOT_FOUND',404);
    const encoded = canonical(binding);
    let key = input.keyId
     ? this.row('SELECT * FROM draft_key WHERE key_id=?',input.keyId)
@@ -116,7 +133,7 @@ export class BrowserFixtureWorkspace extends AuthenticatedWorkspace {
    if (!key) {
     // New protection starts at the actual current project, never a caller-
     // selected unrelated project. Moves retain the original stored binding.
-    if (binding.projectAtProtection !== issue.project_id) return fail('DRAFT_SCOPE_MISMATCH');
+    if (binding.projectAtProtection !== currentProject) return fail('DRAFT_SCOPE_MISMATCH');
     const now = Date.now();
     key = {key_id:crypto.randomUUID(),binding_json:encoded,key_base64:btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(32)))),created_at:now,expires_at:now+7*86400000,revoked:0};
     this.ctx.storage.sql.exec('INSERT INTO draft_key VALUES(?,?,?,?,?,0)',key.key_id,key.binding_json,key.key_base64,key.created_at,key.expires_at);
@@ -146,6 +163,18 @@ export class BrowserFixtureWorkspace extends AuthenticatedWorkspace {
  issue(verified, args) {
   const checked = this.checkedSession(verified);
   return checked.error ? failure(checked.error.code === 'SESSION_EXPIRED' ? 'EXPIRED' : 'FORBIDDEN') : super.issue(verified,args);
+ }
+ projects(verified,args) {
+  const checked=this.checkedSession(verified);
+  return checked.error?failure(checked.error.code==='SESSION_EXPIRED'?'EXPIRED':'FORBIDDEN'):super.projects(verified,args);
+ }
+ entries(verified,args) {
+  const checked=this.checkedSession(verified);
+  return checked.error?failure(checked.error.code==='SESSION_EXPIRED'?'EXPIRED':'FORBIDDEN'):super.entries(verified,args);
+ }
+ revisions(verified,args) {
+  const checked=this.checkedSession(verified);
+  return checked.error?failure(checked.error.code==='SESSION_EXPIRED'?'EXPIRED':'FORBIDDEN'):super.revisions(verified,args);
  }
  receipt(verified, args) {
   const checked = this.checkedSession(verified);

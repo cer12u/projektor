@@ -45,7 +45,7 @@ test('artifact permits only exact declared exports; parses without executing can
 });
 test('reviewed real product graph validates; hidden source mutation rejects',async()=>{
  const review=JSON.parse(await readFile(new URL('./reviewed-product.json',import.meta.url),'utf8'));
- assert.equal((await validateArtifact(root,review)).files,9);
+ assert.equal((await validateArtifact(root,review)).files,Object.keys(review.files).length);
  const dir=await mkdtemp(join(tmpdir(),'projektor-graph-'));
  for(const file of Object.keys(review.files)){await mkdir(join(dir,file,'..'),{recursive:true});await cp(join(root,file),join(dir,file));}
  await writeFile(join(dir,'service/entry.mjs'),(await readFile(join(dir,'service/entry.mjs'),'utf8')).replace('async fetch','async scheduled(){},async fetch'));

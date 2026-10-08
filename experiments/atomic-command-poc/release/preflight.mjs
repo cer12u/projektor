@@ -88,7 +88,7 @@ export async function validateArtifact(root, review) {
  await entry.link(async (specifier,ref)=>{
   if(['cloudflare:workers','node:crypto','node:buffer'].includes(specifier)){
    // Parsing-only stand-in: no runtime code runs during this check.
-   const stubs={'cloudflare:workers':'export class DurableObject {}','node:crypto':'export const randomBytes=0,createHash=0,createHmac=0,timingSafeEqual=0;','node:buffer':'export const Buffer=0;'};
+   const stubs={'cloudflare:workers':'export class DurableObject {}','node:crypto':'export const randomBytes=0,randomUUID=0,createHash=0,createHmac=0,timingSafeEqual=0;','node:buffer':'export const Buffer=0;'};
    return new SourceTextModule(stubs[specifier]);
   }
   if(!specifier.startsWith('./')&&!specifier.startsWith('../'))fail('external import');

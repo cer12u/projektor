@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { queryMyIssues } from '../src/my-issues.mjs';
 import { DurableObject } from 'cloudflare:workers';
 import schema from '../src/schema.sql';
-import { StorageFailure, executeCommand, operationGet, queryIssues, failure } from '../src/shared-core.mjs';
+import { StorageFailure, executeCommand, operationGet, queryIssues, queryProjects, queryIssueEntries, queryContentRevisions, failure } from '../src/shared-core.mjs';
 
 // A statement adapter, not a database mock: every operation calls workerd SQLite.
 export function sqliteStore(storage) {
@@ -46,4 +46,14 @@ export class AtomicWorkspace extends DurableObject {
  getIssues(actor,args,now) {
   try{return queryIssues(this.db,actor,args,now);}catch{return failure('UNAVAILABLE','unknown');}
  }
+ getProjects(actor,args,now) {
+  try{return queryProjects(this.db,actor,args,now);}catch{return failure('UNAVAILABLE','unknown');}
+ }
+ getIssueEntries(actor,args,now) {
+  try{return queryIssueEntries(this.db,actor,args,now);}catch{return failure('UNAVAILABLE','unknown');}
+ }
+ getContentRevisions(actor,args,now) {
+  try{return queryContentRevisions(this.db,actor,args,now);}catch{return failure('UNAVAILABLE','unknown');}
+ }
+
 }

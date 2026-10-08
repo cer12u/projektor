@@ -1,5 +1,5 @@
 {
-  "sourceCommit": "caa65d78580812be8117a703c0743be82ee349cf",
+  "sourceCommit": "69e9e2ca6876c95808dd09968beb7358545cfe5a",
   "entrypoint": "service/entry.mjs",
   "exports": [
     "WorkspaceService",
@@ -9,11 +9,14 @@
     "service/auth.mjs": "11d3d0df9392212b569ae52ba3b4d136dd515041bd038feee4823ee209054428",
     "service/config.mjs": "23b730f38b700a3eae5313e5ec9d062f7ded28f6ffc2bcaadfcbf19bdc51c912",
     "service/entry.mjs": "6eb37c6eed47e2107a2507eb29754f223764d2ef754e4a80030d08d5f70faacf",
-    "service/http.mjs": "39ac9aa114dc3d96377122872273643a5ec1a7a58902be7c14692f0b8e997382",
+    "service/http.mjs": "fba94c1dde8b4f7b721055d486f9a07e870a0fffa75d05ec4617fa8b61025e59",
     "service/store.mjs": "bf4e96cd39df75e85c5a0ede8d4fb86b534093b3f3cbe56c5a56c0e917b9e939",
-    "service/workspace.mjs": "9cdf7ddfa3d1a32ec2db173c3da2ddcb4a06f85ffe3dccf9521a75b15236d46e",
-    "src/my-issues.mjs": "e4af45036c80d72856841788d2475c3814246736fa05477ba2f88812e0affdb5",
-    "src/schema.sql": "c49603a30c96b38da33334b7191ae2a82538f1519e5e73a8769c95764358362b",
-    "src/shared-core.mjs": "3694020e1da7315a8b145dcaa4c58869e110fa29ca6ca9fc2d208bc084b845a5"
+    "service/workspace.mjs": "f06be8a2ce109bab6bd2b04935ee0845e51755328fabbe42266207d251dd5a2e",
+    "src/content-page.mjs": "00be9872142d18885b845cf399b1ba8d9d33bf751f1f4631a3b10f87613e2800",
+    "src/issue-content.mjs": "e42328012941d78a7fac881096624a7a465f0d89771da8e0cb8ce63d5f3b18fb",
+    "src/my-issues.mjs": "906b1a0178dc6fcb8413dbf9d5facb88f5fc2509ce2f48bfd47225b2945d3d8a",
+    "src/resource-access.mjs": "4bff3e762906a111e34d3b65e990bf6fbee314f2a61eeb833a204fe58378ef71",
+    "src/schema.sql": "2005a83b6c9ffe3c8a20df1c02cad343ade4ee13498faf35a280703844bc14e9",
+    "src/shared-core.mjs": "187d80d788baa197bade865b256d551278205e46d74e377afef10a996cea5c2d"
   }
 }

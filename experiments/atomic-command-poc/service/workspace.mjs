@@ -1,7 +1,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { randomBytes } from 'node:crypto';
 import schema from '../src/schema.sql';
-import { executeCommand, operationGet, queryIssues, failure, validate } from '../src/shared-core.mjs';
+import { executeCommand, operationGet, queryIssues, queryProjects, queryIssueEntries, queryContentRevisions, failure, validate } from '../src/shared-core.mjs';
 import { queryMyIssues } from '../src/my-issues.mjs';
 import { sqliteStore } from './store.mjs';
 import { configuration } from './config.mjs';
@@ -20,10 +20,10 @@ export class WorkspaceService extends DurableObject {
     ctx.storage.sql.exec('INSERT INTO query_state VALUES(1,0,?)',randomBytes(32).toString('hex'));
     ctx.storage.sql.exec('CREATE TABLE identity_binding(issuer TEXT NOT NULL,subject TEXT NOT NULL,credential_id TEXT PRIMARY KEY,principal_id TEXT NOT NULL,kind TEXT NOT NULL)');
     ctx.storage.sql.exec('CREATE TABLE service_schema(id INTEGER PRIMARY KEY CHECK(id=1),version INTEGER NOT NULL)');
-    ctx.storage.sql.exec('INSERT INTO service_schema VALUES(1,1)');
+    ctx.storage.sql.exec('INSERT INTO service_schema VALUES(1,3)');
    });
    if(!ctx.storage.sql.exec("SELECT name FROM sqlite_master WHERE name='service_schema'").toArray().length)return;
-   this.#supported=ctx.storage.sql.exec('SELECT version FROM service_schema WHERE id=1').toArray()[0]?.version===1;
+   this.#supported=ctx.storage.sql.exec('SELECT version FROM service_schema WHERE id=1').toArray()[0]?.version===3;
   });
  }
  async fetch(request){
@@ -49,7 +49,8 @@ export class WorkspaceService extends DurableObject {
     const rows=this.#db.prepare('SELECT principal_id,credential_id FROM identity_binding WHERE issuer=? AND subject=? AND kind=? LIMIT 2').all(verified.issuer,verified.subject,r.kind);
     if(rows.length!==1)return failure('UNAUTHENTICATED');
     const row=rows[0],actor={...verified,workspaceId:r.workspaceId,credentialId:row.credential_id,principalId:row.principal_id};
-    return r.action==='command'?executeCommand(this.#db,actor,args):r.action==='myIssues'?queryMyIssues(this.#db,actor,args):r.action==='issue'?queryIssues(this.#db,actor,args):operationGet(this.#db,actor,args);
+    const outcome=r.action==='command'?executeCommand(this.#db,actor,args):r.action==='myIssues'?queryMyIssues(this.#db,actor,args):r.action==='issue'?queryIssues(this.#db,actor,args):r.action==='projects'?queryProjects(this.#db,actor,args):r.action==='entries'?queryIssueEntries(this.#db,actor,args):r.action==='revisions'?queryContentRevisions(this.#db,actor,args):operationGet(this.#db,actor,args);
+    return outcome.data&&['issue','projects','entries','revisions'].includes(r.action)?{...outcome,meta:{...outcome.meta,workspaceId:r.workspaceId,workspaceEpoch:args.workspaceEpoch,actorId:actor.principalId}}:outcome;
    });
    return resultResponse(result,r.kind);
   }catch(e){return failureResponse(e);}

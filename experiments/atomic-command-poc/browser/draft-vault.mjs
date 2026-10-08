@@ -3,7 +3,8 @@ export const canonical = value => value && typeof value === 'object'
  ? Array.isArray(value) ? `[${value.map(canonical).join(',')}]` : `{${Object.keys(value).sort().map(k=>`${JSON.stringify(k)}:${canonical(value[k])}`).join(',')}}`
  : JSON.stringify(value);
 const bytes = value => new TextEncoder().encode(value);
-const b64 = value => btoa(String.fromCharCode(...new Uint8Array(value)));
+// Content drafts may exceed the engine's argument-count limit. Encode in chunks.
+const b64 = value => {const bytes=new Uint8Array(value);let text='';for(let i=0;i<bytes.length;i+=32768)text+=String.fromCharCode(...bytes.subarray(i,i+32768));return btoa(text);};
 const un64 = value => Uint8Array.from(atob(value),c=>c.charCodeAt(0));
 const digest = async value => b64(await crypto.subtle.digest('SHA-256',bytes(canonical(value))));
 export const bindingKey = b => canonical(b);

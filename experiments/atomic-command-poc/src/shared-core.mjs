@@ -1,3 +1,7 @@
+import { CONTENT_COMMANDS, validateContent, executeContentCommand, issueProjection, captureAccess } from './issue-content.mjs';
+import { currentRead, currentWrite, receiptScope } from './resource-access.mjs';
+export { currentRead, currentWrite, historicRead, receiptScope } from './resource-access.mjs';
+export { queryProjects, queryIssueEntries, queryContentRevisions, queryArchiveRecord } from './issue-content.mjs';
 import { createHash } from 'node:crypto';
 import { Buffer } from 'node:buffer';
 export const HASH_VERSION='command-json-v1';
@@ -10,8 +14,9 @@ export function validate(c){
   const keys=['schemaVersion','workspaceId','workspaceEpoch','operationId','commandType','entityId','expectedVersion','payload'];
   if(Object.keys(c).some(k=>!keys.includes(k)))return 'VALIDATION';
   if(c.schemaVersion!==1)return 'SCHEMA_UNSUPPORTED';
-  if(!['workspaceId','workspaceEpoch','operationId','entityId'].every(k=>validId(c[k]))||c.commandType!=='Issue.UpdateTitle')return 'VALIDATION';
+  if(!['workspaceId','workspaceEpoch','operationId','entityId'].every(k=>validId(c[k]))||!['Issue.UpdateTitle',...CONTENT_COMMANDS].includes(c.commandType))return 'VALIDATION';
   if(c.expectedVersion===undefined)return 'PRECONDITION_REQUIRED';
+  if(CONTENT_COMMANDS.includes(c.commandType))return validateContent(c);
   if(!Number.isSafeInteger(c.expectedVersion)||c.expectedVersion<1)return 'VALIDATION';
   if(!plain(c.payload)||Object.keys(c.payload).length!==1||typeof c.payload.title!=='string'||!c.payload.title.isWellFormed()||Buffer.byteLength(c.payload.title)>4096)return 'VALIDATION';
   return null;
@@ -39,8 +44,7 @@ export function authorized(db,actor,workspaceId,epoch,now){
   return null;
 }
 export function resourceReadable(db,actor,issueId){
- const q=get(db,'SELECT restricted_read FROM issue_queue WHERE issue_id=?',issueId);
- return !q?.restricted_read || Boolean(get(db,'SELECT can_read FROM issue_read_grant WHERE issue_id=? AND principal_id=?',issueId,actor.principalId)?.can_read);
+ return currentRead(db,actor,{type:'issue',id:issueId});
 }
 function can(db,actor,project,mode){
  const cred=get(db,'SELECT * FROM credential WHERE id=?',actor.credentialId);
@@ -48,6 +52,7 @@ function can(db,actor,project,mode){
  return Boolean(cred?.['can_'+mode]&&grant?.['can_'+mode]);
 }
 function visibleReceipt(db,actor,row){
+ const scoped=receiptScope(db,actor,row);if(scoped!==null)return scoped;
  if(!get(db,'SELECT read_own FROM membership WHERE principal_id=?',actor.principalId)?.read_own)return false;
  const current=get(db,'SELECT * FROM issue WHERE id=?',row.entity_id);
  if(row.project_at_commit===null)return Boolean(get(db,'SELECT can_read FROM credential WHERE id=?',actor.credentialId)?.can_read);
@@ -63,9 +68,10 @@ export function transaction(db,fn){
  catch{try{db.exec('ROLLBACK');}catch{throw new StorageFailure('unknown');}throw new StorageFailure('not_committed');}
 }
 export const MUTATION_STEPS=['before_issue','after_issue','after_sequence','after_activity','after_fts_delete','after_fts_insert','after_outbox','after_receipt'];
-export function executeCommand(db,actor,c,{now,fault=()=>{}}={}){
+export function executeCommand(db,actor,c,{now,fault=()=>{},contentLinks=null}={}){
  const invalid=validate(c);if(invalid)return failure(invalid);
  if(!actor||typeof actor!=='object')return failure('UNAUTHENTICATED');
+ if(CONTENT_COMMANDS.includes(c.commandType))return executeContentCommand(db,actor,c,{now,fault,contentLinks});
  const hash=fingerprint(actor,c);
  return transaction(db,()=>{
   fault('before_authorization');
@@ -80,11 +86,11 @@ export function executeCommand(db,actor,c,{now,fault=()=>{}}={}){
   const currentCredential=get(db,'SELECT can_read,can_write FROM credential WHERE id=?',actor.credentialId);
   if(!currentCredential.can_read||!currentCredential.can_write)return failure('FORBIDDEN');
   const issue=get(db,'SELECT * FROM issue WHERE id=?',c.entityId);
-  const save=(result,receiptProject=issue?.project_id??null)=>{one(db,'INSERT INTO operation VALUES(?,?,?,?,?,?,?,?)',c.workspaceId,actor.principalId,c.operationId,HASH_VERSION,hash,c.entityId,receiptProject,JSON.stringify(result));return result;};
+  const save=(result,receiptProject=issue?.project_id??null)=>{one(db,'INSERT INTO operation VALUES(?,?,?,?,?,?,?,?)',c.workspaceId,actor.principalId,c.operationId,HASH_VERSION,hash,c.entityId,receiptProject,JSON.stringify(result));if(receiptProject&&get(db,'SELECT 1 FROM resource_access WHERE resource_type=? AND resource_id=?','issue',c.entityId)){const a=captureAccess(db,{type:'issue',id:c.entityId});one(db,'INSERT INTO operation_scope VALUES(?,?,?,?,?,?,?,0)',c.workspaceId,actor.principalId,c.operationId,'issue',c.entityId,JSON.stringify(a.originalScope),a.accessSnapshotId);}return result;};
   // No target details are returned for permission rejection.
   if(issue&&(!resourceReadable(db,actor,issue.id)||!can(db,actor,issue.project_id,'read')))return save(failure('NOT_FOUND','rejected'),null);
   // Restricted-resource write contracts are not implemented by this read-only slice.
-  if(issue&&get(db,'SELECT restricted_read FROM issue_queue WHERE issue_id=?',issue.id)?.restricted_read)return save(failure('FORBIDDEN','rejected'));
+  if(issue&&(get(db,'SELECT restricted_read FROM issue_queue WHERE issue_id=?',issue.id)?.restricted_read||!currentWrite(db,actor,{type:'issue',id:issue.id})))return save(failure('FORBIDDEN','rejected'));
   if(issue&&!can(db,actor,issue.project_id,'write'))return save(failure('FORBIDDEN','rejected'));
   if(!issue||issue.deleted)return save(failure('NOT_FOUND','rejected'),null);
   if(c.payload.title.trim().length===0)return save(failure('TITLE_EMPTY','rejected'));
@@ -117,6 +123,6 @@ export function queryIssues(db,actor,{workspaceId,workspaceEpoch,entityId},now){
  return transaction(db,()=>{now ??= Date.now();const denied=authorized(db,actor,workspaceId,workspaceEpoch,now);if(denied)return failure(denied,'unknown');
  if(!get(db,'SELECT can_read FROM credential WHERE id=?',actor.credentialId)?.can_read)return failure('FORBIDDEN');
  const rows=db.prepare('SELECT * FROM issue WHERE deleted=0 ORDER BY id').all().filter(r=>resourceReadable(db,actor,r.id)&&can(db,actor,r.project_id,'read'));
- if(entityId){const row=rows.find(r=>r.id===entityId);return row?{data:row}:failure('NOT_FOUND');}
- return {data:{items:rows,nextCursor:null}};});
+ if(entityId){const row=rows.find(r=>r.id===entityId);return row?{data:issueProjection(db,row)}:failure('NOT_FOUND');}
+ return {data:{items:rows.map(row=>issueProjection(db,row)),nextCursor:null}};});
 }

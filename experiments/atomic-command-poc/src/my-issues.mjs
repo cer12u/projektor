@@ -16,7 +16,9 @@ export function normalizeMyIssues(args) {
 // One predicate for page and count; ACL and assignment apply before LIMIT.
 export function myIssuesPredicate(actor,q) {
  const where=[`i.deleted=0`,`q.assignee_id=?`,`EXISTS(SELECT 1 FROM project_grant g WHERE g.principal_id=? AND g.project_id=i.project_id AND g.can_read=1)`,`(q.restricted_read=0 OR EXISTS(SELECT 1 FROM issue_read_grant r WHERE r.issue_id=i.id AND r.principal_id=? AND r.can_read=1))`];
- const values=[actor.principalId,actor.principalId,actor.principalId];
+ where.push(`(NOT EXISTS(SELECT 1 FROM resource_access ra WHERE ra.resource_type='issue' AND ra.resource_id=i.id AND ra.mode='restricted') OR EXISTS(SELECT 1 FROM resource_access ra,json_each(ra.reader_principal_ids) reader WHERE ra.resource_type='issue' AND ra.resource_id=i.id AND ra.mode='restricted' AND reader.value=?))`);
+ where.push(`(NOT EXISTS(SELECT 1 FROM resource_access ra WHERE ra.resource_type='issue' AND ra.resource_id=i.id) OR (EXISTS(SELECT 1 FROM principal_scope ps WHERE ps.principal_id=? AND ps.scope='issue:read') AND EXISTS(SELECT 1 FROM credential_scope cs WHERE cs.credential_id=? AND cs.scope='issue:read')))`);
+ const values=[actor.principalId,actor.principalId,actor.principalId,actor.principalId,actor.principalId,actor.credentialId];
  if(q.status==='unresolved')where.push(`q.status_category NOT IN ('done','canceled')`);
  if(q.projectId!==null){where.push('i.project_id=?');values.push(q.projectId);}
  return {where:where.join(' AND '),values};

@@ -47,7 +47,9 @@ export async function boundedAttempt(run, deadlineMs, signal) {
 }
 
 const definitive = new Set(['VALIDATION', 'SCHEMA_UNSUPPORTED', 'TITLE_EMPTY', 'PRECONDITION_REQUIRED',
-  'NOT_FOUND', 'VERSION_CONFLICT', 'KEY_REUSE', 'EPOCH_MISMATCH', 'WORKSPACE_MISMATCH']);
+  'NOT_FOUND', 'VERSION_CONFLICT', 'KEY_REUSE', 'EPOCH_MISMATCH', 'WORKSPACE_MISMATCH',
+  'BODY_TOO_LARGE', 'CONTENT_EMPTY', 'ASSIGNEE_INVALID', 'PARENT_INVALID', 'ENTITY_EXISTS',
+  'COMMENT_EXISTS', 'COMMENT_FORBIDDEN', 'PROJECT_NOT_FOUND', 'LINK_INTEGRATION_UNAVAILABLE']);
 
 /** One HTTP attempt only: never refresh, redirect, or retry a command here. */
 export function createFetchTransport({baseUrl, fetchImpl = globalThis.fetch, prefix = '/machine/v1',
@@ -194,14 +196,14 @@ export class OperationCoordinator {
   #session; #transport; #draft; #revision = 0; #ack = -1; #journal = null;
   #locked = false; #destroyed = false; #flight = null; #controller = null;
   #now; #sleep; #delays; #deadline; #attemptDeadline; #maxRetries; #maxReceipts;
-  #used = new Set(); #unsub; #resourceProject; #random;
+  #used = new Set(); #unsub; #resourceProject; #resourceEntity; #random;
   constructor({session, transport, initialDraft = null, now = Date.now, sleep = delay,
     retryDelaysMs = [1000, 3000, 10000], recoveryDeadlineMs = 60000,
-    attemptDeadlineMs = 15000, maxRetries = 3, maxReceipts = 6, resourceProjectId, random = Math.random}) {
+    attemptDeadlineMs = 15000, maxRetries = 3, maxReceipts = 6, resourceProjectId, resourceEntityId, random = Math.random}) {
     this.#session = session; this.#transport = transport; this.#draft = clone(initialDraft);
     this.#now = now; this.#sleep = sleep; this.#delays = retryDelaysMs;
     this.#deadline = recoveryDeadlineMs; this.#attemptDeadline = attemptDeadlineMs;
-    this.#resourceProject = resourceProjectId; this.#random = random;
+    this.#resourceProject = resourceProjectId; this.#resourceEntity = resourceEntityId; this.#random = random;
     this.#maxRetries = Math.min(3, Math.max(0, maxRetries)); this.#maxReceipts = Math.min(6, Math.max(0, maxReceipts));
     this.#unsub = session.subscribe(event => {
       if (event !== 'authenticated') this.#locked = true;
@@ -249,11 +251,13 @@ export class OperationCoordinator {
   #apply(journal, result) {
     if (result.kind === 'committed') {
       const {data, meta} = result.body ?? {};
+      const noOp = ['Issue.UpdateBody','Issue.Assign','Issue.SetPriority','Issue.EditComment'].includes(journal.command.commandType)
+        && data?.effectApplied === false && data.committedVersion === journal.command.expectedVersion;
       if (meta?.actorId !== journal.binding.principalId || meta.workspaceId !== journal.command.workspaceId
         || meta.operationId !== journal.command.operationId || data?.entityId !== journal.command.entityId
-        || data.outcome !== 'committed' || data.effectApplied !== true
+        || data.outcome !== 'committed' || (data.effectApplied !== true && !noOp)
         || !Number.isSafeInteger(data.committedVersion) || data.committedVersion < 1
-        || !Number.isSafeInteger(data.commitSeq) || data.commitSeq < 1) result = ambiguous('RECEIPT_BINDING_MISMATCH');
+        || !Number.isSafeInteger(data.commitSeq) || data.commitSeq < (noOp ? 0 : 1)) result = ambiguous('RECEIPT_BINDING_MISMATCH');
     }
     if (result.kind === 'committed') {
       journal.state = 'committed'; this.#ack = Math.max(this.#ack, journal.revision);
@@ -322,14 +326,17 @@ export class OperationCoordinator {
         this.#locked = true;
         if (!this.#resourceProject) { this.#locked = true; return stopped('RESOURCE_SCOPE_UNVERIFIED'); }
         if (!this.#transport.readResource) return stopped('RESOURCE_REVALIDATION_REQUIRED');
-        const resource = await boundedAttempt(s => this.#transport.readResource({command: clone(journal.command), session, signal: s}), Math.min(10000, this.#attemptDeadline), signal);
+        // Comment receipts remain bound to the comment; current authorization is
+        // checked on its explicitly supplied parent Issue. Never mutate journal.
+        const resourceCommand = {...clone(journal.command), entityId: this.#resourceEntity ?? journal.command.entityId};
+        const resource = await boundedAttempt(s => this.#transport.readResource({command: resourceCommand, session, signal: s}), Math.min(10000, this.#attemptDeadline), signal);
         if (signal.aborted) return stopped('CANCELLED');
         if (!this.#valid(journal, epoch)) return stopped('AUTH_EPOCH_CHANGED');
         if (resource.kind !== 'resource') {
           if (['auth-required', 'forbidden'].includes(resource.kind)) this.#apply(journal, resource);
           return stopped('RESOURCE_REVALIDATION_FAILED');
         }
-        if (resource.body?.data?.id !== journal.command.entityId) return stopped('RESOURCE_BINDING_MISMATCH');
+        if (resource.body?.data?.id !== resourceCommand.entityId) return stopped('RESOURCE_BINDING_MISMATCH');
         if (resource.body.data.project_id !== this.#resourceProject) {
           this.#locked = true;
           return stopped('RESOURCE_SCOPE_CHANGED');

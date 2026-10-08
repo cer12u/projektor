@@ -10,6 +10,7 @@ export class AuthenticatedWorkspace extends AtomicWorkspace {
   if(!row || row.kind!==verified.actorKind)return null;
   return {...verified,principalId:row.principal_id};
  }
+ bind(result,actor,args){return result.data?{...result,meta:{...result.meta,workspaceId:args.workspaceId,workspaceEpoch:args.workspaceEpoch,actorId:actor.principalId}}:result;}
  // Internal binding only: no fetch handler and no route accepting actor fields.
  command(verified,command) {
   const actor=this.actor(verified);
@@ -17,7 +18,7 @@ export class AuthenticatedWorkspace extends AtomicWorkspace {
  }
  issue(verified,args) {
   const actor=this.actor(verified);
-  return actor ? this.getIssues(actor,args) : failure('UNAUTHENTICATED');
+  return actor ? this.bind(this.getIssues(actor,args),actor,args) : failure('UNAUTHENTICATED');
  }
  myIssues(verified,args) {
   const actor=this.actor(verified);
@@ -27,4 +28,17 @@ export class AuthenticatedWorkspace extends AtomicWorkspace {
   const actor=this.actor(verified);
   return actor ? this.getOperation(actor,args) : failure('UNAUTHENTICATED');
  }
+ projects(verified,args) {
+  const actor=this.actor(verified);
+  return actor ? this.bind(this.getProjects(actor,args),actor,args) : failure('UNAUTHENTICATED');
+ }
+ entries(verified,args) {
+  const actor=this.actor(verified);
+  return actor ? this.bind(this.getIssueEntries(actor,args),actor,args) : failure('UNAUTHENTICATED');
+ }
+ revisions(verified,args) {
+  const actor=this.actor(verified);
+  return actor ? this.bind(this.getContentRevisions(actor,args),actor,args) : failure('UNAUTHENTICATED');
+ }
+
 }
