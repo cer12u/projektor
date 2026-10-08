@@ -1,3 +1,4 @@
+import {readMCPRatePolicy} from '../service/mcp-rate.mjs';
 // Read-only release preflight. It never deploys, creates resources, or mutates data.
 import { strictJson } from './strict-json.mjs';
 import { createHash } from 'node:crypto';
@@ -14,7 +15,7 @@ const same = (a,b,label) => { if (!isDeepStrictEqual(a,b)) fail(label); };
 const text = value => typeof value === 'string' && value.length > 0 && value===value.trim() && value.trim().length>0 && !/[\p{Cc}\p{Surrogate}]/u.test(value) && !/PLACEHOLDER|REQUIRES_|UNVERIFIED/i.test(value);
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 const removed = /auto.?join|auto.?provision|trash.?purge|purge.?trash|cron|scheduled/i;
-const varNames = ['APP_ORIGIN','WORKSPACE_IDS','REQUEST_TIMEOUT_MS','BODY_TIMEOUT_MS','PROVIDER_CONFIG'];
+const varNames = ['APP_ORIGIN','WORKSPACE_IDS','REQUEST_TIMEOUT_MS','BODY_TIMEOUT_MS','PROVIDER_CONFIG','MCP_RATE_LIMIT_CONFIG'];
 
 export function validateProfile(profile, observed) {
  exact(profile, ['schemaVersion','sourceCommit','worker','hostname','compatibilityDate','compatibilityFlags','entrypoint','vars','bindings','schedules','observability','expectedDeploymentVersion','workspaceBinding','lifecycleReview'], 'profile');
@@ -30,6 +31,7 @@ export function validateProfile(profile, observed) {
  exact(profile.vars,varNames,'service vars');
  if (Object.keys(profile.vars).some(key=>removed.test(key))) fail('removed capability');
  const v=profile.vars;
+ if(!readMCPRatePolicy(v.MCP_RATE_LIMIT_CONFIG))fail('explicit bounded MCP invocation rate policy required');
  if(v.APP_ORIGIN!=='https://projektor.cerutech.net')fail('origin');
  let ids; try { ids=strictJson(v.WORKSPACE_IDS); } catch { fail('workspace registry'); }
  if(!Array.isArray(ids)||ids.length<1||ids.length>10||new Set(ids).size!==ids.length||ids.some(id=>typeof id!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(id))) fail('workspace registry');

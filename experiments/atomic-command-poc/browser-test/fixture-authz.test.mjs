@@ -50,3 +50,12 @@ test('real command still commits exactly once and postcommit response loss is re
  c.operationId=randomUUID();c.expectedVersion=8;c.payload.title='TEST_ONLY_DROP_AFTER_COMMIT';assert.equal((await send()).status,503);
  const r=await fetch(`${f.h.base}/v1/workspaces/${f.h.ids.workspace}/operations/${c.operationId}?workspaceEpoch=${f.h.ids.epoch}`,{headers:f.headers()});assert.equal(r.status,200);assert.equal((await r.json()).data.outcome,'committed');assert.equal((await f.h.control('effects')).operation,2);
 });
+test('legacy browser fixture serves the exact Issue client policy dependency while keeping other source private',async t=>{
+ const h=await startHarness();t.after(()=>h.close());const {readFile}=await import('node:fs/promises');
+ for(const path of ['client/recovery.mjs','client/issue-content.mjs','client/access-policy.mjs']){
+  const r=await fetch(h.base+'/'+path);assert.equal(r.status,200,path);assert.match(r.headers.get('content-type'),/^text\/javascript/);assert.match(r.headers.get('cache-control'),/no-store/);assert.equal(r.headers.get('x-content-type-options'),'nosniff');assert.equal(await r.text(),await readFile(new URL('../'+path,import.meta.url),'utf8'));
+ }
+ assert.equal((await fetch(h.base+'/client/access-policy.mjs',{method:'POST'})).status,405);
+ const head=await fetch(h.base+'/client/access-policy.mjs',{method:'HEAD'});assert.equal(head.status,200);assert.equal(await head.text(),'');
+ for(const path of ['/client/agent-workflow.mjs','/client/unknown.mjs','/src/resource-policy.mjs','/src/schema.sql','/client/%2e%2e/src/schema.sql'])assert.equal((await fetch(h.base+path)).status,404,path);
+});

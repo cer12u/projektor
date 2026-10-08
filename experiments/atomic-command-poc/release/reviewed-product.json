@@ -1,21 +1,26 @@
 {
-  "sourceCommit": "13da5980811aee08d1d05b395101ec37a6d7a783",
+  "sourceCommit": "0a8d28dbd473b148b88279c09320abbe45ee01f4",
   "entrypoint": "service/entry.mjs",
   "exports": [
     "WorkspaceService",
     "default"
   ],
   "files": {
+    "release/strict-json.mjs": "05a75c638e8a24cd1fcd63e27e97d37eb52d7df338c93c20a6bbe434bb821a34",
     "service/auth.mjs": "11d3d0df9392212b569ae52ba3b4d136dd515041bd038feee4823ee209054428",
     "service/config.mjs": "23b730f38b700a3eae5313e5ec9d062f7ded28f6ffc2bcaadfcbf19bdc51c912",
-    "service/entry.mjs": "75ad596543ce1b2498df669c93e3c52d3e157c902bf8707646e4882496aa4e2d",
-    "service/http.mjs": "009f31bdd92628a3ddc576b13599be876f9d9bfa31f0d0f37d6c64785f59c44f",
+    "service/entry.mjs": "4c016726c0cd72977ddb18ca21e148a5e3e4123cef856524bbc598626b645968",
+    "service/http.mjs": "995c2c2c1b2598e1d5a9ad035043965107beaadec6e8e0fa0605d523f6c76a3b",
+    "service/mcp-rate.mjs": "b46f911dd722c2b55d29ae11acdd985a25941ebec09360d349a0899d68212363",
+    "service/mcp-tools.mjs": "4ab9b7d6f51d7eb4809915c2ba238066174bd995f83f7a7c4e0c0826ac9aaf8b",
+    "service/mcp.mjs": "f36c5bc8608b94b9239afabd034a550aa7973c1d0fbe5fcc304d7d8dca7bf0c5",
     "service/store.mjs": "bf4e96cd39df75e85c5a0ede8d4fb86b534093b3f3cbe56c5a56c0e917b9e939",
-    "service/workspace.mjs": "df370596d4085229280cfd673a492c21bb02364cc93d02aa4db22ad826c8298d",
+    "service/workspace.mjs": "020d8269cc2299f92d78ecae0e2a7ab0769a7ff6726fb97e4e2382effb8f1d94",
     "session-ports/http.mjs": "67c56fdb7e970d5c03e05f5b8c79c3114b451aa334f0646586aad2eaa0ac7ddc",
     "session-ports/schema.sql": "a40b654403df7d3ef62676c49a6f08172fdce8c1134d0f153628dca7d63f1ab9",
     "session-ports/server.mjs": "fc988ea95739f698f70cf52acbbe1d45b2fd437eca3f1f0492da51e41fc7999f",
-    "src/agent-workflow.mjs": "42073c72970371c15d396be74a3745b13c82f135a7b712d5868f510e8ca1ad84",
+    "src/adapters.mjs": "dbf9c571d0d16cb85d941ac9c9c45f339b3d29a27ca848053987318cdb4098c5",
+    "src/agent-workflow.mjs": "6ab9da7bee25e9d28a6bb8e09038cf3a9ad290e5d68c5e61bd7d027a04eabb5a",
     "src/command-pipeline.mjs": "e187fdb9a8d484968def847be829253610b31fd33d601df50a3fe775a63e4c5c",
     "src/content-links.mjs": "057ed6a1a781d4ce6908fa15d179fb7fb8aab0624e7ddde6c055e0d8d3ac3cff",
     "src/content-page.mjs": "468c62d6abbd592eeaec46f744533dba480dbff4da8d3883b0ff79bdf3af3d44",
@@ -27,6 +32,6 @@
     "src/schema.sql": "e359566315df483c1188f86b31fe811df8335d2403e56e44aef747b1dada1b4b",
     "src/shared-core.mjs": "96331c6db79654367dd970db40bbc94586b2b6def82b2a78435b9cba55c19392",
     "src/wiki-surface.mjs": "7462c6258602b3335cd19c38443b447e3d80381179bdf0fe7ff6c9c54bb973de",
-    "src/wiki.mjs": "73e2c8a6d836e994fb2b1640ecd26a6bbbc8ee90076a4825b92ee234a0a4ef2c"
+    "src/wiki.mjs": "b7a51dd2a061f7090ffe01628745796253fe93d6d501551983abc85a7473e928"
   }
 }

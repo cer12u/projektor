@@ -54,9 +54,9 @@ export async function startHarness() {
    let pathname = decodeURIComponent(url.pathname);
    if (pathname === '/') pathname = '/browser/index.html';
    // Browser assets and explicitly allowed browser-safe client modules only.
-   if (!pathname.startsWith('/browser/') && !['/client/recovery.mjs','/client/issue-content.mjs'].includes(pathname)) {outgoing.writeHead(404,headers);outgoing.end('Not found');return;}
+   if (!pathname.startsWith('/browser/') && !['/client/recovery.mjs','/client/issue-content.mjs','/client/access-policy.mjs'].includes(pathname)) {outgoing.writeHead(404,headers);outgoing.end('Not found');return;}
    const file = resolve(root,`.${pathname}`);
-   if (!file.startsWith(resolve(root,'browser')+sep) && !['client/recovery.mjs','client/issue-content.mjs'].map(path=>resolve(root,path)).includes(file)) {outgoing.writeHead(404,headers);outgoing.end('Not found');return;}
+   if (!file.startsWith(resolve(root,'browser')+sep) && !['client/recovery.mjs','client/issue-content.mjs','client/access-policy.mjs'].map(path=>resolve(root,path)).includes(file)) {outgoing.writeHead(404,headers);outgoing.end('Not found');return;}
    if (!(await stat(file)).isFile()) throw Error('Not a file');
    outgoing.writeHead(200,{...headers,'content-type':mime[extname(file)] ?? 'application/octet-stream'});
    outgoing.end(incoming.method === 'HEAD' ? undefined : await readFile(file));

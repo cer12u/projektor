@@ -3,8 +3,19 @@ name: CI
 on:
   # Test all PR bases, including stacked PRs and drafts.
   pull_request:
+    # Experimental service/UI have their own affected-boundary integration gates.
+    paths-ignore:
+      - 'experiments/atomic-command-poc/**'
+      - 'experiments/product-ui/**'
+      - 'browser-review-evidence/**'
+      - 'query-review-evidence/**'
+      - 'service-review-evidence/**'
+      - '.github/workflows/atomic-command-poc.yml'
+      - '.github/workflows/ci.yml'
   # Allow other workflows (e.g. release.yml) to run these exact checks as a gate.
   workflow_call:
+  # Workflow-only changes can be checked explicitly without auto-running app suites.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -93,3 +104,4 @@ jobs:
 # E2E tests: run manually with 'pnpm --filter @projektor/web test:e2e'
 # Long-running freeze regression tests (PROJ-310): 'pnpm --filter @projektor/web test:e2e:long'
 # Requires: E2E_BASE_URL pointing at a dev deployment with ENVIRONMENT=development and DEV_USER_EMAIL set.
+

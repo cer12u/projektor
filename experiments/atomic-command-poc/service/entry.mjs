@@ -1,3 +1,4 @@
+import {mcpFailure} from './mcp.mjs';
 import { configuration } from './config.mjs';
 import { authenticate } from './auth.mjs';
 import { createSessionHTTP } from '../session-ports/http.mjs';
@@ -5,7 +6,7 @@ import { SessionPortError } from '../session-ports/server.mjs';
 import { route,error,failureResponse } from './http.mjs';
 export { WorkspaceService } from './workspace.mjs';
 export default {async fetch(request,env,ctx){
- let timer;
+ let timer,isMCP=false;
  try{
   const config=configuration(env);
   if(['/v1/bootstrap','/v1/session','/v1/draft-keys'].includes(new URL(request.url).pathname)) {
@@ -21,16 +22,17 @@ export default {async fetch(request,env,ctx){
     }});
    const pending=handle(request);ctx.waitUntil(pending.then(()=>{},()=>{}));return await pending;
   }
-  const r=route(request,config);
+  const r=route(request,config);isMCP=r.action==='mcp';
+  const unavailable=code=>isMCP?mcpFailure(code):error(code);
   const started=Date.now();
   const pending=(async()=>{
    const verified=await authenticate(request,env,r.kind);
-   if(Date.now()-started>=config.deadline)return error('TRANSPORT_TIMEOUT');
+   if(Date.now()-started>=config.deadline)return unavailable('TRANSPORT_TIMEOUT');
    return env.WORKSPACE.get(env.WORKSPACE.idFromName(r.workspaceId)).fetch(request);
   })();
   // A response timeout is not cancellation or proof of rollback. Register the
   // admitted request's actual settlement with the runtime until it finishes.
   ctx.waitUntil(pending.then(()=>{},()=>{}));
-  return await Promise.race([pending,new Promise(resolve=>{timer=setTimeout(()=>resolve(error('TRANSPORT_TIMEOUT')),config.deadline);})]);
- }catch(e){return failureResponse(e);}finally{clearTimeout(timer);}
+  return await Promise.race([pending,new Promise(resolve=>{timer=setTimeout(()=>resolve(unavailable('TRANSPORT_TIMEOUT')),config.deadline);})]);
+ }catch(e){return isMCP?mcpFailure(e?.code??'TRANSPORT_UNKNOWN',e?.status??503):failureResponse(e);}finally{clearTimeout(timer);}
 }};

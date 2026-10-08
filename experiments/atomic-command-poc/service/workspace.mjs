@@ -1,11 +1,15 @@
-import {wikiQuery,wikiMCP,wikiCommandTools,validateWikiQuery} from '../src/wiki-surface.mjs';
+import {readMCPRatePolicy} from './mcp-rate.mjs';
+import {createMCPTransport,mcpError,mcpFailure} from './mcp.mjs';
+import {listMCPTools,callMCPTool} from './mcp-tools.mjs';
+import {strictJson} from '../release/strict-json.mjs';
+import {wikiQuery} from '../src/wiki-surface.mjs';
 import {queryClaim,queryResolutionRecords,queryCapabilities,queryAttemptCheckpoint,queryIssueAlias} from '../src/agent-workflow.mjs';
 import { DurableObject } from 'cloudflare:workers';
 import { randomBytes,createHash } from 'node:crypto';
 import schema from '../src/schema.sql';
 import keySchema from '../session-ports/schema.sql';
 import {currentSession,draftKey,SessionPortError} from '../session-ports/server.mjs';
-import { executeCommand, operationGet, queryIssues, queryProjects, queryIssueEntries, queryContentRevisions, failure, validate } from '../src/shared-core.mjs';
+import { executeCommand, operationGet, queryIssues, queryProjects, queryIssueEntries, queryContentRevisions, failure, validate, authorized } from '../src/shared-core.mjs';
 import { queryMyIssues } from '../src/my-issues.mjs';
 import { sqliteStore } from './store.mjs';
 import { configuration } from './config.mjs';
@@ -15,9 +19,10 @@ import { route,body,queryArgs,error,failureResponse,resultResponse } from './htt
 // SQL, enrollment, reset, key or fault-injection methods on this class.
 const schemaFingerprint=createHash('sha256').update(schema).update('\nI5-session-ports\n').update(keySchema).update('\nWiki-precreate-binding-v1\nWiki-deleted-protection-v1\n').digest('hex');
 export class WorkspaceService extends DurableObject {
- #db;#supported=false;
+ #db;#supported=false;#mcp;
  constructor(ctx,env){
   super(ctx,env);this.#db=sqliteStore(ctx.storage);
+  this.#mcp=createMCPTransport({rateLimit:readMCPRatePolicy(env.MCP_RATE_LIMIT_CONFIG),listTools:listMCPTools,callTool:(name,args,actor)=>callMCPTool(this.#db,actor,name,args)});
   ctx.blockConcurrencyWhile(async()=>{
    const existing=ctx.storage.sql.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").toArray();
    if(!existing.length)ctx.storage.transactionSync(()=>{
@@ -37,23 +42,23 @@ export class WorkspaceService extends DurableObject {
   });
  }
  async fetch(request){
-  const started=Date.now();let sessionError;
+  const started=Date.now();let sessionError,rpc,isMCP=false;
   try{
-   const config=configuration(this.env),r=route(request,config);
+   const config=configuration(this.env),r=route(request,config);isMCP=r.action==='mcp';
    if(!this.ctx.id.equals(this.env.WORKSPACE.idFromName(r.workspaceId)))return error('WORKSPACE_MISMATCH',403);
    const verified=await authenticate(request,this.env,r.kind);
-   if(!this.#supported||this.#db.prepare('SELECT version FROM service_schema WHERE id=1').get()?.version!==5||this.#db.prepare('SELECT fingerprint FROM service_schema_variant WHERE id=1').get()?.fingerprint!==schemaFingerprint)return error('STORE_SCHEMA_UNSUPPORTED');
-   let args,rpc;
+   if(!this.#supported||this.#db.prepare('SELECT version FROM service_schema WHERE id=1').get()?.version!==5||this.#db.prepare('SELECT fingerprint FROM service_schema_variant WHERE id=1').get()?.fingerprint!==schemaFingerprint)return isMCP?mcpFailure('STORE_SCHEMA_UNSUPPORTED'):error('STORE_SCHEMA_UNSUPPORTED');
+   let args;
    if(r.action==='command'){
     args=await body(request,Math.min(config.bodyDeadline,Math.max(1,config.deadline-(Date.now()-started))));
     const invalid=validate(args);if(invalid)throw new AuthError(invalid,invalid==='PRECONDITION_REQUIRED'?428:400);
     if(args.workspaceId!==r.workspaceId||request.headers.get('idempotency-key')!==args.operationId)throw new AuthError('ENVELOPE_MISMATCH',400);
-   }else if(r.action==='mcp'){rpc=await body(request,config.bodyDeadline);if(!rpc||rpc.jsonrpc!=='2.0'||!['string','number'].includes(typeof rpc.id)||rpc.method!=='tools/call'||!rpc.params||Object.keys(rpc).some(k=>!['jsonrpc','id','method','params'].includes(k))||Object.keys(rpc.params).some(k=>!['name','arguments'].includes(k)))throw new AuthError('VALIDATION',400);args=rpc.params.arguments;if(Object.hasOwn(wikiCommandTools,rpc.params.name)){const invalid=validate(args);if(invalid||args.commandType!==wikiCommandTools[rpc.params.name])throw new AuthError(invalid??'VALIDATION',400);if(request.headers.get('idempotency-key')!==args.operationId)throw new AuthError('ENVELOPE_MISMATCH',400);}else if(validateWikiQuery(rpc.params.name,args))throw new AuthError('VALIDATION',400);if(args.workspaceId!==r.workspaceId)throw new AuthError('ENVELOPE_MISMATCH',400);}else if(r.action==='draftKey'){
+   }else if(r.action==='mcp'){if(request.method==='POST'){try{rpc=await body(request,config.bodyDeadline,strictJson);}catch(e){if(e.code==='VALIDATION')return mcpError(-32700,'Parse error');throw e;}}}else if(r.action==='draftKey'){
     args=await body(request,config.bodyDeadline);
     if(!args||typeof args!=='object'||Array.isArray(args)||Object.keys(args).some(k=>!['binding','keyId'].includes(k)))throw new AuthError('VALIDATION',400);
     if(args.binding?.workspaceId!==r.workspaceId)throw new AuthError('WORKSPACE_MISMATCH',403);
    }else if(r.action!=='session')args=queryArgs(r);
-   if(Date.now()-started>=config.deadline)return error('REQUEST_TIMEOUT');
+   if(Date.now()-started>=config.deadline)return isMCP?mcpFailure('REQUEST_TIMEOUT',503,rpc?.id):error('REQUEST_TIMEOUT');
    // Identity mapping and current authority share one synchronous transaction.
    // No JWT role/scope or caller-supplied ActorContext is consulted.
    const result=this.#db.transactionSync(()=>{
@@ -64,11 +69,13 @@ export class WorkspaceService extends DurableObject {
     const rows=this.#db.prepare('SELECT principal_id,credential_id FROM identity_binding WHERE issuer=? AND subject=? AND kind=? LIMIT 2').all(verified.issuer,verified.subject,r.kind);
     if(rows.length!==1)return failure('UNAUTHENTICATED');
     const row=rows[0],actor={...verified,workspaceId:r.workspaceId,credentialId:row.credential_id,principalId:row.principal_id};
+    if(isMCP){const w=this.#db.prepare('SELECT epoch FROM workspace WHERE id=?').get(r.workspaceId);const denied=authorized(this.#db,actor,r.workspaceId,w.epoch,Date.now());if(denied)return failure(denied);return this.#mcp(request,rpc,{...actor,epoch:w.epoch});}
     const wikiName={wiki:r.entityId?'wiki_get':'wiki_list',wikiRevisions:r.revisionId?'wiki_revision_get':'wiki_revision_list',wikiResolve:'wiki_resolve',links:'links_list',backlinks:'backlinks_list'}[r.action];
-    const outcome=r.action==='mcp'?wikiMCP(this.#db,actor,rpc.params):wikiName?wikiQuery(this.#db,actor,wikiName,args):r.action==='alias'?queryIssueAlias(this.#db,actor,args):r.action==='checkpoint'?queryAttemptCheckpoint(this.#db,actor,args):r.action==='capabilities'?queryCapabilities(this.#db,actor,args):r.action==='claim'?queryClaim(this.#db,actor,args):r.action==='resolutions'?queryResolutionRecords(this.#db,actor,args):r.action==='command'?executeCommand(this.#db,actor,args):r.action==='myIssues'?queryMyIssues(this.#db,actor,args):r.action==='issue'?queryIssues(this.#db,actor,args):r.action==='projects'?queryProjects(this.#db,actor,args):r.action==='entries'?queryIssueEntries(this.#db,actor,args):r.action==='revisions'?queryContentRevisions(this.#db,actor,args):operationGet(this.#db,actor,args);
+    const outcome=wikiName?wikiQuery(this.#db,actor,wikiName,args):r.action==='alias'?queryIssueAlias(this.#db,actor,args):r.action==='checkpoint'?queryAttemptCheckpoint(this.#db,actor,args):r.action==='capabilities'?queryCapabilities(this.#db,actor,args):r.action==='claim'?queryClaim(this.#db,actor,args):r.action==='resolutions'?queryResolutionRecords(this.#db,actor,args):r.action==='command'?executeCommand(this.#db,actor,args):r.action==='myIssues'?queryMyIssues(this.#db,actor,args):r.action==='issue'?queryIssues(this.#db,actor,args):r.action==='projects'?queryProjects(this.#db,actor,args):r.action==='entries'?queryIssueEntries(this.#db,actor,args):r.action==='revisions'?queryContentRevisions(this.#db,actor,args):operationGet(this.#db,actor,args);
     return outcome.data&&['issue','projects','entries','revisions'].includes(r.action)?{...outcome,meta:{...outcome.meta,workspaceId:r.workspaceId,workspaceEpoch:args.workspaceEpoch,actorId:actor.principalId}}:outcome;
    });
-   return resultResponse(rpc&&!result.error?{jsonrpc:'2.0',id:rpc.id,result}:result,r.kind);
-  }catch(e){if(sessionError&&e.outcome==='not_committed')return error(sessionError.code,sessionError.status);return e instanceof SessionPortError?error(e.code,e.status):failureResponse(e);}
+   if(isMCP){if(result instanceof Response)return result;const converted=resultResponse(result,r.kind);return mcpFailure(result.error?.code??'TRANSPORT_UNKNOWN',converted.status,rpc?.id);}
+   return resultResponse(result,r.kind);
+  }catch(e){if(isMCP)return mcpFailure(e instanceof AuthError?e.code:'TRANSPORT_UNKNOWN',e instanceof AuthError?e.status:503,rpc?.id);if(sessionError&&e.outcome==='not_committed')return error(sessionError.code,sessionError.status);return e instanceof SessionPortError?error(e.code,e.status):failureResponse(e);}
  }
 }

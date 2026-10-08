@@ -12,6 +12,9 @@ const obj=x=>x&&typeof x==='object'&&!Array.isArray(x)&&Object.getPrototypeOf(x)
 const text=x=>typeof x==='string'&&x.isWellFormed();
 const scope=x=>obj(x)&&(x.kind==='project'&&id(x.projectId)&&Object.keys(x).length===2||x.kind==='workspace_shared'&&Object.keys(x).length===1);
 const ref=x=>obj(x)&&['wiki','issue'].includes(x.type)&&id(x.id)&&Object.keys(x).length===2;
+// A legal4096-byte title can expand sixfold in signed cursor JSON.
+// 64KiB covers that worst-case base64 expansion plus bounded cursor metadata.
+export const WIKI_CURSOR_MAX_LENGTH=65536;
 export const WIKI_COMMANDS=['Wiki.Create','Wiki.Edit','Wiki.Rename','Wiki.MoveTree','Wiki.Trash','Wiki.Restore','Wiki.RestoreRevision','Content.ResolveLink'];
 export function validateWiki(c){
  const p=c.payload,t=c.commandType,fields={ 'Wiki.Create':['pageId','scope','parentId','title','slug','contentMarkdown','summary'],'Wiki.Edit':['title','contentMarkdown','summary','linkOccurrenceMap'],'Wiki.Rename':['title','slug'],'Wiki.MoveTree':['targetScope','targetParentId','targets'],'Wiki.Trash':['reason'],'Wiki.Restore':[],'Wiki.RestoreRevision':['revisionId','summary'],'Content.ResolveLink':['occurrenceId','sourceRevisionId','expectedBindingVersion','targetResource','sourceResource']}[t];
@@ -89,7 +92,7 @@ export function executeWikiCommand(db,actor,c,options={}){
  return commitResourceMutation(db,actor,c,{resource,version,revisionId,originalAuthorRef:row?.author_ref?JSON.parse(row.author_ref):nativeAuthor(actor),beforeTitle:row?.title??'',afterTitle:p.title??row?.title??'',metadata:{linkViewId,reason:p.reason,restoredFromRevisionId:sourceRevision?.id,targets:moving?.map(r=>({id:r.id,fromScope:JSON.parse(r.scope),toScope:p.targetScope,version:r.version+1}))},now,fault,save,targets});
  });
 }
-function query(db,actor,args,now,fn){if(!obj(args)||!id(args.workspaceId)||!id(args.workspaceEpoch)||args.limit!==undefined&&(!Number.isSafeInteger(args.limit)||args.limit<1||args.limit>100)||args.cursor!==undefined&&(typeof args.cursor!=='string'||args.cursor.length>8192))return failure('VALIDATION');return transaction(db,()=>{const denied=authorized(db,actor,args.workspaceId,args.workspaceEpoch,now??Date.now());return denied?failure(denied):fn();});}
+function query(db,actor,args,now,fn){if(!obj(args)||!id(args.workspaceId)||!id(args.workspaceEpoch)||args.limit!==undefined&&(!Number.isSafeInteger(args.limit)||args.limit<1||args.limit>100)||args.cursor!==undefined&&(typeof args.cursor!=='string'||args.cursor.length>WIKI_CURSOR_MAX_LENGTH))return failure('VALIDATION');return transaction(db,()=>{const denied=authorized(db,actor,args.workspaceId,args.workspaceEpoch,now??Date.now());return denied?failure(denied):fn();});}
 function pagedLinkView(db,actor,view,args={},now,historic=false,preview=false){
  const header=projectLinkView(db,actor,view?{...view,projectedDecisions:[]}:null,{historic});if(!header)return null;
  let after=-1;if(args.cursor){try{const c=JSON.parse(Buffer.from(args.cursor.split('.')[0],'base64url').toString());if(Number.isSafeInteger(c.last?.[0])&&c.last[0]>=-1)after=c.last[0];}catch{}}

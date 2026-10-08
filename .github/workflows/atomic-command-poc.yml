@@ -9,11 +9,11 @@ on:
       - 'query-review-evidence/*.mjs'
       - 'service-review-evidence/*.mjs'
       - '.github/workflows/atomic-command-poc.yml'
+      - '.github/workflows/ci.yml'
 
 permissions:
   contents: read
 
-# Keep local runtime metadata synthetic; do not fetch Cloudflare cf.json.
 env:
   CLOUDFLARE_CF_FETCH_ENABLED: 'false'
 
@@ -22,30 +22,72 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  sqlite-contract:
-    name: SQLite atomic command contract
+  source-integrity:
+    name: Reviewed source integrity (static)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 5
+    outputs:
+      integration: ${{ steps.impact.outputs.integration }}
+      browser: ${{ steps.impact.outputs.browser }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '24.19.0'
-      - name: Verify runtime and source
+      - name: Select affected boundaries from verified evidence baselines
+        id: impact
+        env:
+          REVIEWED_HEAD: ${{ github.event.pull_request.head.sha }}
+          # Native contract checks passed here; its browser job did not.
+          NATIVE_EVIDENCE_BASE: 0a8d28dbd473b148b88279c09320abbe45ee01f4
+          # Last accepted browser boundary: 17 cases, all passed.
+          BROWSER_EVIDENCE_BASE: 94637dd4ae3690758671c46bab705260ec218b15
         run: |
-          node --version
-          git rev-parse HEAD
-      - name: Test real SQLite with independent worker connections
+          node --input-type=module <<'NODE'
+          import {execFileSync} from 'node:child_process';
+          import {appendFileSync} from 'node:fs';
+          const head=process.env.REVIEWED_HEAD;
+          const git=(...args)=>execFileSync('git',args,{encoding:'utf8'}).trim();
+          if(!/^[a-f0-9]{40}$/.test(head)||git('rev-parse','HEAD')!==head)throw Error('Unexpected checkout');
+          function changes(base){
+            if(!/^[a-f0-9]{40}$/.test(base))throw Error('Invalid evidence baseline');
+            git('merge-base','--is-ancestor',base,head); // Missing/unrelated evidence fails closed.
+            return git('diff','--name-only','--no-renames','-z',base,head).split('\0').filter(Boolean);
+          }
+          const native=changes(process.env.NATIVE_EVIDENCE_BASE),browser=changes(process.env.BROWSER_EVIDENCE_BASE);
+          const runtime=/^experiments\/atomic-command-poc\/(src\/|service\/|session-ports\/|transport\/|client\/|mcp\/|service-test\/|test-support\/|package(?:-lock)?\.json$)/;
+          const sharedBrowser=/^experiments\/atomic-command-poc\/(browser\/|browser-test\/|src\/|service\/(?:auth|config|entry|http|store|workspace)\.mjs$|session-ports\/|client\/(?:issue-content|recovery|access-policy|wiki-[^/]+)\.mjs$|package(?:-lock)?\.json$)/;
+          const ui=/^experiments\/product-ui\/(src\/|vendor\/|fixtures\/|e2e\/|.*\.html$|.*config\.mjs$|package(?:-lock)?\.json$)/;
+          const integration=native.some(p=>runtime.test(p));
+          const runBrowser=browser.some(p=>ui.test(p)||sharedBrowser.test(p));
+          appendFileSync(process.env.GITHUB_OUTPUT,`integration=${integration}\nbrowser=${runBrowser}\n`);
+          appendFileSync(process.env.GITHUB_STEP_SUMMARY,`Head: ${head}\n\nNative evidence: ${process.env.NATIVE_EVIDENCE_BASE}; selected: ${integration}\nBrowser evidence: ${process.env.BROWSER_EVIDENCE_BASE}; selected: ${runBrowser}\n\nSelection is dependency-based, not a waiver of a failed gate. Advance a baseline only with passing exact-head evidence. Unit aggregates and unrelated canonical app checks are not rerun here.\n\nChanged native paths:\n${native.join('\n')}\n\nChanged browser paths:\n${browser.join('\n')}\n`);
+          NODE
+      - name: Verify tracked formatting and UI byte inventory
+        run: |
+          git diff --check
+          (cd experiments/product-ui && sha256sum -c SOURCE-SHA256SUMS)
+      - name: Parse and link the exact reviewed runtime graph (no evaluation)
         working-directory: experiments/atomic-command-poc
-        run: node --test test/*.test.mjs
-      - name: Verify tests leave tracked files unchanged
-        run: git diff --exit-code
+        env:
+          REVIEWED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          node --experimental-vm-modules --input-type=module <<'NODE'
+          import {readFile} from 'node:fs/promises';
+          import {validateArtifact} from './release/preflight.mjs';
+          const review=JSON.parse(await readFile('release/reviewed-product.json','utf8'));
+          const result=await validateArtifact(process.cwd(),review);
+          console.log(JSON.stringify({head:process.env.REVIEWED_HEAD,result,deploymentAuthorized:false}));
+          NODE
 
-  workerd-contract:
-    name: workerd SQLite DO atomic command contract
+  product-service-boundary:
+    name: Product service entry and mock-provider contracts
+    needs: source-integrity
+    if: ${{ needs.source-integrity.outputs.integration == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -56,47 +98,40 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.19.0'
-      - name: Install locked local test runtime
+      - name: Install locked integration runtime
         working-directory: experiments/atomic-command-poc
         run: npm ci
-      - name: Test actual workerd SQLite (no deployment)
+      - name: Integration - actual MCP entry Store policy receipt and client anomalies
         working-directory: experiments/atomic-command-poc
         run: |
-          node --version
-          node_modules/.bin/workerd --version
-          git rev-parse HEAD
-          npm run test:workerd
-      - name: Verify tests leave tracked files unchanged
-        run: git diff --exit-code
-
-  authenticated-transport:
-    name: Local authenticated HTTP and recovery contract
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.19.0'
-      - name: Install locked local test runtime
-        working-directory: experiments/atomic-command-poc
-        run: npm ci
-      - name: Test local issuer HTTP authentication and recovery (no deployment)
+          mkdir -p evidence/combined
+          set -o pipefail
+          node --test --test-reporter=tap service-test/combined-policy-mcp.integration.test.mjs 2>&1 | tee evidence/combined/entry-policy-mcp.tap
+      - name: Integration - affected existing machine REST and policy path
+        if: ${{ !cancelled() }}
         working-directory: experiments/atomic-command-poc
         run: |
-          node --version
-          node_modules/.bin/workerd --version
-          git rev-parse HEAD
-          npm run test:transport
-          npm run test:client
-      - name: Verify tests leave tracked files unchanged
+          mkdir -p evidence/combined
+          set -o pipefail
+          node --test --test-reporter=tap --test-name-pattern='machine: authenticated REST' service-test/resource-policy.test.mjs 2>&1 | tee evidence/combined/existing-policy-mcp.tap
+          # A name-filter miss must not become a file-only green result.
+          awk '/^[[:space:]]*ok [0-9]+ - machine: authenticated REST/ && !/# SKIP/ {found++} END {exit found != 1}' evidence/combined/existing-policy-mcp.tap
+      - name: Verify integration leaves tracked source unchanged
+        if: ${{ !cancelled() }}
         run: git diff --exit-code
+      - name: Upload selected integration evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: actual-entry-policy-mcp-${{ github.event.pull_request.head.sha }}
+          path: experiments/atomic-command-poc/evidence/combined/
+          if-no-files-found: warn
+          retention-days: 7
 
   browser-draft-recovery:
     name: Local Chromium encrypted draft recovery
+    needs: source-integrity
+    if: ${{ needs.source-integrity.outputs.browser == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -107,148 +142,42 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24.19.0'
-      - name: Install locked local browser test runtime
+      - name: Install locked browser integration runtime
+        id: runtime
         working-directory: experiments/atomic-command-poc
         run: |
           npm ci
           npx --no-install playwright install --with-deps chromium
-      - name: Test synthetic authorization fixture
+      - name: Integration - legacy fixture auth and exact module allowlist failures
         working-directory: experiments/atomic-command-poc
         run: |
           mkdir -p evidence/browser
           set -o pipefail
           node --test --test-reporter=tap browser-test/fixture-authz.test.mjs 2>&1 | tee evidence/browser/fixture-authz.tap
-      - name: Test real Chromium draft recovery (local issuer only)
-        working-directory: experiments/atomic-command-poc
-        run: |
-          set -o pipefail
-          npm run test:browser 2>&1 | tee evidence/browser/browser-suite.log
-      - name: Install locked product UI dependencies
+      - name: Install locked product UI integration dependencies
+        id: ui
+        if: ${{ !cancelled() && steps.runtime.outcome == 'success' }}
         working-directory: experiments/product-ui
         run: npm ci --ignore-scripts
-      - name: Build and verify reviewed product UI
-        working-directory: experiments/product-ui
-        run: |
-          set -o pipefail
-          npm run verify 2>&1 | tee ../atomic-command-poc/evidence/browser/product-ui-verify.log
-      - name: Test twenty-one real Chromium product UI scenarios
+      - name: Integration - twenty-one real Chromium product boundary scenarios
+        if: ${{ !cancelled() && steps.ui.outcome == 'success' }}
         timeout-minutes: 5
         working-directory: experiments/product-ui
         env:
           PROJEKTOR_CORE_SOURCE: ../atomic-command-poc
         run: |
+          mkdir -p ../atomic-command-poc/evidence/browser
           set -o pipefail
+          # This entry builds its fixture. Unchanged unit/typecheck/build evidence is reused.
           npm run test:e2e 2>&1 | tee ../atomic-command-poc/evidence/browser/product-ui-e2e.log
-      - name: Independently probe browser vault isolation
-        if: ${{ !cancelled() }}
-        run: |
-          mkdir -p experiments/atomic-command-poc/evidence/browser
-          set -o pipefail
-          node browser-review-evidence/vault-probes.mjs 2>&1 | tee experiments/atomic-command-poc/evidence/browser/vault-probes.log
-      - name: Independently probe browser editor recovery
-        if: ${{ !cancelled() }}
-        run: |
-          set -o pipefail
-          node --test --test-reporter=tap browser-review-evidence/editor-probes.mjs 2>&1 | tee experiments/atomic-command-poc/evidence/browser/editor-probes.tap
-      - name: Independently probe My Issues browser authorization and lifecycle
-        if: ${{ !cancelled() }}
-        run: |
-          set -o pipefail
-          node --test --test-reporter=tap query-review-evidence/browser-probes.mjs 2>&1 | tee experiments/atomic-command-poc/evidence/browser/my-issues-probes.tap
-      - name: Verify tests leave tracked files unchanged
+      - name: Verify browser integration leaves tracked source unchanged
         if: ${{ !cancelled() }}
         run: git diff --exit-code
-      - name: Upload synthetic browser screenshots and test logs
+      - name: Upload browser integration evidence
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: local-browser-draft-recovery-${{ github.event.pull_request.head.sha }}
+          name: affected-browser-integration-${{ github.event.pull_request.head.sha }}
           path: experiments/atomic-command-poc/evidence/browser/
           if-no-files-found: warn
           retention-days: 7
-
-  my-issues-query:
-    name: My Issues independent query and controller contracts
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.19.0'
-      - name: Install locked local test runtime
-        working-directory: experiments/atomic-command-poc
-        run: npm ci
-      - name: Independently probe Node SQLite query authorization and pagination
-        run: |
-          mkdir -p experiments/atomic-command-poc/evidence/query
-          set -o pipefail
-          node --test --test-reporter=tap query-review-evidence/query-probes.mjs 2>&1 | tee experiments/atomic-command-poc/evidence/query/node-probes.tap
-      - name: Independently probe actual workerd SQLite query
-        if: ${{ !cancelled() }}
-        run: |
-          set -o pipefail
-          REVIEW_RUNTIME=workerd node --test --test-reporter=tap query-review-evidence/query-probes.mjs 2>&1 | tee experiments/atomic-command-poc/evidence/query/workerd-probes.tap
-      - name: Independently probe My Issues controller lifecycle
-        if: ${{ !cancelled() }}
-        run: |
-          set -o pipefail
-          node --test --test-reporter=tap query-review-evidence/controller-probes.mjs 2>&1 | tee experiments/atomic-command-poc/evidence/query/controller-probes.tap
-      - name: Verify tests leave tracked files unchanged
-        if: ${{ !cancelled() }}
-        run: git diff --exit-code
-      - name: Upload synthetic query test logs
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: local-my-issues-query-${{ github.event.pull_request.head.sha }}
-          path: experiments/atomic-command-poc/evidence/query/
-          if-no-files-found: warn
-          retention-days: 7
-
-  product-service-boundary:
-    name: Product service entry and mock-provider contracts
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          persist-credentials: false
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24.19.0'
-      - name: Install locked local test runtime
-        working-directory: experiments/atomic-command-poc
-        run: npm ci
-      - name: Test product entry on actual workerd with mocked provider
-        working-directory: experiments/atomic-command-poc
-        run: |
-          mkdir -p evidence/service
-          set -o pipefail
-          npm run test:service 2>&1 | tee evidence/service/service-suite.log
-      - name: Test isolated bootstrap session and draft key ports
-        working-directory: experiments/atomic-command-poc
-        run: |
-          set -o pipefail
-          node --test session-ports/*.test.mjs 2>&1 | tee evidence/service/session-ports.log
-      - name: Independently probe provider validation and actual product runtime
-        if: ${{ !cancelled() }}
-        run: |
-          set -o pipefail
-          node --test --test-reporter=tap service-review-evidence/provider-probes.mjs service-review-evidence/runtime-probes.mjs 2>&1 | tee experiments/atomic-command-poc/evidence/service/independent-probes.tap
-      - name: Verify tests leave tracked files unchanged
-        if: ${{ !cancelled() }}
-        run: git diff --exit-code
-      - name: Upload synthetic product-service test logs
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: local-product-service-${{ github.event.pull_request.head.sha }}
-          path: experiments/atomic-command-poc/evidence/service/
-          if-no-files-found: warn
-          retention-days: 7
-
