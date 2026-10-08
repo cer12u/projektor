@@ -8,7 +8,7 @@ import {pathToFileURL} from 'node:url';
 import {chromium} from 'playwright';
 import {build} from 'vite';
 import {createBarrier,safePageLocation,gateFailureMessage} from './barrier.mjs';
-import {phase,resourcePhase,trace} from './trace.mjs';
+import {phase,resourcePhase,trace,caseID} from './trace.mjs';
 import {enterFixtureRoot} from './fixture-root.mjs';
 import {issueBodyReady} from './issue-ready.mjs';
 function test(name,run){return nodeTest(name,t=>phase(t,'scenario_body',()=>run(t),70000));}
@@ -244,19 +244,24 @@ test('native Back is canceled when protection fails, then Back/Forward restores 
 });
 
 async function startWikiDraft(f,{shared=false}={}){
-  for(const scope of ['wiki:read','wiki:write','wiki:restore','deleted:read']){
-    await f.h.control('sql','INSERT OR IGNORE INTO principal_scope VALUES(?,?)',[f.h.ids.actorA,scope]);
-    await f.h.control('sql','INSERT OR IGNORE INTO credential_scope SELECT id,? FROM credential WHERE principal_id=?',[scope,f.h.ids.actorA]);
-  }
-  await f.h.control('sql','INSERT OR IGNORE INTO shared_grant VALUES(?,1,1)',[f.h.ids.actorA]);
-  await f.page.goto(f.h.base+'/');await f.page.getByRole('button',{name:'Wiki',exact:true}).click();
-  await f.page.getByRole('button',{name:shared?'Create shared Wiki page':'Create Wiki page in Primary UI fixture project',exact:true}).click();
-  await f.page.getByLabel('title',{exact:true}).waitFor();
-  await f.page.getByLabel('title',{exact:true}).fill(shared?'Shared Wiki acceptance':'Project Wiki acceptance');
-  await f.page.getByLabel('slug',{exact:true}).fill(shared?'shared-wiki-acceptance':'project-wiki-acceptance');
-  await f.page.getByLabel('contentMarkdown',{exact:true}).fill('Wiki exact 日本語\n<script>never execute</script>');
-  await f.page.getByText('Unsaved changes · protected',{exact:false}).waitFor();
-  const url=new URL(f.page.url());assert.equal(url.searchParams.get('pageId'),url.searchParams.get('draftId'));return url.searchParams.get('pageId');
+  const statuses=new Set();const observe=response=>{const u=new URL(response.url());if(u.origin!==f.h.base||!u.pathname.startsWith('/v1/'))return;const status=response.status();if([400,401,403,404,409].includes(status))statuses.add('wiki_http_'+status);else if(status>=500)statuses.add('wiki_http_5xx');};f.page.on('response',observe);
+  try{
+    await phase(f.t,'wiki_seed',async()=>{for(const scope of ['wiki:read','wiki:write','wiki:restore','deleted:read']){
+      await f.h.control('sql','INSERT OR IGNORE INTO principal_scope VALUES(?,?)',[f.h.ids.actorA,scope]);
+      await f.h.control('sql','INSERT OR IGNORE INTO credential_scope SELECT id,? FROM credential WHERE principal_id=?',[scope,f.h.ids.actorA]);
+    }await f.h.control('sql','INSERT OR IGNORE INTO shared_grant VALUES(?,1,1)',[f.h.ids.actorA]);});
+    await phase(f.t,'wiki_navigate',async()=>{await f.page.goto(f.h.base+'/');await f.page.getByRole('button',{name:'Wiki',exact:true}).click();});
+    await phase(f.t,'wiki_select_scope',()=>f.page.getByRole('button',{name:shared?'Create shared Wiki page':'Create Wiki page in Primary UI fixture project',exact:true}).click());
+    await phase(f.t,'wiki_editor_ready',()=>f.page.getByLabel('title',{exact:true}).waitFor());
+    await phase(f.t,'wiki_fields',async()=>{await f.page.getByLabel('title',{exact:true}).fill(shared?'Shared Wiki acceptance':'Project Wiki acceptance');await f.page.getByLabel('slug',{exact:true}).fill(shared?'shared-wiki-acceptance':'project-wiki-acceptance');await f.page.getByLabel('contentMarkdown',{exact:true}).fill('Wiki exact 日本語\n<script>never execute</script>');});
+    await phase(f.t,'wiki_draft_protect',()=>f.page.getByText('Unsaved changes · protected',{exact:false}).waitFor());
+    const url=new URL(f.page.url());assert.equal(url.searchParams.get('pageId'),url.searchParams.get('draftId'));return url.searchParams.get('pageId');
+  }catch(error){
+    const id=caseID(f.t.name);for(const status of statuses)trace(id,status,'fail');if(f.errors.length)trace(id,'wiki_page_error','fail');
+    const state=await f.page.locator('[data-wiki-phase]').first().evaluate(el=>({phase:el.getAttribute('data-wiki-phase'),code:el.getAttribute('data-wiki-code')})).catch(()=>null);
+    if(!state)trace(id,'wiki_no_editor','fail');else if(state.phase==='unconnected')trace(id,'wiki_no_controller','fail');else if(state.code){const group=['DRAFT_BINDING_MISMATCH','WIKI_CREATE_BINDING_MISMATCH','BINDING_MISMATCH','KEY_SESSION_CHANGED'].includes(state.code)?'binding':['DRAFT_FORBIDDEN','FORBIDDEN','SCOPE_EXPANSION','DRAFT_ORIGINAL_SCOPE_MISMATCH'].includes(state.code)?'permission':['AUTH_REQUIRED','UNAUTHENTICATED','SESSION_EXPIRED'].includes(state.code)?'auth':['PROTECTION_FAILED','STORAGE_UNAVAILABLE','STORAGE_TIMEOUT','READBACK_MISMATCH','DRAFT_WRITE_CONFLICT'].includes(state.code)?'storage':'other';trace(id,'wiki_lock_'+group,'fail');}
+    throw error;
+  }finally{f.page.off('response',observe);}
 }
 for(const shared of [false,true])test(`Wiki ${shared?'shared':'project'} protected creation survives reload and opens a distinct existing-page binding`,async t=>{
  const f=await setup(t),id=await startWikiDraft(f,{shared});const before=f.page.url();f.page.on('dialog',d=>d.accept());await f.page.reload();await f.page.getByLabel('contentMarkdown',{exact:true}).waitFor();assert.equal(await f.page.getByLabel('contentMarkdown',{exact:true}).inputValue(),'Wiki exact 日本語\n<script>never execute</script>');

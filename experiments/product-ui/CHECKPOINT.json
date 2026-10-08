@@ -1,18 +1,18 @@
 {
   "scope": "Wiki actual-session integration candidate; final review and browser pending",
   "baselineCommit": "13da5980811aee08d1d05b395101ec37a6d7a783",
-  "sourceManifestSHA256": "47e7930cbed473c8f977ff98281e5dfafaddd6d93a27b7e38842de4cec3c42e6",
+  "sourceManifestSHA256": "332b86dd0cf4ba3cd1f6041e7246a7df96249c53eb05add5472728daed494839",
   "verification": {
     "installedDependenciesOnly": true,
     "typecheck": "PASS",
     "productionBuild": "PASS",
     "nodeComponentTests": {
-      "passed": 133,
+      "passed": 134,
       "failed": 0
     },
     "chromiumE2E": {
       "prepared": 17,
-      "status": "NOT_RUN locally; exact-head approved CI required"
+      "status": "0a029091: legacy12 passed; Wiki5 failed scenario_body. This diagnostic candidate is not browser accepted."
     }
   },
   "releaseAccepted": false
