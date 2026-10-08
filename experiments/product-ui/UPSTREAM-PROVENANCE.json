@@ -1,0 +1,37 @@
+[
+  {
+    "path": "vendor/browser/draft-vault.mjs",
+    "origin": "I2 frozen source",
+    "sha256": "af1d129d25d459b07559c2b59744dfe8c7e115d2524280be63aa54ef62b6afc8"
+  },
+  {
+    "path": "vendor/browser/issue-content.mjs",
+    "origin": "I2 frozen source",
+    "sha256": "33a99089ff0a6e6ae48197a7c0cca28f5db0162057968248deef0e9e01d266bc"
+  },
+  {
+    "path": "vendor/browser/my-issues.mjs",
+    "origin": "I2 frozen source",
+    "sha256": "d3492ca6fb9539a1a73799f6625946ad3004bb8e22095b6e85153a4416bf50e8"
+  },
+  {
+    "path": "vendor/client/issue-content.mjs",
+    "origin": "reviewed manual-receipt patch",
+    "sha256": "5881771e1d14a42a8c9d5073947bf34b40ac7d29cdd524a283cda26188264f99"
+  },
+  {
+    "path": "vendor/client/recovery.mjs",
+    "origin": "I2 frozen source",
+    "sha256": "09192a623d1a4781f13082ec90bebcce8f7a19c1c8a0d1bddff512d5dbeb322a"
+  },
+  {
+    "path": "vendor/session-ports/client.mjs",
+    "origin": "session owner cap-10 checkpoint",
+    "sha256": "b6d7d4dfddc02f50db9b8a2586c446cbdee843a8d597fe7a29dcc0b6c4a53d06"
+  },
+  {
+    "path": "vendor/session-ports/human-workflow.mjs",
+    "origin": "session owner cap-10 checkpoint",
+    "sha256": "90a909efb2e2ee0fa0eb54b918dfdbd140f4c56fc05cc5f7aec27d1436754202"
+  }
+]

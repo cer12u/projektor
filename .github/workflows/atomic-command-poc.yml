@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'experiments/atomic-command-poc/**'
+      - 'experiments/product-ui/**'
       - 'browser-review-evidence/*.mjs'
       - 'query-review-evidence/*.mjs'
       - 'service-review-evidence/*.mjs'
@@ -122,6 +123,21 @@ jobs:
         run: |
           set -o pipefail
           npm run test:browser 2>&1 | tee evidence/browser/browser-suite.log
+      - name: Install locked product UI dependencies
+        working-directory: experiments/product-ui
+        run: npm ci --ignore-scripts
+      - name: Build and verify reviewed product UI
+        working-directory: experiments/product-ui
+        run: |
+          set -o pipefail
+          npm run verify 2>&1 | tee ../atomic-command-poc/evidence/browser/product-ui-verify.log
+      - name: Test twelve real Chromium product UI scenarios
+        working-directory: experiments/product-ui
+        env:
+          PROJEKTOR_CORE_SOURCE: ../atomic-command-poc
+        run: |
+          set -o pipefail
+          npm run test:e2e 2>&1 | tee ../atomic-command-poc/evidence/browser/product-ui-e2e.log
       - name: Independently probe browser vault isolation
         if: ${{ !cancelled() }}
         run: |
@@ -213,6 +229,11 @@ jobs:
           mkdir -p evidence/service
           set -o pipefail
           npm run test:service 2>&1 | tee evidence/service/service-suite.log
+      - name: Test isolated bootstrap session and draft key ports
+        working-directory: experiments/atomic-command-poc
+        run: |
+          set -o pipefail
+          node --test session-ports/*.test.mjs 2>&1 | tee evidence/service/session-ports.log
       - name: Independently probe provider validation and actual product runtime
         if: ${{ !cancelled() }}
         run: |
@@ -229,3 +250,4 @@ jobs:
           path: experiments/atomic-command-poc/evidence/service/
           if-no-files-found: warn
           retention-days: 7
+
