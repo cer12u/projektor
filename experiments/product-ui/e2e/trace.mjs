@@ -13,7 +13,7 @@ export const CASES=[
   "temporary missing membership keeps unpersisted input locked in memory until exact access revalidation",
   "native Back is canceled when protection fails, then Back/Forward restores the same protected draft"
 ];
-export const PHASES=['suite_import','fixture_build','browser_launch','fixture_start','context_open','fixture_login','fixture_seed','page_open','scenario_body','create_navigate','create_project','create_fields','create_save','create_open','gate_command','gate_projects','context_close','fixture_close','browser_close'];
+export const PHASES=['suite_import','fixture_build','browser_launch','fixture_start','context_open','fixture_login','fixture_seed','page_open','scenario_body','create_navigate','create_project','create_fields','create_save','create_open','gate_command','gate_projects','context_close','fixture_close','browser_close','draft_protect','draft_reload','draft_verify','late_send','late_edit','late_verify','revoke_access','revoke_lock','other_identity','other_identity_verify','storage_fault','membership_remove','membership_locked','membership_restore','membership_verify'];
 export const STATES=['start','pass','fail','timeout'];
 export const PREFIX='@@PROJEKTOR_UI_PHASE ';
 export function caseID(name){const i=CASES.indexOf(name);return i<0?'S00':'C'+String(i+1).padStart(2,'0');}

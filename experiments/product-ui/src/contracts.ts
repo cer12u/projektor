@@ -41,3 +41,9 @@ export function retainViewSelection(previous:Selected|null,current:Selected|null
   if(previous&&previous.principal.id===current.principal.id&&previous.principal.kind===current.principal.kind&&previous.workspace.id===current.workspace.id&&previous.workspace.epoch===current.workspace.epoch)return previous;
   return current;
 }
+/** Presentation only: no-workspace and wrong-selection notices are exclusive.
+ * This does not resolve a workspace or grant access to a retained view. */
+export function workspaceAccessNotice(workspaceCount:number|null,selectionError:boolean):'none'|'no-workspaces'|'selection-unavailable'{
+  if(workspaceCount===0)return 'no-workspaces';
+  return workspaceCount!==null&&workspaceCount>0&&selectionError?'selection-unavailable':'none';
+}

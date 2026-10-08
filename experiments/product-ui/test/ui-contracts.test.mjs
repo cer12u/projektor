@@ -129,3 +129,11 @@ test('absent then restored exact membership retains the controller binding objec
   const epoch={...selected,workspace:{...selected.workspace,epoch:uuid(99)}};
   assert.equal(retainViewSelection(restored,epoch),epoch);
 });
+test('zero-membership deep link has only no-access notice; wrong link with other memberships has only selection notice',async()=>{
+  const {workspaceAccessNotice}=await import('../src/contracts.ts');
+  const zero=checkBootstrap({...data([]),principal:null});assert.throws(()=>chooseWorkspace(zero,uuid(9)),/WORKSPACE_UNAVAILABLE/);
+  assert.equal(workspaceAccessNotice(zero.workspaces.length,true),'no-workspaces');
+  const some=checkBootstrap(data([workspace(2)]));assert.throws(()=>chooseWorkspace(some,uuid(9)),/WORKSPACE_UNAVAILABLE/);
+  assert.equal(workspaceAccessNotice(some.workspaces.length,true),'selection-unavailable');
+  assert.equal(workspaceAccessNotice(some.workspaces.length,false),'none');assert.equal(workspaceAccessNotice(null,false),'none');
+});

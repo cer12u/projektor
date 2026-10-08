@@ -1,6 +1,6 @@
 import {Component,useCallback,useEffect,useMemo,useRef,useState} from 'react';
 import {flushSync} from 'react-dom';
-import {checkBootstrap,chooseWorkspace,retainViewSelection,type Bootstrap,type ProductPorts,type PrepareLeave,type Route,type Selected} from './contracts.ts';
+import {checkBootstrap,chooseWorkspace,retainViewSelection,workspaceAccessNotice,type Bootstrap,type ProductPorts,type PrepareLeave,type Route,type Selected} from './contracts.ts';
 import {UIRouter,nextRoute} from './router.ts';
 import {ConnectionNotice,Expiry,Notice} from './components.tsx';
 import {ListView,ContentView,ProjectPicker} from './views.tsx';
@@ -36,6 +36,7 @@ export function App({ports}:{ports:ProductPorts}){
   useEffect(()=>{if(workspacePicker)requestAnimationFrame(()=>document.querySelector<HTMLElement>('[data-workspace-heading]')?.focus());},[workspacePicker]);
   const route=router.route;let workspace=null,selectionError:string|null=null;
   try{if(data)workspace=chooseWorkspace(data,route.workspaceId);}catch(e:any){selectionError=e.message;}
+  const accessNotice=workspaceAccessNotice(data?.workspaces.length??null,!!selectionError);
   const selectedPrincipal=workspace?.principal??data?.principal??null;
   const selected=useMemo<Selected|null>(()=>workspace&&selectedPrincipal?{principal:selectedPrincipal,workspace}:null,[selectedPrincipal?.id,selectedPrincipal?.kind,workspace?.id,workspace?.epoch]);
   const retainedSelection=useRef<Selected|null>(null);retainedSelection.current=retainViewSelection(retainedSelection.current,selected);
@@ -61,8 +62,8 @@ export function App({ports}:{ports:ProductPorts}){
       {router.error&&<Notice error>{router.error}</Notice>}
       {phase==='loading'&&<Notice>Checking authenticated workspace access…</Notice>}
       {phase==='error'&&<><h1 tabIndex={-1}>Product connection incomplete</h1><Notice error>{code}. Workspace content remains locked; bootstrap has not authorized this view.</Notice><button onClick={()=>boot()}>Retry bootstrap</button></>}
-      {!masked&&data?.workspaces.length===0&&<><h1>No workspace access</h1><Notice>Your identity is verified, but no workspace membership is available</Notice><button onClick={()=>boot()}>Recheck workspace access</button></>}
-      {!masked&&selectionError&&<><h1>Workspace unavailable</h1><Notice error>This deep link does not select an authorized workspace. Choose a workspace explicitly.</Notice><button onClick={()=>boot()}>Recheck workspace access</button></>}
+      {!masked&&accessNotice==='no-workspaces'&&<><h1>No workspace access</h1><Notice>Your identity is verified, but no workspace membership is available</Notice><button onClick={()=>boot()}>Recheck workspace access</button></>}
+      {!masked&&accessNotice==='selection-unavailable'&&<><h1>Workspace unavailable</h1><Notice error>This deep link does not select an authorized workspace. Choose a workspace explicitly.</Notice><button onClick={()=>boot()}>Recheck workspace access</button></>}
       {!masked&&data&&(workspacePicker||!selected||selectionError)&&data.workspaces.length>0&&<section aria-label="Workspace selection"><h1 data-workspace-heading tabIndex={-1}>Choose a workspace</h1>{workspacePicker&&selected&&<button onClick={()=>{setWorkspacePicker(false);workspaceButton.current?.focus();}}>Cancel workspace selection</button>}<ul>{data.workspaces.map(w=><li key={w.id}><button onClick={()=>navigate({workspaceId:w.id,view:'list',issueId:null,projectId:null,draftId:null,projectAtProtection:null})}>{w.title}</button></li>)}</ul></section>}
       {viewSelection&&props&&<div key={viewSelection.principal.id+viewSelection.workspace.id+viewSelection.workspace.epoch}>
         {!masked&&data&&<Expiry expiresAt={data.expiresAt}/>}

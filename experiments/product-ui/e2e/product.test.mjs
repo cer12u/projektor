@@ -124,9 +124,9 @@ test('create, detail, comment, priority and shared list/board keyboard routes',a
 test('protected latest text survives reload and old commit acknowledgement cannot erase newer input',async t=>{
   const f=await setup(t);await createIssue(f);
   const body=f.page.getByRole('textbox',{name:'Markdown body',exact:true});
-  await body.fill('protected draft 日本語');await f.page.getByText('Unsaved changes · protected',{exact:false}).waitFor();
-  f.page.on('dialog',dialog=>dialog.accept());await f.page.reload();
-  await body.waitFor();assert.equal(await body.inputValue(),'protected draft 日本語');
+  await phase(f.t,'draft_protect',async()=>{await body.fill('protected draft 日本語');await f.page.getByText('Unsaved changes · protected',{exact:false}).waitFor();});
+  f.page.on('dialog',dialog=>dialog.accept());await phase(f.t,'draft_reload',()=>f.page.reload(),25000);
+  await phase(f.t,'draft_verify',async()=>{await body.waitFor();assert.equal(await body.inputValue(),'protected draft 日本語');});
   let commandRouteMatched=false,commandResponseReady=false;
   const gate=createBarrier({label:'POST /v1/workspaces/:id/commands',onTimeout:reportBarrierTimeout,diagnostics:()=>({location:safePageLocation(f.page.url()),routeMatched:commandRouteMatched,upstreamResponseReady:commandResponseReady,observedWorkspaceRequests:f.requests.length})});
   f.cleanupGates.push(()=>gate.release());
@@ -135,19 +135,18 @@ test('protected latest text survives reload and old commit acknowledgement canno
     catch(error){f.errors.push(gateFailureMessage(error));await route.abort('failed').catch(()=>{});}finally{gate.release();}
   });
   try{
-    await f.page.getByRole('button',{name:'Save',exact:true}).click();await gate.waitForRequest();
-    await body.fill('newer unsent input');gate.release();await f.page.getByText('Saved snapshot confirmed.',{exact:false}).waitFor();
-    assert.equal(await body.inputValue(),'newer unsent input');assert.deepEqual(f.errors,[]);
+    await phase(f.t,'late_send',async()=>{await f.page.getByRole('button',{name:'Save',exact:true}).click();await gate.waitForRequest();},25000);
+    await phase(f.t,'late_edit',async()=>{await body.fill('newer unsent input');gate.release();await f.page.getByText('Saved snapshot confirmed.',{exact:false}).waitFor();});
+    await phase(f.t,'late_verify',async()=>{assert.equal(await body.inputValue(),'newer unsent input');assert.deepEqual(f.errors,[]);});
   }finally{gate.release();}
 });
 test('principal change and resource revocation never restore former plaintext',async t=>{
   const f=await setup(t);await createIssue(f);const body=f.page.getByRole('textbox',{name:'Markdown body',exact:true});
-  await body.fill('private retained draft');await f.page.getByText('Unsaved changes · protected',{exact:false}).waitFor();
-  await f.h.control('revokeCurrentProject');
-  await f.page.getByRole('button',{name:'Verify session and reload current data',exact:true}).click();
-  await f.page.getByText('Editor locked',{exact:false}).waitFor();assert.equal(await body.count(),0);assert.ok(!(await f.page.locator('main').textContent()).includes('private retained draft'));
-  await f.h.login(f.context,'B');f.page.on('dialog',dialog=>dialog.accept());await f.page.reload();await body.waitFor();
-  assert.equal(await body.inputValue(),'original 日本語');assert.ok(!(await f.page.locator('main').textContent()).includes('private retained draft'));assert.deepEqual(f.errors,[]);
+  await phase(f.t,'draft_protect',async()=>{await body.fill('private retained draft');await f.page.getByText('Unsaved changes · protected',{exact:false}).waitFor();});
+  await phase(f.t,'revoke_access',async()=>{await f.h.control('revokeCurrentProject');await f.page.getByRole('button',{name:'Verify session and reload current data',exact:true}).click();});
+  await phase(f.t,'revoke_lock',async()=>{await f.page.getByText('Editor locked',{exact:false}).waitFor();assert.equal(await body.count(),0);assert.ok(!(await f.page.locator('main').textContent()).includes('private retained draft'));});
+  await phase(f.t,'other_identity',async()=>{await f.h.login(f.context,'B');f.page.on('dialog',dialog=>dialog.accept());await f.page.reload();},25000);
+  await phase(f.t,'other_identity_verify',async()=>{await body.waitFor();assert.equal(await body.inputValue(),'original 日本語');assert.ok(!(await f.page.locator('main').textContent()).includes('private retained draft'));assert.deepEqual(f.errors,[]);});
 });
 test('320px layout has no document overflow and controls have names',async t=>{
   const f=await setup(t);await createIssue(f);await f.page.setViewportSize({width:320,height:800});
@@ -226,15 +225,12 @@ test('canceling workspace selection preserves route, latest draft and keyboard f
 test('temporary missing membership keeps unpersisted input locked in memory until exact access revalidation',async t=>{
   const f=await setup(t);await createIssue(f);
   await f.page.evaluate(()=>{window.fixtureTransaction=IDBDatabase.prototype.transaction;IDBDatabase.prototype.transaction=function(){throw new DOMException('Synthetic storage failure','QuotaExceededError');};});
-  const body=f.page.getByRole('textbox',{name:'Markdown body',exact:true});await body.fill('latest unpersisted revision');
-  await f.page.getByText('protection-failed',{exact:false}).waitFor();
-  f.setBootstrapMode('zero');
-  await f.page.evaluate(()=>{const c=new BroadcastChannel('projektor-session');c.postMessage({changed:true});c.close();});
-  await f.page.getByRole('heading',{name:'No workspace access',exact:true}).waitFor();
-  assert.equal(await body.count(),0);assert.ok(!(await f.page.locator('main').textContent()).includes('latest unpersisted revision'));
-  await f.page.evaluate(()=>{IDBDatabase.prototype.transaction=window.fixtureTransaction;delete window.fixtureTransaction;});
-  f.setBootstrapMode('one');await f.page.getByRole('button',{name:'Recheck workspace access',exact:true}).click();
-  await body.waitFor();assert.equal(await body.inputValue(),'latest unpersisted revision');assert.deepEqual(f.errors,[]);
+  const body=f.page.getByRole('textbox',{name:'Markdown body',exact:true});
+  await phase(f.t,'storage_fault',async()=>{await body.fill('latest unpersisted revision');await f.page.getByText('protection-failed',{exact:false}).waitFor();});
+  await phase(f.t,'membership_remove',async()=>{f.setBootstrapMode('zero');await f.page.evaluate(()=>{const c=new BroadcastChannel('projektor-session');c.postMessage({changed:true});c.close();});});
+  await phase(f.t,'membership_locked',async()=>{await f.page.getByRole('heading',{name:'No workspace access',exact:true}).waitFor();assert.equal(await body.count(),0);assert.ok(!(await f.page.locator('main').textContent()).includes('latest unpersisted revision'));});
+  await phase(f.t,'membership_restore',async()=>{await f.page.evaluate(()=>{IDBDatabase.prototype.transaction=window.fixtureTransaction;delete window.fixtureTransaction;});f.setBootstrapMode('one');await f.page.getByRole('button',{name:'Recheck workspace access',exact:true}).click();});
+  await phase(f.t,'membership_verify',async()=>{await body.waitFor();assert.equal(await body.inputValue(),'latest unpersisted revision');assert.deepEqual(f.errors,[]);});
 });
 test('native Back is canceled when protection fails, then Back/Forward restores the same protected draft',async t=>{
   const f=await setup(t);await createIssue(f);

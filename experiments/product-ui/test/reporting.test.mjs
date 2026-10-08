@@ -47,3 +47,23 @@ test('cleanup failure does not replace the first failing phase with a later succ
   ]);
   assert.match(out,/C01 context_close fail/);
 });
+test('reporter final summary gives exact static failed IDs without depending on capped pass notices',async()=>{
+  const events=CASES.map((name,index)=>({type:[2,3,10].includes(index)?'test:fail':'test:pass',data:{name}}));
+  const out=await report(events);assert.match(out,/summary passed=9 failed=3 incomplete=0 runner_failed=false failed_ids=C03,C04,C11/);
+  const incomplete=await report([{type:'test:pass',data:{name:CASES[0]}}]);assert.match(incomplete,/passed=1 failed=0 incomplete=11/);
+});
+test('phase and Node failure duplicates produce one case annotation plus one final summary',async()=>{
+  const previous=process.env.GITHUB_ACTIONS;process.env.GITHUB_ACTIONS='true';
+  try{
+    const out=await report([
+      {type:'test:stdout',data:{message:PREFIX+'{"id":"C01","phase":"draft_protect","state":"timeout"}\n'+PREFIX+'{"id":"C01","phase":"scenario_body","state":"fail"}\n'}},
+      {type:'test:fail',data:{name:CASES[0]}},{type:'test:fail',data:{name:CASES[0]}},
+    ]);
+    assert.equal((out.match(/^::error /gm)||[]).length,2);
+    assert.match(out,/::error title=UI E2E diagnostic::UI E2E C01 draft_protect fail/);
+  }finally{if(previous===undefined)delete process.env.GITHUB_ACTIONS;else process.env.GITHUB_ACTIONS=previous;}
+});
+test('suite cleanup failure is not hidden by twelve passing cases',async()=>{
+  const out=await report([...CASES.map(name=>({type:'test:pass',data:{name}})),{type:'test:stdout',data:{message:PREFIX+'{"id":"S00","phase":"browser_close","state":"fail"}\n'}}]);
+  assert.match(out,/passed=12 failed=0 incomplete=0 runner_failed=true/);
+});
