@@ -7,6 +7,13 @@ import {resolve,extname} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {chromium} from 'playwright';
 import {build} from 'vite';
+import {createBarrier,safePageLocation,gateFailureMessage} from './barrier.mjs';
+function reportBarrierTimeout(label,phase){
+  if(process.env.GITHUB_ACTIONS!=='true')return;
+  const target=label==='POST /v1/workspaces/:id/commands'?'POST command response':label==='GET /v1/workspaces/:id/projects'?'GET project response':'UI response';
+  const stage=phase==='expected-request'?'not captured within 10 seconds':'not released within 10 seconds';
+  process.stderr.write('::error title=UI E2E barrier timeout::'+target+' '+stage+'\n');
+}
 const root=resolve(import.meta.dirname,'..');
 const core=resolve(process.env.PROJEKTOR_CORE_SOURCE??resolve(root,'../projektor_agent_workflow_20261008/experiments/atomic-command-poc'));
 const {startHarness}=await import(pathToFileURL(resolve(core,'browser-test/server.mjs')));
@@ -17,8 +24,9 @@ before(async()=>{
 });
 after(async()=>browser?.close());
 async function setup(t,{bootstrapMode='one'}={}){
-  const h=await startHarness();const context=await browser.newContext();const requests=[];const errors=[];
-  t.after(async()=>{await context.close();await h.close();});
+  const h=await startHarness();const context=await browser.newContext();const requests=[];const errors=[];const cleanupGates=[];
+  context.setDefaultTimeout(10000);context.setDefaultNavigationTimeout(20000);
+  t.after(async()=>{for(const release of cleanupGates)release();await context.close();await h.close();});
   await h.login(context,'A');
   await h.control('sql','UPDATE project SET title=? WHERE id=?',['Primary UI fixture project',h.ids.project]);
   await h.control('sql','UPDATE project SET title=? WHERE id=?',['Secondary UI fixture project',h.ids.otherProject]);
@@ -40,7 +48,7 @@ async function setup(t,{bootstrapMode='one'}={}){
     await route.continue();
   });
   const page=await context.newPage();page.on('pageerror',e=>errors.push(e.message));
-  return {h,context,page,requests,errors,setBootstrapMode:mode=>{bootstrapMode=mode;}};
+  return {h,context,page,requests,errors,cleanupGates,setBootstrapMode:mode=>{bootstrapMode=mode;}};
 }
 async function createIssue(f){
   await f.page.goto(f.h.base+'/');
@@ -84,11 +92,18 @@ test('protected latest text survives reload and old commit acknowledgement canno
   await body.fill('protected draft 日本語');await f.page.getByText('Unsaved changes · protected',{exact:false}).waitFor();
   f.page.on('dialog',dialog=>dialog.accept());await f.page.reload();
   await body.waitFor();assert.equal(await body.inputValue(),'protected draft 日本語');
-  let release,received;const arrived=new Promise(r=>received=r);
-  await f.page.route('**/v1/workspaces/*/commands',async route=>{const response=await route.fetch();received();await new Promise(r=>release=r);await route.fulfill({response});});
-  await f.page.getByRole('button',{name:'Save',exact:true}).click();await arrived;
-  await body.fill('newer unsent input');release();await f.page.getByText('Saved snapshot confirmed.',{exact:false}).waitFor();
-  assert.equal(await body.inputValue(),'newer unsent input');assert.deepEqual(f.errors,[]);
+  let commandRouteMatched=false,commandResponseReady=false;
+  const gate=createBarrier({label:'POST /v1/workspaces/:id/commands',onTimeout:reportBarrierTimeout,diagnostics:()=>({location:safePageLocation(f.page.url()),routeMatched:commandRouteMatched,upstreamResponseReady:commandResponseReady,observedWorkspaceRequests:f.requests.length})});
+  f.cleanupGates.push(()=>gate.release());
+  await f.page.route('**/v1/workspaces/*/commands',async route=>{
+    try{commandRouteMatched=true;const response=await route.fetch({timeout:10000});commandResponseReady=true;gate.enter();await gate.holdResponse();await route.fulfill({response});}
+    catch(error){f.errors.push(gateFailureMessage(error));await route.abort('failed').catch(()=>{});}finally{gate.release();}
+  });
+  try{
+    await f.page.getByRole('button',{name:'Save',exact:true}).click();await gate.waitForRequest();
+    await body.fill('newer unsent input');gate.release();await f.page.getByText('Saved snapshot confirmed.',{exact:false}).waitFor();
+    assert.equal(await body.inputValue(),'newer unsent input');assert.deepEqual(f.errors,[]);
+  }finally{gate.release();}
 });
 test('principal change and resource revocation never restore former plaintext',async t=>{
   const f=await setup(t);await createIssue(f);const body=f.page.getByRole('textbox',{name:'Markdown body',exact:true});
@@ -141,20 +156,27 @@ test('IME Enter never triggers an implicit save',async t=>{
   assert.equal(f.requests.filter(x=>x.startsWith('POST ')).length,posts);assert.deepEqual(f.errors,[]);
 });
 test('delayed project titles cannot reappear after same-principal grant revocation and resume',async t=>{
-  const f=await setup(t);let release,arrived;const waiting=new Promise(r=>arrived=r);let projectReads=0;
+  const f=await setup(t);let projectReads=0,firstProjectResponseReady=false;
+  const gate=createBarrier({label:'GET /v1/workspaces/:id/projects',onTimeout:reportBarrierTimeout,diagnostics:()=>({location:safePageLocation(f.page.url()),routeMatched:projectReads>0,upstreamResponseReady:firstProjectResponseReady,observedProjectRequests:projectReads})});
+  f.cleanupGates.push(()=>gate.release());
   await f.page.route('**/v1/workspaces/*/projects?*',async route=>{
     projectReads++;
     if(projectReads!==1){await route.continue();return;}
-    const response=await route.fetch();arrived();await new Promise(r=>release=r);try{await route.fulfill({response});}catch{/* Expected when the obsolete request was aborted. */}
+    try{
+      const response=await route.fetch({timeout:10000});firstProjectResponseReady=true;gate.enter();await gate.holdResponse();
+      try{await route.fulfill({response});}catch{/* Expected when the obsolete request was aborted. */}
+    }catch(error){f.errors.push(gateFailureMessage(error));await route.abort('failed').catch(()=>{});}finally{gate.release();}
   });
-  await f.page.goto(f.h.base+'/');await waiting;
-  await f.h.control('revokeCurrentProject');
-  await f.page.evaluate(()=>{const c=new BroadcastChannel('projektor-session');c.postMessage({changed:true});c.close();});
-  await f.page.getByRole('button',{name:'Create issue in Secondary UI fixture project',exact:true}).waitFor();
-  release();await new Promise(r=>setTimeout(r,50));
-  assert.equal(await f.page.getByRole('button',{name:'Create issue in Primary UI fixture project',exact:true}).count(),0);
-  assert.equal(await f.page.getByRole('button',{name:'Create issue in Secondary UI fixture project',exact:true}).count(),1);
-  assert.ok(projectReads>=2);assert.deepEqual(f.errors,[]);
+  try{
+    await f.page.goto(f.h.base+'/');await gate.waitForRequest();
+    await f.h.control('revokeCurrentProject');
+    await f.page.evaluate(()=>{const c=new BroadcastChannel('projektor-session');c.postMessage({changed:true});c.close();});
+    await f.page.getByRole('button',{name:'Create issue in Secondary UI fixture project',exact:true}).waitFor();
+    gate.release();await new Promise(r=>setTimeout(r,50));
+    assert.equal(await f.page.getByRole('button',{name:'Create issue in Primary UI fixture project',exact:true}).count(),0);
+    assert.equal(await f.page.getByRole('button',{name:'Create issue in Secondary UI fixture project',exact:true}).count(),1);
+    assert.ok(projectReads>=2);assert.deepEqual(f.errors,[]);
+  }finally{gate.release();}
 });
 test('canceling workspace selection preserves route, latest draft and keyboard focus',async t=>{
   const f=await setup(t);await createIssue(f);
