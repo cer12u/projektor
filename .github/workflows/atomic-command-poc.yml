@@ -132,6 +132,7 @@ jobs:
           set -o pipefail
           npm run verify 2>&1 | tee ../atomic-command-poc/evidence/browser/product-ui-verify.log
       - name: Test twelve real Chromium product UI scenarios
+        timeout-minutes: 5
         working-directory: experiments/product-ui
         env:
           PROJEKTOR_CORE_SOURCE: ../atomic-command-poc

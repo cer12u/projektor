@@ -8,6 +8,7 @@ import {pathToFileURL} from 'node:url';
 import {chromium} from 'playwright';
 import {build} from 'vite';
 import {createBarrier,safePageLocation,gateFailureMessage} from './barrier.mjs';
+import {selectedFixtureSession} from './session-fixture.mjs';
 function reportBarrierTimeout(label,phase){
   if(process.env.GITHUB_ACTIONS!=='true')return;
   const target=label==='POST /v1/workspaces/:id/commands'?'POST command response':label==='GET /v1/workspaces/:id/projects'?'GET project response':'UI response';
@@ -32,12 +33,30 @@ async function setup(t,{bootstrapMode='one'}={}){
   await h.control('sql','UPDATE project SET title=? WHERE id=?',['Secondary UI fixture project',h.ids.otherProject]);
   await context.route(h.base+'/**',async route=>{
     const url=new URL(route.request().url());
+    if(url.pathname==='/v1/session'){
+      // Fixture compatibility only. Product client keeps its strict selected
+      // workspace contract; no production route is changed by this test.
+      try{
+        const result=await selectedFixtureSession({url:url.href,method:route.request().method(),workspaceId:h.ids.workspace,readVerifiedSession:async()=>{
+          const response=await context.request.get(h.base+'/v1/session',{timeout:10000,maxRedirects:0});
+          if(response.headers()['content-type']?.split(';')[0].trim()!=='application/json')throw Error('FIXTURE_SESSION_PROTOCOL_ERROR');
+          return {status:response.status(),body:await response.json()};
+        }});
+        await route.fulfill({status:result.status,json:result.body,headers:{'cache-control':'no-store'}});
+      }catch{await route.fulfill({status:502,json:{error:{code:'FIXTURE_SESSION_UNAVAILABLE'}}});}
+      return;
+    }
     if(url.pathname==='/v1/bootstrap'){
-      const session=await (await context.request.get(h.base+'/v1/session')).json();
+      try{
+      const sourceSession=await context.request.get(h.base+'/v1/session',{timeout:10000,maxRedirects:0});
+      if(sourceSession.status()!==200||sourceSession.headers()['content-type']?.split(';')[0].trim()!=='application/json'){await route.fulfill({status:sourceSession.status()===200?502:sourceSession.status(),json:{error:{code:'FIXTURE_BOOTSTRAP_UNAVAILABLE'}}});return;}
+      const session=await sourceSession.json();
       let workspaces=[{workspaceId:session.workspaceId,workspaceEpoch:session.workspaceEpoch,principalId:session.principalId,name:'Fixture workspace'}];
       if(bootstrapMode==='zero')workspaces=[];
       if(bootstrapMode==='multi')workspaces.push({workspaceId:'00000000-0000-4000-8000-000000000099',workspaceEpoch:'00000000-0000-4000-8000-000000000098',principalId:session.principalId,name:'Second fixture workspace'});
-      await route.fulfill({json:{principalId:bootstrapMode==='zero'?null:session.principalId,actorKind:'human',workspaces,expiresAt:session.expiresAt,serverTime:Date.now(),renewalMode:'not-connected'}});return;
+      await route.fulfill({json:{principalId:bootstrapMode==='zero'?null:session.principalId,actorKind:'human',workspaces,expiresAt:session.expiresAt,serverTime:Date.now(),renewalMode:'not-connected'}});
+      }catch{await route.fulfill({status:502,json:{error:{code:'FIXTURE_BOOTSTRAP_UNAVAILABLE'}}});}
+      return;
     }
     if(url.pathname==='/'||url.pathname.startsWith('/assets/')){
       const file=url.pathname==='/'?'fixture.html':url.pathname.slice(1);
