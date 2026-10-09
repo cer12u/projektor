@@ -6,7 +6,7 @@ import {Notice,editorMessage} from './components.tsx';
 import {preserveMarkdownInput} from './markdown.ts';
 /** Thin presentation. All writes use the inherited protected coordinator and
  * the existing authenticated WorkspaceService; missing ports fail read-only. */
-export function WikiView({ports,selected,route,navigate,replace,guard,locked,accessRevision}:any){
+export function WikiView({ports,selected,route,navigate,replace,guard,locked,accessRevision,accessReady}:any){
  const api=useMemo(()=>ports.wikiAPI?.(selected),[ports,selected]);const [loaded,setLoaded]=useState<any>(null),[state,setState]=useState<any>(null),[code,setCode]=useState<string|null>(null),[search,setSearch]=useState('');
  const draftId=useMemo(()=>route.draftId??crypto.randomUUID(),[route.pageId,route.draftId]);const ref=useRef<any>(null);const retainedPage=useRef<any>(null);const liveBinding=useRef<string|null>(null);const requestGeneration=useRef<any>(null);
  const listScope=route.projectId?{kind:'project',projectId:route.projectId}:undefined;
@@ -18,10 +18,11 @@ export function WikiView({ports,selected,route,navigate,replace,guard,locked,acc
  ref.current=controller;
  useEffect(()=>{if(controller&&!route.draftId)replace({draftId});},[controller,draftId,route.draftId]);
  useLifecycle(controller,!locked,accessRevision);
- useEffect(()=>{const before=(event:BeforeUnloadEvent)=>{const r=controller?.record;if(r&&(Object.values(r.drafts).some((d:any)=>d.revision>d.ack)||r.journal&&!['committed','rejected'].includes(r.journal.state))){event.preventDefault();event.returnValue='';}};window.addEventListener('beforeunload',before);return()=>window.removeEventListener('beforeunload',before);},[controller]);
+ useEffect(()=>{const before=(event:BeforeUnloadEvent)=>{const r=controller?.record,b=controller?.protection?.binding,recoverable=controller?.protectionState==='protected'&&!!b&&route.draftId===draftId&&route.wikiProtectionScope===(b.projectAtProtection===null?'workspace_shared':'project')&&route.projectAtProtection===b.projectAtProtection;if(r&&!recoverable&&(Object.values(r.drafts).some((d:any)=>d.revision>d.ack)||r.journal&&!['committed','rejected'].includes(r.journal.state))){event.preventDefault();event.returnValue='';}};window.addEventListener('beforeunload',before);return()=>window.removeEventListener('beforeunload',before);},[controller,draftId,route.draftId,route.wikiProtectionScope,route.projectAtProtection]);
  useEffect(()=>guard(async()=>{if(!controller||!controller.record)return true;const b=controller.protection?.binding;if(!b||route.draftId!==draftId||route.wikiProtectionScope!==(b.projectAtProtection===null?'workspace_shared':'project')||route.projectAtProtection!==b.projectAtProtection)return false;if(controller.locked&&controller.protectionState==='protected')return true;const result=await controller.flush();return result.kind==='protected'&&controller.protectionState==='protected';}),[controller,guard,draftId,route.draftId,route.wikiProtectionScope,route.projectAtProtection]);
  const runAction=async(action:()=>Promise<any>)=>{try{await action();}catch(e:any){setCode(e.code??e.message??'ACTION_FAILED');}};
  const s=state?.owner===controller?state.snapshot:controller?.snapshot();
+ useEffect(()=>{if(!locked&&(controller?!s?.locked:loaded?.binding===binding&&loaded.generation===generation))accessReady?.();},[locked,controller,s?.locked,loaded,binding,generation,accessReady]);
  useEffect(()=>{const b=controller?.protection?.binding;if(b&&route.view==='wiki-page'&&(route.wikiProtectionScope!==(b.projectAtProtection===null?'workspace_shared':'project')||route.projectAtProtection!==b.projectAtProtection))replace({wikiProtectionScope:b.projectAtProtection===null?'workspace_shared':'project',projectAtProtection:b.projectAtProtection});},[controller,s?.record?.revision,route.wikiProtectionScope,route.projectAtProtection]);
  if(locked)return <Notice>Wiki locked until access is verified</Notice>;
  if(!api)return <Notice>Wiki API port is not connected</Notice>;

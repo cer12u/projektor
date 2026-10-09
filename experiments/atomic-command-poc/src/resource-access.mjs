@@ -37,6 +37,8 @@ export function resourceScope(db,resource){
 }
 export function currentRead(db,actor,resource,{allowDeleted=false}={}){
  const r=resourceScope(db,resource);if(!r)return false;
+ // Native machine scopes remain meaningful for preserved policyless records.
+ if(actor.source==='app_machine'&&!hasScope(db,actor,resource.type+':read'))return false;
  const member=get(db,'SELECT * FROM membership WHERE principal_id=?',actor.principalId),cred=get(db,'SELECT * FROM credential WHERE id=?',actor.credentialId);
  if(!member||member.revoked||!cred||cred.revoked||cred.principal_id!==actor.principalId)return false;
  if(r.deleted&&(!allowDeleted||!hasScope(db,actor,'deleted:read')))return false;

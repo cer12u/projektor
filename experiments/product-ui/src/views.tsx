@@ -3,7 +3,7 @@ import {flushSync} from 'react-dom';
 import {isID,type ProductPorts,type Selected,type Route,type PrepareLeave} from './contracts.ts';
 import {IssueContentController,MyIssuesController,preserveMarkdownInput} from './core.ts';
 import {Notice,IssueRows,listMessage,EntryList,History,editorMessage,states,actionResultText,IssueCompatibilityDetails} from './components.tsx';
-export interface ViewProps {ports:ProductPorts;selected:Selected;route:Route;navigate:(patch:Partial<Route>)=>void;replace:(patch:Partial<Route>)=>void;guard:(prepare:PrepareLeave)=>()=>void;locked:boolean;restoreView:()=>void}
+export interface ViewProps {ports:ProductPorts;selected:Selected;route:Route;navigate:(patch:Partial<Route>)=>void;replace:(patch:Partial<Route>)=>void;guard:(prepare:PrepareLeave)=>()=>void;locked:boolean;restoreView:()=>void;accessReady?:()=>void;accessRevision?:number}
 export function useLifecycle(controller:any,allowed:boolean,revision?:number){
   const canRun=useRef(allowed);canRun.current=allowed;
   // Root bootstrap lock must also invalidate requests and clear cached keys.
@@ -28,8 +28,9 @@ export function ListView(props:ViewProps){
   const{ports,selected,route,navigate,locked}=props;
   const[state,setState]=useState<any>(null);
   const controller=useMemo(()=>{let c:any;c=new MyIssuesController({sessionAdapter:{read:(opts:any)=>ports.session(selected,opts)},transport:ports.listTransport(selected),filters:{status:route.status},onChange:(snapshot:any)=>setState({owner:c,snapshot})});return c;},[ports,selected,route.status]);
-  useLifecycle(controller,!locked);
+  useLifecycle(controller,!locked,props.accessRevision);
   const s=state?.owner===controller?state.snapshot:controller.snapshot();
+  useEffect(()=>{if(!locked&&!s.locked&&['ready','empty','partial'].includes(s.phase))props.accessReady?.();},[locked,s.locked,s.phase,props.accessReady]);
   useEffect(()=>{if(!locked&&['ready','empty','partial'].includes(s.phase))requestAnimationFrame(props.restoreView);},[locked,s.phase,props.restoreView]);
   const visible=locked?{...s,locked:true,phase:'locked',items:[],total:null,code:'VERIFY_BOOTSTRAP'}:s;
   return <section aria-busy={visible.busy}><div className="heading"><h1 tabIndex={-1}>{route.view==='board'?'My issues board':'My Issues'}</h1><button disabled={visible.busy||locked} onClick={()=>controller.refresh()}>Refresh issues</button></div>
@@ -55,7 +56,7 @@ export function ContentView(props:ViewProps){
   // Preserve the opaque draft ID and original scope across reload. Never put text
   // or credentials in the URL. Scope binding comes from the verified core adapter.
   useEffect(()=>{if(!route.draftId)replace({draftId});},[draftId]);
-  useLifecycle(controller,!locked);
+  useLifecycle(controller,!locked,props.accessRevision);
   useEffect(()=>guard(async()=>{
     if(!controller.record)return true;
     const binding=controller.protection?.binding;
@@ -66,11 +67,12 @@ export function ContentView(props:ViewProps){
   }),[controller,guard,route.draftId,route.projectAtProtection,draftId]);
   useEffect(()=>{
     const before=(event:BeforeUnloadEvent)=>{
-      const record=controller.record;if(record&&(Object.values(record.drafts).some((d:any)=>d.revision>d.ack)||record.journal&&!['committed','rejected'].includes(record.journal.state))){event.preventDefault();event.returnValue='';}
+      const record=controller.record,binding=controller.protection?.binding,recoverable=controller.protectionState==='protected'&&route.draftId===draftId&&!!binding&&(!binding.projectAtProtection||route.projectAtProtection===binding.projectAtProtection);if(record&&!recoverable&&(Object.values(record.drafts).some((d:any)=>d.revision>d.ack)||record.journal&&!['committed','rejected'].includes(record.journal.state))){event.preventDefault();event.returnValue='';}
     };
     window.addEventListener('beforeunload',before);return()=>window.removeEventListener('beforeunload',before);
-  },[controller]);
+  },[controller,route.draftId,route.projectAtProtection,draftId]);
   const s=state?.owner===controller?state.snapshot:controller.snapshot();const isLocked=locked||s.locked;
+  useEffect(()=>{if(!isLocked)props.accessReady?.();},[isLocked,props.accessReady]);
   useEffect(()=>{
     const binding=controller.protection?.binding;
     if(binding?.projectAtProtection&&route.projectAtProtection!==binding.projectAtProtection)replace({projectAtProtection:binding.projectAtProtection});

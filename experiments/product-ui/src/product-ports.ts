@@ -1,3 +1,4 @@
+import {createAppAuth} from './app-auth.mjs';
 import {createWikiAPI} from '../vendor/client/wiki-content.mjs';
 import {createWikiProtection} from '../vendor/client/wiki-protection.mjs';
 import {createSessionAPI,createContentProtection} from '../vendor/session-ports/client.mjs';
@@ -8,7 +9,9 @@ import {boundLegacyTarget} from './legacy-navigation.ts';
 import {isLegacyLocation} from './router.ts';
 /** Thin mapping of the session owner's exact wire contract into view props.
  * No endpoint fallback, issuer, membership mutation or local identity cache. */
-export function createProductPorts({baseUrl=globalThis.location?.origin,fetchImpl=globalThis.fetch}={}):ProductPorts{
+export function createProductPorts({baseUrl=globalThis.location?.origin,fetchImpl=globalThis.fetch,appAuth=true}={}):ProductPorts{
+  const auth=appAuth?createAppAuth({baseUrl,fetchImpl}):undefined;
+  if(auth)fetchImpl=auth.fetch;
   const sessionAPI=createSessionAPI({baseUrl,fetchImpl});
   const api=createContentAPI({baseUrl,fetchImpl});
   const list=createMyIssuesTransport({baseUrl,fetchImpl});
@@ -19,7 +22,7 @@ export function createProductPorts({baseUrl=globalThis.location?.origin,fetchImp
     return value;
   };
   return {
-    evidence:'product',
+    evidence:'product',auth,
     async bootstrap(options){
       const b=await sessionAPI.bootstrap(options);
       return {principal:b.principalId?actor(b.principalId):null,expiresAt:b.expiresAt,

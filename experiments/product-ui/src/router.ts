@@ -1,5 +1,5 @@
 import {isID,type Route,type PrepareLeave} from './contracts.ts';
-const views=new Set(['list','board','issue','create','project','wiki','wiki-page','wiki-create']);
+const views=new Set(['list','board','issue','create','project','wiki','wiki-page','wiki-create','devices']);
 export function parseRoute(input:string):Route{
   if(!/^\/(?:\?|$)/.test(input))throw new Error('ROUTE_INVALID');
   const url=new URL(input,'https://ui.invalid');

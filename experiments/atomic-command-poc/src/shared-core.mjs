@@ -6,7 +6,7 @@ export {queryWiki,queryWikiRevisions,queryWikiResolve,queryLinks,queryBacklinks}
 import {WORKFLOW_COMMANDS,validateWorkflow,executeWorkflowCommand} from './agent-workflow.mjs';
 export {queryClaim,queryResolutionRecords,queryCapabilities,queryAttemptCheckpoint,queryIssueAlias} from './agent-workflow.mjs';
 import { CONTENT_COMMANDS, validateContent, executeContentCommand, issueProjection, captureAccess } from './issue-content.mjs';
-import { currentRead, currentWrite, receiptScope, credentialAllows } from './resource-access.mjs';
+import { currentRead, currentWrite, receiptScope, credentialAllows,hasScope } from './resource-access.mjs';
 export { currentRead, currentWrite, historicRead, receiptScope } from './resource-access.mjs';
 export { queryProjects, queryIssueEntries, queryContentRevisions, queryArchiveRecord } from './issue-content.mjs';
 import { createHash } from 'node:crypto';
@@ -96,6 +96,7 @@ export function executeCommand(db,actor,c,{now,fault=()=>{},contentLinks=null}={
    if(old.hash_version!==HASH_VERSION||old.payload_hash!==hash)return failure('KEY_REUSE');
    return JSON.parse(old.result_json);
   }
+  if(actor.source==='app_machine'&&!hasScope(db,actor,'issue:write'))return failure('FORBIDDEN');
   if(!credentialAllows(db,actor,'read')||!credentialAllows(db,actor,'write'))return failure('FORBIDDEN');
   const issue=get(db,'SELECT * FROM issue WHERE id=?',c.entityId);
   const save=(result,receiptProject=issue?.project_id??null)=>{one(db,'INSERT INTO operation VALUES(?,?,?,?,?,?,?,?)',c.workspaceId,actor.principalId,c.operationId,HASH_VERSION,hash,c.entityId,receiptProject,JSON.stringify(result));if(receiptProject&&get(db,'SELECT 1 FROM resource_access WHERE resource_type=? AND resource_id=?','issue',c.entityId)){const a=captureAccess(db,{type:'issue',id:c.entityId});one(db,'INSERT INTO operation_scope VALUES(?,?,?,?,?,?,?,0)',c.workspaceId,actor.principalId,c.operationId,'issue',c.entityId,JSON.stringify(a.originalScope),a.accessSnapshotId);}return result;};

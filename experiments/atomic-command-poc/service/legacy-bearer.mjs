@@ -21,10 +21,13 @@ export function legacyApiTokenMode(env) {
 }
 // Bearer extraction grants nothing; a co-present service assertion is verified
 // independently below, before any D1 credential lookup.
-export function legacyBearerFrom(request) {
+export function legacyBearerFrom(request,{ignoreAccessCredentials=false}={}) {
  const header = request.headers.get('authorization');
  const cookies = request.headers.get('cookie') ?? '';
- if (cookies.length > 32768 || cookies.split(';').some(cookie => cookie.trim().split('=', 1)[0] === 'CF_Authorization')) deny('AUTH_CREDENTIAL_AMBIGUOUS');
+ if (cookies.length > 32768 || cookies.split(';').some(cookie => {
+  const name=cookie.trim().split('=',1)[0];
+  return name==='__Host-projektor_session'||!ignoreAccessCredentials&&name==='CF_Authorization';
+ })) deny('AUTH_CREDENTIAL_AMBIGUOUS');
  if (!header?.startsWith('Bearer ')) deny();
  const token = header.slice(7);
  if (!token || token.length > 8192 || !/^[\x21-\x7e]+$/.test(token)) deny();
@@ -33,12 +36,15 @@ export function legacyBearerFrom(request) {
  if (token.includes(':')) deny();
  return token;
 }
-export function createLegacyApiTokenVerifier({ sourceDb, providerConfig, now = Date.now }) {
+export function createLegacyApiTokenVerifier({ sourceDb, providerConfig, accessPerimeter='cloudflare', now = Date.now }) {
  if (typeof sourceDb?.prepare !== 'function' || typeof now !== 'function') unavailable();
+ if(!['cloudflare','none'].includes(accessPerimeter))unavailable();
  return async function verify(request, workspaceId) {
   if (!id(workspaceId)) deny();
-  const token = legacyBearerFrom(request);
-  const perimeter = request.headers.has('cf-access-jwt-assertion')
+  // In the explicitly selected app-owned mode, Access headers/cookies are
+  // inert metadata. Only the existing application bearer can authenticate.
+  const token = legacyBearerFrom(request,{ignoreAccessCredentials:accessPerimeter==='none'});
+  const perimeter = accessPerimeter==='cloudflare'&&request.headers.has('cf-access-jwt-assertion')
    ? await authenticateServicePerimeter(request, providerConfig) : null;
   const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
   const hash = Array.from(new Uint8Array(bytes), byte => byte.toString(16).padStart(2, '0')).join('');

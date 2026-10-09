@@ -53,12 +53,12 @@ export function resultResponse(result,kind){
  const status=!code?200:code==='UNAUTHENTICATED'?401:code==='PRECONDITION_REQUIRED'?428:['FORBIDDEN','COMMENT_FORBIDDEN','WORKSPACE_MISMATCH'].includes(code)?403:['NOT_FOUND','PROJECT_NOT_FOUND'].includes(code)?404:['POLICY_STATE_INCOMPLETE','VERSION_LIMIT_REACHED','POLICY_VERSION_CONFLICT','POLICY_MIGRATION_REQUIRED','VERSION_CONFLICT','KEY_REUSE','EPOCH_MISMATCH','ENTITY_EXISTS','COMMENT_EXISTS','CLAIM_HELD','CLAIM_STALE','ATTEMPT_REUSED','ENTRY_EXISTS','RENEW_TOO_EARLY'].includes(code)?409:['UNAVAILABLE','STORE_FENCED','STORE_UNINITIALIZED','STORE_SCHEMA_UNSUPPORTED'].includes(code)?503:400;
  return response(result,status);
 }
-export async function body(request,deadlineMs,parse=JSON.parse){
+export async function body(request,deadlineMs,parse=JSON.parse,maxBytes=2*1024*1024){
  if(request.headers.get('content-type')?.split(';')[0].trim()!=='application/json')throw new AuthError('CONTENT_TYPE',415);
  const reader=request.body?.getReader();if(!reader)throw new AuthError('VALIDATION',400);
  const chunks=[];let size=0,timer;
  const deadline=new Promise((_,reject)=>{timer=setTimeout(()=>{reject(new AuthError('BODY_TIMEOUT',408));void reader.cancel().catch(()=>{});},deadlineMs);});
- try{while(true){const {done,value}=await Promise.race([reader.read(),deadline]);if(done)break;size+=value.length;if(size>2*1024*1024){void reader.cancel().catch(()=>{});throw new AuthError('BODY_TOO_LARGE',413);}chunks.push(value);}}finally{clearTimeout(timer);reader.releaseLock();}
+ try{while(true){const {done,value}=await Promise.race([reader.read(),deadline]);if(done)break;size+=value.length;if(size>maxBytes){void reader.cancel().catch(()=>{});throw new AuthError('BODY_TOO_LARGE',413);}chunks.push(value);}}finally{clearTimeout(timer);reader.releaseLock();}
  const bytes=new Uint8Array(size);let offset=0;for(const chunk of chunks){bytes.set(chunk,offset);offset+=chunk.length;}
  let parsed;try{parsed=parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));}catch{throw new AuthError('VALIDATION',400);}
  // Preserve the original title-only envelope budget; content commands need room

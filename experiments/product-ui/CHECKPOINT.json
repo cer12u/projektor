@@ -1,24 +1,19 @@
 {
-  "scope": "Local legacy URL continuity candidate; project identity and authenticated Issue/Wiki/project navigation",
-  "baselineCommit": "f042b054318a1ce74cafef1436c5bf0820d52c7e",
-  "sourceManifestSHA256": "5c7fb8d6521bda1480b84f388b938090d01ec266958709eca361f3b97df0e77d",
+  "scope": "App-owned password and browser session candidate with native machine session integration",
+  "baselineCommit": "03fdbc58e5b186901c93a77e07ecddaf754e5a28",
+  "sourceManifestSHA256": "57def6c9168f5614cc70471b5ea21abf60320f34cbe8bde7651f078c3750890b",
   "verification": {
-    "productionBuild": "PASS after final product changes",
-    "routerState": "7 isolated cases pass; not browser integration",
-    "adapterIntegration": "1 NodeSQLite HTTP envelope integration pass; synthetic session provider",
-    "existingContracts": "22 selected router/bootstrap/SSR/Wiki checks pass",
-    "reporter": "15 existing plus1 focused selection check pass",
     "chromiumE2E": {
-      "selectedCaseIds": [
-        "C24",
-        "C25",
-        "C26",
-        "C27"
-      ],
-      "status": "NOT RUN; known local socket EPERM; fixture routes do not prove deployed host fallback"
-    }
+      "selectedEntries": {
+        "e2e/app-auth.test.mjs": 3,
+        "e2e/native-device.test.mjs": 1
+      },
+      "expectedCases": 4,
+      "status": "NOT RUN at source freeze; required in exact-head CI"
+    },
+    "serverEvidence": "Owner-provided focused server/client evidence is separate from browser acceptance"
   },
-  "publication": "not performed",
+  "publication": "prepared only",
   "productionUpgrade": "not performed",
   "privateDataIncluded": false
 }

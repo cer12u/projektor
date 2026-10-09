@@ -2,6 +2,8 @@ import {mcpFailure} from './mcp.mjs';
 import { configuration } from './config.mjs';
 import { authenticate } from './auth.mjs';
 import { authenticateWorkspace } from './workspace-auth.mjs';
+import {isNativeMachineRequest} from './native-machine-auth.mjs';
+import {isNativeAccessRequest} from './native-machine-session.mjs';
 import { createSessionHTTP } from '../session-ports/http.mjs';
 import { SessionPortError } from '../session-ports/server.mjs';
 import { route,error,failureResponse } from './http.mjs';
@@ -10,8 +12,25 @@ export default {async fetch(request,env,ctx){
  let timer,isMCP=false;
  try{
   const config=configuration(env);
+  const pathname=new URL(request.url).pathname;
+  if(config.appAuth&&pathname.startsWith('/v1/auth/')){
+   if(new URL(request.url).origin!==config.origin)return error('ORIGIN_REJECTED',403);
+   // Original cookies and body go to the fixed Store. Password KDFs, session
+   // state, grant consumption and all identity checks execute there only.
+   const pending=env.WORKSPACE.get(env.WORKSPACE.idFromName(config.appAuth.workspaceId)).fetch(request);
+   ctx.waitUntil(pending.then(()=>{},()=>{}));
+   return await Promise.race([pending,new Promise(resolve=>{timer=setTimeout(()=>resolve(error('AUTH_REQUEST_TIMEOUT')),config.deadline);})]);
+  }
   if(['/v1/bootstrap','/v1/session','/v1/draft-keys'].includes(new URL(request.url).pathname)) {
-   const handle=createSessionHTTP({verify:(request,kind)=>authenticate(request,env,kind),origin:config.origin,
+   const handle=createSessionHTTP({verify:async(request,kind)=>{
+    if(!config.appAuth)return authenticate(request,env,kind);
+    const url=new URL(`/v1/workspaces/${config.appAuth.workspaceId}/session`,config.origin);
+    const response=await env.WORKSPACE.get(env.WORKSPACE.idFromName(config.appAuth.workspaceId)).fetch(new Request(url,{method:'GET',headers:new Headers(request.headers)}));
+    const session=await response.json();
+    if(!response.ok)throw new SessionPortError(session.error?.code??'SESSION_SERVICE_UNAVAILABLE',response.status);
+    if(session.actorKind!=='human'||session.workspaceId!==config.appAuth.workspaceId)throw new SessionPortError('STORE_BINDING_MISMATCH',503);
+    return {actorKind:'human',credentialExpiresAt:session.expiresAt};
+   },origin:config.origin,
     directory:config.workspaces.map(workspaceId=>({workspaceId,name:workspaceId})),requestDeadlineMs:config.deadline,trackPending:pending=>ctx.waitUntil(pending.then(()=>{},()=>{})),
     invokeStore:async({request,workspaceId,action,args})=>{
      const url=new URL(request.url);url.pathname=`/v1/workspaces/${workspaceId}/${action==='session'?'session':'draft-keys'}`;url.search='';
@@ -27,8 +46,11 @@ export default {async fetch(request,env,ctx){
   const unavailable=code=>isMCP?mcpFailure(code):error(code);
   const started=Date.now();
   const pending=(async()=>{
-   const verified=await authenticateWorkspace(request,env,r.kind,r.workspaceId);
-   if(r.action==='legacyMCP'&&verified.source!=='legacy_api_token')return mcpFailure('LEGACY_CREDENTIAL_REQUIRED',403);
+   // Human opaque cookies are verified against durable state inside the Store;
+   // an ingress claim cannot substitute for that transaction-bound decision.
+   const nativeMachine=config.appAuth&&r.kind==='machine'&&(isNativeMachineRequest(request)||isNativeAccessRequest(request));
+   const verified=config.appAuth&&r.kind==='human'||nativeMachine?null:await authenticateWorkspace(request,env,r.kind,r.workspaceId);
+   if(r.action==='legacyMCP'&&!nativeMachine&&verified?.source!=='legacy_api_token')return mcpFailure('LEGACY_CREDENTIAL_REQUIRED',403);
    if(Date.now()-started>=config.deadline)return unavailable('TRANSPORT_TIMEOUT');
    return env.WORKSPACE.get(env.WORKSPACE.idFromName(r.workspaceId)).fetch(request);
   })();

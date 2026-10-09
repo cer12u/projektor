@@ -5,6 +5,6 @@ import {createRoot} from 'react-dom/client';
 import {App,Boundary} from '../src/App.tsx';
 import {createProductPorts} from '../src/product-ports.ts';
 import '../src/style.css';
-const ports=createProductPorts();
+const ports=createProductPorts({appAuth:false});
 ports.evidence='contract-fixture';
 createRoot(document.getElementById('root')!).render(<Boundary><App ports={ports}/></Boundary>);

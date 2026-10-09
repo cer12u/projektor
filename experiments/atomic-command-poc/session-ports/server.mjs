@@ -13,7 +13,10 @@ export function currentSession(db,verified,workspaceId,{now=Date.now()}={}) {
  const w=get(db,'SELECT * FROM workspace');
  if(!w)stop('STORE_UNINITIALIZED',503);
  if(w.id!==workspaceId)stop('WORKSPACE_MISMATCH');
- const rows=all(db,'SELECT principal_id,credential_id FROM identity_binding WHERE issuer=? AND subject=? AND kind=? LIMIT 2',verified.issuer,verified.subject,'human');
+ if(verified.source==='app_session'&&(!isId(verified.principalId)||!isId(verified.credentialId)||!isId(verified.sessionId)))stop('UNAUTHENTICATED',401);
+ const rows=verified.source==='app_session'
+  ?all(db,'SELECT principal_id,id AS credential_id FROM credential WHERE id=? AND principal_id=?',verified.credentialId,verified.principalId)
+  :all(db,'SELECT principal_id,credential_id FROM identity_binding WHERE issuer=? AND subject=? AND kind=? LIMIT 2',verified.issuer,verified.subject,'human');
  if(rows.length!==1)stop(rows.length?'IDENTITY_BINDING_AMBIGUOUS':'UNAUTHENTICATED',401);
  const actor={...verified,workspaceId,principalId:rows[0].principal_id,credentialId:rows[0].credential_id};
  const denied=authorized(db,actor,workspaceId,w.epoch,now);
@@ -22,7 +25,7 @@ export function currentSession(db,verified,workspaceId,{now=Date.now()}={}) {
  const scopes=all(db,'SELECT p.scope FROM principal_scope p JOIN credential_scope c ON c.scope=p.scope WHERE p.principal_id=? AND c.credential_id=? ORDER BY p.scope',actor.principalId,actor.credentialId).map(r=>r.scope);
  const revision=get(db,'SELECT revision FROM query_state WHERE id=1')?.revision;
  if(!Number.isSafeInteger(revision)||revision<0)stop('STORE_STATE_UNAVAILABLE',503);
- return {actor,session:{principalId:actor.principalId,workspaceId,workspaceEpoch:w.epoch,actorKind:'human',sessionId:actor.credentialId,authzVersion:revision,scopes,expiresAt:Math.min(verified.credentialExpiresAt,credential.expires_at),serverTime:now,renewalMode:'unknown',globalSessionExpiresAt:null}};
+ return {actor,session:{principalId:actor.principalId,workspaceId,workspaceEpoch:w.epoch,actorKind:'human',sessionId:verified.source==='app_session'?verified.sessionId:actor.credentialId,authzVersion:revision,scopes,expiresAt:Math.min(verified.credentialExpiresAt,credential.expires_at),serverTime:now,renewalMode:'unknown',globalSessionExpiresAt:null}};
 }
 export function bootstrapMembership(db,verified,workspaceId,options) {return currentSession(db,verified,workspaceId,options).session;}
 export function validateBinding(binding){

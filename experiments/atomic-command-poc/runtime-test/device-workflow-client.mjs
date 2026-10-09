@@ -1,0 +1,6 @@
+import {FileMachineCredentialProvider} from '../client/native-machine-pairing.mjs';
+import {createRenewingMachineProvider} from '../client/native-machine-session.mjs';
+import {MachineRuntime,createMachineTransport} from '../client/machine-runtime.mjs';
+import {NodeRuntimeJournal} from '../client/node-runtime-journal.mjs';
+let input='';for await(const chunk of process.stdin)input+=chunk;const spec=JSON.parse(input),privateProvider=new FileMachineCredentialProvider(spec.providerPath),fetchImpl=(url,init)=>fetch(spec.loopback+new URL(url).pathname,init),renewing=createRenewingMachineProvider({provider:privateProvider,origin:spec.origin,fetchImpl,renewBeforeMs:1000}),transport=createMachineTransport({baseUrl:spec.loopback,getToken:()=>renewing.getToken()}),journal=new NodeRuntimeJournal(spec.journal),runtime=new MachineRuntime({transport,journal,runtimeInstanceId:spec.runtimeId});
+try{await runtime.connect(spec.context);const result=spec.action==='submit'?await runtime.submit(spec.command):spec.action==='recover'?await runtime.recover(spec.command.operationId):{connected:true};process.stdout.write(JSON.stringify({result,status:await renewing.status()}));}catch(error){process.stdout.write(JSON.stringify({error:error.code??'DEVICE_WORKFLOW_FAILED'}));}finally{journal.close();}

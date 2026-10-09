@@ -53,7 +53,7 @@ export function editorMessage(s:any):string{
   if(s.phase==='rejected')return 'Save rejected · '+s.code+' · Your draft is retained';
   return (s.busy?'Checking…':s.phase==='editing'?'Unsaved changes':'Ready')+' · '+s.protection+(s.code?' · '+s.code:'');
 }
-export function Expiry({expiresAt}:{expiresAt:number}){const[now,setNow]=useState(Date.now());useEffect(()=>{const t=setInterval(()=>setNow(Date.now()),10000);return()=>clearInterval(t);},[]);return expiresAt-now<=60000?<Notice>Session expires soon. Input protection and product renewal must be verified before leaving this page</Notice>:null;}
+export function Expiry({expiresAt}:{expiresAt:number}){const[now,setNow]=useState(Date.now());useEffect(()=>{const t=setInterval(()=>setNow(Date.now()),10000);return()=>clearInterval(t);},[]);return expiresAt-now<=60000?<Notice>Session renewal is due soon. Keep this page open while access is checked</Notice>:null;}
 export function actionResultText(result:any):string|null{
   if(result?.kind==='budget-exhausted')return 'Automatic resend budget exhausted. Use Check existing operation for a receipt-only lookup';
   if(result?.kind==='manual-budget-exhausted')return 'Manual receipt-check limit reached. Wait before checking again; no resend was performed';

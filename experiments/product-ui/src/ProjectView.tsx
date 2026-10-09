@@ -14,7 +14,7 @@ export async function readSelectedProject(ports:ProductPorts,selected:Selected,p
 }
 
 /** Authorized project identity and existing actions, not an issue overview. */
-export function ProjectView({ports,selected,route,navigate,locked,accessRevision}:ViewProps&{accessRevision:number}){
+export function ProjectView({ports,selected,route,navigate,locked,accessRevision,accessReady}:ViewProps&{accessRevision:number}){
   const [loaded,setLoaded]=useState<{binding:string;project?:Awaited<ReturnType<typeof readSelectedProject>>;failed?:boolean}|null>(null);
   const binding=JSON.stringify([selected.principal.id,selected.principal.kind,selected.workspace.id,selected.workspace.epoch,route.projectId,accessRevision,locked]);
   useEffect(()=>{
@@ -22,6 +22,7 @@ export function ProjectView({ports,selected,route,navigate,locked,accessRevision
     if(!locked&&route.projectId)void readSelectedProject(ports,selected,route.projectId,abort.signal).then(project=>{if(!abort.signal.aborted)setLoaded({binding,project});}).catch(()=>{if(!abort.signal.aborted)setLoaded({binding,failed:true});});
     return()=>abort.abort();
   },[ports,selected,binding]);
+  useEffect(()=>{if(!locked&&loaded?.binding===binding&&loaded.project)accessReady?.();},[locked,loaded,binding,accessReady]);
   if(locked)return <Notice>Project locked until access is verified</Notice>;
   const current=loaded?.binding===binding?loaded:null,p=current?.project;
   if(!p)return <section><h1 tabIndex={-1}>{current?.failed?'Project unavailable':'Project'}</h1><Notice>{current?.failed?'This project is unavailable in the selected workspace.':'Checking project access…'}</Notice></section>;
