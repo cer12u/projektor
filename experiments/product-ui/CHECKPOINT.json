@@ -1,7 +1,7 @@
 {
   "scope": "App-owned password and browser session candidate with native machine session integration",
   "baselineCommit": "03fdbc58e5b186901c93a77e07ecddaf754e5a28",
-  "sourceManifestSHA256": "81ceea57f8d0ead3db0f4638365d74fa22b7351e072ac2861c9604f737daf571",
+  "sourceManifestSHA256": "f96765a7109d2cb954ec50821785cc02103da96a1c61ae3926cc5fd8736bfcab",
   "verification": {
     "chromiumE2E": {
       "selectedEntries": {

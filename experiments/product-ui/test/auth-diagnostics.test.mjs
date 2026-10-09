@@ -14,7 +14,7 @@ async function run(body){
 }
 test('real Node reporter counts the exact three known cases',async()=>{
  const result=await run(CASES.human.map(name=>`test(${JSON.stringify(name)},()=>{});`).join('\n'));
- assert.equal(result.status,0);assert.match(result.stdout,/^# tests 3$/m);assert.match(result.stdout,/^# pass 3$/m);assert.match(result.stdout,/^# runner_failed false$/m);assert.match(result.stdout,/^# incomplete 0$/m);
+ assert.equal(result.status,0);assert.match(result.stdout,/^# tests 3$/m);assert.match(result.stdout,/^# pass 3$/m);assert.match(result.stdout,/^# runner_failed false$/m);assert.match(result.stdout,/^# incomplete 0$/m);assert.match(result.stdout,/^::notice title=Auth browser summary::Auth browser human: expected=3 passed=3 failed=0 cancelled=0 skipped=0 todo=0 incomplete=0 runner_failed=false$/m);
 });
 test('real Node failure and skip cannot turn green or disclose unknown diagnostics',async()=>{
  const marker='PRIVATE_COOKIE_PASSWORD_BODY';

@@ -1,3 +1,4 @@
+import {openSessionChannel} from './session-events.mjs';
 import {NativeDeviceView} from './NativeDeviceView.tsx';
 import {needsLogin} from './app-auth.mjs';
 import {LoginView} from './AuthView.tsx';
@@ -19,7 +20,7 @@ export function App({ports}:{ports:ProductPorts}){
   const[data,setData]=useState<Bootstrap|null>(null);const[phase,setPhase]=useState('loading');const[code,setCode]=useState<string|null>(null);
   const[masked,setMasked]=useState(true);const[accessRevision,setAccessRevision]=useState(0);const[workspacePicker,setWorkspacePicker]=useState(false);
   const[legacyState,setLegacyState]=useState<{binding:string;phase:string}|null>(null);
-  const flight=useRef<AbortController|null>(null);const seq=useRef(0);const bootFlight=useRef<Promise<void>|null>(null);const logoutPending=useRef(false);
+  const flight=useRef<AbortController|null>(null);const seq=useRef(0);const bootFlight=useRef<Promise<void>|null>(null);const logoutPending=useRef(false);const sessionEvents=useRef<ReturnType<typeof openSessionChannel>|null>(null);
   const [authBusy,setAuthBusy]=useState(false),[authMessage,setAuthMessage]=useState<string|null>(null),[logoutUnknown,setLogoutUnknown]=useState(false);
   const prepare=useRef<PrepareLeave>(async()=>true);const workspaceButton=useRef<HTMLButtonElement>(null);
   const guard=useCallback((fn:PrepareLeave)=>{prepare.current=fn;return()=>{if(prepare.current===fn)prepare.current=async()=>true;};},[]);
@@ -46,7 +47,7 @@ export function App({ports}:{ports:ProductPorts}){
     try{
       if(!await prepare.current()){setAuthMessage('Sign-out stopped: the latest draft could not be protected. Keep this page open.');return;}
       logoutPending.current=true;flushSync(()=>setMasked(true));flight.current?.abort();seq.current++;
-      try{await ports.auth.logout();logoutPending.current=false;setPhase('login');setLogoutUnknown(false);const channel=new BroadcastChannel('projektor-session');channel.postMessage({changed:true});channel.close();}
+      try{await ports.auth.logout();logoutPending.current=false;setPhase('login');setLogoutUnknown(false);sessionEvents.current?.announce();}
       catch{setLogoutUnknown(true);setPhase('logout-unknown');setAuthMessage('Sign-out is unconfirmed. Content stays locked; check the session before leaving.');}
     }catch{setAuthMessage('Sign-out stopped: keep this page open to preserve the latest draft.');}
     finally{setAuthBusy(false);}
@@ -61,8 +62,8 @@ export function App({ports}:{ports:ProductPorts}){
     const show=()=>{mask();if(document.visibilityState!=='hidden')resume();};
     const session=()=>{mask();resume();};
     document.addEventListener('visibilitychange',visibility);window.addEventListener('pagehide',mask);window.addEventListener('pageshow',show);
-    const channel=new BroadcastChannel('projektor-session');channel.addEventListener('message',session);
-    void boot();return()=>{flight.current?.abort();seq.current++;document.removeEventListener('visibilitychange',visibility);window.removeEventListener('pagehide',mask);window.removeEventListener('pageshow',show);channel.close();router.dispose();};
+    const channel=openSessionChannel(session);sessionEvents.current=channel;
+    void boot();return()=>{flight.current?.abort();seq.current++;document.removeEventListener('visibilitychange',visibility);window.removeEventListener('pagehide',mask);window.removeEventListener('pageshow',show);if(sessionEvents.current===channel)sessionEvents.current=null;channel.close();router.dispose();};
   },[boot,router]);
   useEffect(()=>{if(!data||masked)return;const remaining=data.expiresAt-Date.now(),lead=ports.auth?Math.min(30000,Math.max(0,remaining/2)):0;const t=setTimeout(()=>ports.auth?void boot({refresh:true}):setMasked(true),Math.max(0,Math.min(2147483647,remaining-lead)));return()=>clearTimeout(t);},[data,masked,ports,boot]);
   useEffect(()=>{if(workspacePicker)requestAnimationFrame(()=>document.querySelector<HTMLElement>('[data-workspace-heading]')?.focus());},[workspacePicker]);
@@ -101,7 +102,7 @@ export function App({ports}:{ports:ProductPorts}){
       {ports.auth&&<button disabled={masked||router.busy} onClick={()=>navigate({view:'devices',issueId:null,projectId:null,pageId:null,draftId:null,projectAtProtection:null,wikiProtectionScope:null})}>Machine devices</button>}
     </nav><main id="main">
       {authMessage&&<Notice error>{authMessage}</Notice>}
-      {phase==='login'&&ports.auth&&<LoginView auth={ports.auth} reason={code} onLogin={()=>{setAuthMessage(null);setLogoutUnknown(false);logoutPending.current=false;return boot();}}/>}
+      {phase==='login'&&ports.auth&&<LoginView auth={ports.auth} reason={code} onLogin={async()=>{setAuthMessage(null);setLogoutUnknown(false);logoutPending.current=false;await boot();sessionEvents.current?.announce();}}/>}
       {logoutUnknown&&<button disabled={authBusy} onClick={async()=>{setAuthBusy(true);try{if(await ports.auth.logoutStatus()){logoutPending.current=false;setLogoutUnknown(false);setAuthMessage(null);setPhase('login');}else setAuthMessage('The session is still active. Keep this page open and explicitly sign out again.');}catch{setAuthMessage('Session status is unavailable. Keep this page open.');}finally{setAuthBusy(false);}}}>Check sign-out status</button>}
       {logoutUnknown&&<button disabled={authBusy} onClick={()=>void logout()}>Retry sign out</button>}
       {router.error&&<Notice error>{router.error}</Notice>}

@@ -6,6 +6,7 @@ import {randomUUID} from 'node:crypto';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createAppAuth,createPairing,needsLogin} from '../src/app-auth.mjs';
+import {openSessionChannel} from '../src/session-events.mjs';
 const core=resolve(process.env.PROJEKTOR_CORE_SOURCE??resolve(import.meta.dirname,'../../atomic-command-poc'));
 const {startAppAuthHarness}=await import(pathToFileURL(resolve(core,'browser-test/app-auth-server.mjs')));
 test('actual app-auth entry agrees on receipts, refresh, same-account family adoption and logout',async t=>{
@@ -25,6 +26,8 @@ test('actual app-auth entry agrees on receipts, refresh, same-account family ado
  // A second browser tab performs an explicit legitimate login using the same
  // HttpOnly cookie jar. The first client must adopt it without submitting a password.
  const peer=createAppAuth({baseUrl:h.base,fetchImpl}),newFamily=await peer.login('synthetic browser password 日本語');assert.notEqual(newFamily.sessionId,refreshed.sessionId);
- const passwordSubmissions=calls.filter(path=>path==='/v1/auth/login').length,adopted=await auth.restore({refresh:true});assert.equal(adopted.sessionId,newFamily.sessionId);assert.equal(adopted.principalId,refreshed.principalId);assert.equal(adopted.authVersion,refreshed.authVersion);assert.equal(adopted.absoluteExpiresAt,newFamily.absoluteExpiresAt);assert.equal(calls.filter(path=>path==='/v1/auth/login').length,passwordSubmissions);assert.equal((await h.control('inspect')).sessions,2);
+ const passwordSubmissions=calls.filter(path=>path==='/v1/auth/login').length,channelName='synthetic-session-'+randomUUID();let sentToSelf=0,received=0,finish,fail;
+ const resumed=new Promise((resolve,reject)=>{finish=resolve;fail=reject;}),waitingTab=openSessionChannel(()=>{received++;auth.restore().then(finish,fail);},channelName),signingInTab=openSessionChannel(()=>{sentToSelf++;},channelName);t.after(()=>{waitingTab.close();signingInTab.close();});
+ signingInTab.announce();let timer;const adopted=await Promise.race([resumed,new Promise((_,reject)=>{timer=setTimeout(()=>reject(Error('PEER_SESSION_NOTIFICATION_TIMEOUT')),2000);})]).finally(()=>clearTimeout(timer));assert.equal(received,1);assert.equal(sentToSelf,0);assert.equal(adopted.sessionId,newFamily.sessionId);assert.equal(adopted.principalId,refreshed.principalId);assert.equal(adopted.authVersion,refreshed.authVersion);assert.equal(adopted.absoluteExpiresAt,newFamily.absoluteExpiresAt);assert.equal(calls.filter(path=>path==='/v1/auth/login').length,passwordSubmissions);assert.equal((await h.control('inspect')).sessions,2);
  await auth.logout();assert.equal(jar.has('__Host-projektor_session'),false);await assert.rejects(auth.restore(),error=>needsLogin(error.code));
 });

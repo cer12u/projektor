@@ -62,5 +62,6 @@ export default async function* reporter(source){
  for(const [name,value] of Object.entries(values))yield `# ${name} ${value}\n`;
  const summary=`Auth browser ${group}: expected=${expected.length} passed=${values.pass} failed=${values.fail} cancelled=${values.cancelled} skipped=${values.skipped} todo=${values.todo} incomplete=${values.incomplete} runner_failed=${runnerFailed}`;
  yield '# '+summary+'\n';
+ if(process.env.GITHUB_ACTIONS==='true')yield '::notice title=Auth browser summary::'+summary+'\n';
  if(process.env.GITHUB_STEP_SUMMARY)appendFileSync(process.env.GITHUB_STEP_SUMMARY,[summary,...summaries].join('\n\n')+'\n');
 }
