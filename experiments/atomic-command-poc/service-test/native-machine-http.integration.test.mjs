@@ -1,0 +1,59 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {randomBytes,randomUUID,createHash} from 'node:crypto';
+import {mkdtemp,rm,lstat} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {createServer} from 'node:http';
+import {spawn} from 'node:child_process';
+import {Miniflare,createFetchMock} from 'miniflare';
+import {createNativePairingClient,FileMachineCredentialProvider} from '../client/native-machine-pairing.mjs';
+import {createMachineTransport} from '../client/machine-runtime.mjs';
+const scopes=['issue:read','issue:write','operations:read_own','history:read','claim:write'];
+
+test('human-dot public pairing→lost redemption response→private provider restart→HTTP command→revocation',async()=>{
+ const ids=Object.fromEntries(['workspace','epoch','human','machine','humanCredential','session','authEpoch','project','issue','runtime','operation'].map(k=>[k,randomUUID()])),origin='https://native-http.invalid',dir=await mkdtemp(join(tmpdir(),'native-http-'));
+ const rawSession=randomBytes(32),cookie=`__Host-projektor_session=${ids.session}.${rawSession.toString('base64url')}`,now=Date.now(),mock=createFetchMock();mock.disableNetConnect();
+ const appConfig={version:1,workspaceId:ids.workspace,humanPrincipalId:ids.human,authEpoch:ids.authEpoch,policy:{idleMs:3600000,absoluteMs:7200000},nativeMachine:{principalId:ids.machine,maxLifetimeMs:86400000,maxRedeemLifetimeMs:600000}};
+ const mf=new Miniflare({cf:false,fetchMock:mock,name:'native-http-proof',unsafeInspectDurableObjects:true,modules:true,scriptPath:new URL('../service/entry.mjs',import.meta.url).pathname,compatibilityDate:'2026-07-30',compatibilityFlags:['nodejs_compat'],modulesRules:[{type:'Text',include:['**/*.sql'],fallthrough:true}],d1Databases:['DB'],bindings:{APP_ORIGIN:origin,WORKSPACE_IDS:JSON.stringify([ids.workspace]),REQUEST_TIMEOUT_MS:'5000',BODY_TIMEOUT_MS:'1000',APP_AUTH_CONFIG:JSON.stringify(appConfig),JWT_SECRET:randomBytes(32).toString('hex'),LEGACY_API_TOKEN_AUTH:'d39852-api-tokens-v1',MCP_RATE_LIMIT_CONFIG:JSON.stringify({workspaceBurst:128,workspacePerSecond:50,identityBurst:100,identityPerSecond:25})},durableObjects:{WORKSPACE:{className:'WorkspaceService',useSQLite:true}}});
+ let server,killNext=null,mutations=0;
+ try {
+  await mf.ready;const db=await mf.unsafeGetDurableObjectStorage('native-http-proof','WorkspaceService',{name:ids.workspace}),source=await mf.getD1Database('DB');
+  await source.exec('CREATE TABLE users(id TEXT PRIMARY KEY); CREATE TABLE workspace_members(workspace_id TEXT,user_id TEXT,role TEXT); CREATE TABLE api_tokens(id TEXT PRIMARY KEY,workspace_id TEXT,user_id TEXT,issued_by_user_id TEXT,token_hash TEXT,scopes TEXT,expires_at INTEGER,last_used_at INTEGER);');
+  await db.exec('INSERT INTO workspace VALUES(?,?,1,0)',ids.workspace,ids.epoch);await db.exec('INSERT INTO project VALUES(?,?,1,0)',ids.project,'Native machine fixture');
+  await db.exec("INSERT INTO membership VALUES(?,'human',0,1)",ids.human);await db.exec("INSERT INTO membership VALUES(?,'human',0,1)",ids.machine);await db.exec('INSERT INTO credential VALUES(?,?,?,0,1,1)',ids.humanCredential,ids.human,now+86400000);await db.exec("INSERT INTO app_auth_principal VALUES(?,?,'owner',1,1,NULL,NULL,NULL,0)",ids.human,ids.humanCredential);
+  await db.exec('INSERT INTO app_auth_session(id,principal_id,credential_id,auth_version,grant_generation,auth_epoch,current_hash,created_at,idle_expires_at,absolute_expires_at,rotated_at,revoked) VALUES(?,?,?,1,1,?,?,?,?,?,?,0)',ids.session,ids.human,ids.humanCredential,ids.authEpoch,createHash('sha256').update(rawSession).digest('hex'),now,now+3600000,now+7200000,now);
+  await db.exec('INSERT INTO project_grant VALUES(?,?,1,1)',ids.machine,ids.project);for(const scope of [...scopes,'wiki:read','wiki:write'])await db.exec('INSERT INTO principal_scope VALUES(?,?)',ids.machine,scope);
+  const sessionResponse=await mf.dispatchFetch(origin+'/v1/auth/session',{headers:{cookie}});assert.equal(sessionResponse.status,200);const session=await sessionResponse.json();
+  const owner=async(action,input,change={})=>{const response=await mf.dispatchFetch(origin+'/v1/auth/machine-credentials/'+action,{method:'POST',headers:{cookie,origin,'sec-fetch-site':'same-origin','content-type':'application/json','x-projektor-auth-csrf':session.csrfToken,...change},body:JSON.stringify(input)});const wire=await response.json();return{status:response.status,body:wire.data??wire};};
+  const providerPath=join(dir,'credential.json'),provider=new FileMachineCredentialProvider(providerPath);
+  let loseFirstRedeem=true;
+  const pairing=createNativePairingClient({provider,origin,principalId:ids.machine,fetchImpl:async(...args)=>{const response=await mf.dispatchFetch(...args);if(loseFirstRedeem&&response.status===200){loseFirstRedeem=false;throw new Error('synthetic lost redeem response');}return response;}});
+  const publicPlan=await pairing.prepare({scopes,expiresAt:now+3600000,redeemExpiresAt:now+300000,expectedGeneration:0}),plan=publicPlan.approval;
+  assert.equal(publicPlan.secret,undefined);assert.equal(publicPlan.token,undefined);assert.equal((await lstat(providerPath)).mode&0o777,0o600);
+  const denied=await owner('pairing/approve',plan,{'x-projektor-auth-csrf':'wrong'});assert.equal(denied.status,403);assert.equal((await db.exec('SELECT count(*) AS n FROM native_machine_grant'))[0].n,0);
+  const approved=await owner('pairing/approve',plan);assert.equal(approved.status,200,approved.body.error?.code);assert.equal(approved.body.token,undefined);assert.equal(approved.body.grant.principalId,ids.machine);
+  assert.equal((await owner('pairing/approve',plan)).body.replayed,true);
+  await assert.rejects(pairing.redeem(),{code:'PAIRING_REDEEM_UNAVAILABLE'});
+  // Recreate client/provider after losing committed redemption response. Runtime
+  // already holds the same preimage; retry receives metadata only, never a token.
+  const recreatedProvider=new FileMachineCredentialProvider(providerPath),recreated=createNativePairingClient({provider:recreatedProvider,origin,principalId:ids.machine,fetchImpl:(...args)=>mf.dispatchFetch(...args)}),replay=await recreated.redeem();assert.equal(replay.replayed,true);assert.equal(replay.token,undefined);
+  const token=await recreatedProvider.getToken(),credentialId=plan.credentialId;
+  assert.equal(JSON.stringify(await db.exec('SELECT * FROM native_machine_credential')).includes(token),false);
+  assert.equal((await db.exec('SELECT count(*) AS n FROM native_machine_credential'))[0].n,1);
+  server=createServer(async(req,res)=>{try{let body='';for await(const chunk of req)body+=chunk;const headers={...req.headers};delete headers.host;assert.equal(headers.cookie,undefined);assert.equal(headers['cf-access-jwt-assertion'],undefined);const response=await mf.dispatchFetch(origin+req.url,{method:req.method,headers,...(body?{body}:{})});if(req.url.endsWith('/commands')&&response.status===200){mutations++;if(killNext&&response.status===200){const child=killNext;killNext=null;child.kill('SIGKILL');req.socket.destroy();return;}}const out=Object.fromEntries(response.headers);delete out['content-length'];res.writeHead(response.status,out);res.end(await response.text());}catch{res.writeHead(500);res.end();}});await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));const baseUrl=`http://127.0.0.1:${server.address().port}`;
+  const transport=createMachineTransport({baseUrl,getToken:async()=>token}),args={workspaceId:ids.workspace,workspaceEpoch:ids.epoch};
+  const profile=(await transport.query('capabilities_get',args)).data;assert.equal(profile.principalId,ids.machine);assert.equal(profile.credentialId,credentialId);assert.deepEqual(profile.scopes,[...scopes].sort());
+  const mcp=createMachineTransport({baseUrl,getToken:async()=>token,protocol:'mcp-modern'});assert.equal((await mcp.query('capabilities_get',args)).data.credentialId,credentialId);
+  const command={schemaVersion:1,...args,operationId:ids.operation,commandType:'Issue.Create',entityId:ids.issue,expectedVersion:0,payload:{projectId:ids.project,title:'Native restart',description:'Synthetic',assigneeId:ids.machine,priority:null,parentId:null,initialStatus:'ready'}},spec={protocol:'rest',origin:baseUrl,providerPath,runtimeId:ids.runtime,journal:join(dir,'journal.sqlite'),context:{...args,principalId:ids.machine,issueId:ids.issue},command};
+  function child(action,kill=false){return new Promise((resolve,reject)=>{const process=spawn(globalThis.process.execPath,[new URL('../runtime-test/process-client.mjs',import.meta.url).pathname],{stdio:['pipe','pipe','pipe']});let out='';process.stdout.on('data',c=>out+=c);process.stderr.resume();process.on('error',reject);process.on('exit',(code,signal)=>resolve({code,signal,result:out?JSON.parse(out):null}));if(kill)killNext=process;process.stdin.end(JSON.stringify({...spec,action}));});}
+  assert.equal((await child('submit',true)).signal,'SIGKILL');const recovered=await child('recover');assert.equal(recovered.code,0);assert.equal(recovered.result.result?.data?.outcome,'committed',recovered.result.error);assert.equal(mutations,1);assert.equal((await db.exec('SELECT count(*) AS n FROM operation WHERE operation_id=?',ids.operation))[0].n,1);
+  assert.equal((await transport.query('issue_get',{...args,entityId:ids.issue})).data.title,'Native restart');
+  const claimOnly=await owner('issue',{operationId:randomUUID(),scopes:['issue:read','claim:write'],expiresAt:now+3600000});assert.equal(claimOnly.status,200);const claimTransport=createMachineTransport({baseUrl,getToken:async()=>claimOnly.body.token});await assert.rejects(claimTransport.command({...command,operationId:randomUUID(),commandType:'Issue.UpdateTitle',expectedVersion:1,payload:{title:'must not apply'}}),{code:'MACHINE_SCOPE_OR_CREDENTIAL_DENIED'});assert.equal((await transport.query('issue_get',{...args,entityId:ids.issue})).data.title,'Native restart');
+  const wikiOnly=await owner('issue',{operationId:randomUUID(),scopes:['wiki:read','wiki:write'],expiresAt:now+3600000});assert.equal(wikiOnly.status,200);const wikiTransport=createMachineTransport({baseUrl,getToken:async()=>wikiOnly.body.token});const hidden=await wikiTransport.query('issue_get',{...args,entityId:ids.issue});assert.equal(hidden.data,undefined);assert.equal(hidden.error.code,'NOT_FOUND');const hiddenList=await mf.dispatchFetch(origin+`/machine/v1/workspaces/${ids.workspace}/my-issues?workspaceEpoch=${ids.epoch}`,{headers:{authorization:'Bearer '+wikiOnly.body.token}});assert.equal(hiddenList.status,403);const hiddenListBody=await hiddenList.json();assert.equal(hiddenListBody.data,undefined);assert.equal(hiddenListBody.error.code,'FORBIDDEN');
+  const listed=await owner('list',{});assert.equal(listed.status,200);assert.ok(listed.body.credentials.some(c=>c.credentialId===credentialId));assert.equal(JSON.stringify(listed.body).includes(token),false);
+  assert.equal((await owner('revoke',{credentialId})).status,200);await assert.rejects(transport.query('capabilities_get',args),{code:'MACHINE_SCOPE_OR_CREDENTIAL_DENIED'});await assert.rejects(mcp.query('capabilities_get',args),{code:'MACHINE_SCOPE_OR_CREDENTIAL_DENIED'});const postRevoke=await child('recover');assert.equal(postRevoke.result.error,'MACHINE_SCOPE_OR_CREDENTIAL_DENIED');assert.equal(mutations,1);
+  const wrong=await mf.dispatchFetch(origin+`/machine/v1/workspaces/${ids.workspace}/capabilities?workspaceEpoch=${ids.epoch}`,{headers:{authorization:'Bearer pn1_invalid','cf-access-jwt-assertion':'synthetic.invalid.assertion'}});assert.equal(wrong.status,401);
+  for(const table of ['users','workspace_members','api_tokens'])assert.equal((await source.prepare(`SELECT count(*) AS n FROM ${table}`).all()).results[0].n,0);
+ }finally{if(server)await new Promise(resolve=>server.close(resolve));await mf.dispose();await rm(dir,{recursive:true,force:true});}
+});

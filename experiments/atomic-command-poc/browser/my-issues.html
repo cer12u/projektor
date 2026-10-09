@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>My Issues · Projektor</title>
+  <style>
+    :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+    body { margin: 0; background: light-dark(#f5f6f8, #15171c); color: light-dark(#20232c, #eef0f5); }
+    main { max-width: 56rem; padding: 2rem 1.25rem; margin: auto; }
+    h1 { margin-bottom: .35rem; }
+    .intro, .issue-detail, .boundary { color: light-dark(#555d70, #bbc2d2); }
+    .toolbar { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; margin-top: 1.75rem; }
+    button, select { font: inherit; padding: .6rem .85rem; border-radius: .4rem; border: 1px solid light-dark(#8e96a6, #667186); background: light-dark(white, #232834); color: inherit; }
+    button { cursor: pointer; } button:disabled { cursor: wait; opacity: .6; }
+    :focus-visible { outline: 3px solid #6c8bff; outline-offset: 3px; }
+    [data-status] { min-height: 1.5rem; padding: 1rem 0; }
+    [data-count] { margin-left: auto; font-variant-numeric: tabular-nums; }
+    ul { list-style: none; padding: 0; margin: 0 0 1rem; }
+    li { padding: 1rem; border: 1px solid light-dark(#d5dae5, #41485a); background: light-dark(white, #232834); border-radius: .5rem; margin-bottom: .65rem; overflow-wrap: anywhere; }
+    strong { white-space: pre-wrap; }
+    .issue-detail { display: block; font-size: .85rem; padding-top: .4rem; }
+    .boundary { font-size: .85rem; line-height: 1.5; margin-top: 2.5rem; }
+    [hidden] { display: none !important; }
+  </style>
+  <script type="module" src="./my-issues.mjs"></script>
+</head>
+<body>
+  <main data-my-issues aria-labelledby="title">
+    <h1 id="title">My Issues</h1>
+    <p class="intro">Issues assigned to you in your verified workspace</p>
+    <div class="toolbar">
+      <label for="status-filter">Show</label>
+      <select id="status-filter" data-status-filter>
+        <option value="unresolved">Unresolved issues</option>
+        <option value="all">All statuses</option>
+      </select>
+      <button type="button" data-refresh>Refresh</button>
+      <span data-count aria-label="Loaded issues"></span>
+    </div>
+    <p data-status role="status" aria-live="polite">Verify your session to load issues</p>
+    <ul data-issues aria-label="Issues assigned to you"></ul>
+    <button type="button" data-more hidden>Load more</button>
+    <button type="button" data-retry hidden>Retry</button>
+    <p class="boundary">Read-only integration laboratory. Uses the authenticated session endpoint; sign-in and production provider integration are outside this slice. Hiding this page clears the list until your session is checked again.</p>
+    <noscript>JavaScript is required to verify your session and load this list.</noscript>
+  </main>
+</body>
+</html>

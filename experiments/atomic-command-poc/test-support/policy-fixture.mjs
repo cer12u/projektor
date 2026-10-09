@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';import {randomUUID as uuid} from 'node:crypto';import {openStore,migrate,executeCommand} from '../src/core.mjs';
+export const now=1800000000000;
+export function policyFixture({kind='human',shared=false,type='wiki'}={}){
+ const db=openStore(':memory:');migrate(db);const ids=Object.fromEntries(['workspace','epoch','actor','credential','reader','readerCredential','project','other','resource'].map(k=>[k,uuid()]));const sql=(s,...a)=>db.prepare(s).run(...a);
+ sql('INSERT INTO workspace VALUES(?,?,1,0)',ids.workspace,ids.epoch);sql('INSERT INTO project VALUES(?,?,1,0)',ids.project,'Project');
+ for(const [p,c,k]of [[ids.actor,ids.credential,kind],[ids.reader,ids.readerCredential,'human']]){sql('INSERT INTO membership VALUES(?,?,0,1)',p,k);sql('INSERT INTO credential VALUES(?,?,?,0,1,1)',c,p,now+100000);sql('INSERT INTO project_grant VALUES(?,?,1,1)',p,ids.project);sql('INSERT INTO shared_grant VALUES(?,1,1)',p);for(const s of ['wiki:read','wiki:write','wiki:restore','issue:read','issue:write','history:read','operations:read_own','deleted:read','resource:manage']){sql('INSERT INTO principal_scope VALUES(?,?)',p,s);sql('INSERT INTO credential_scope VALUES(?,?)',c,s);}}
+ const actor={principalId:ids.actor,credentialId:ids.credential,actorKind:kind,credentialExpiresAt:now+100000,workspaceId:ids.workspace},reader={...actor,principalId:ids.reader,credentialId:ids.readerCredential,actorKind:'human'},args={workspaceId:ids.workspace,workspaceEpoch:ids.epoch},resource={type,id:ids.resource},scope=shared?{kind:'workspace_shared'}:{kind:'project',projectId:ids.project};
+ sql('INSERT INTO scope_manage_grant VALUES(?,?,?,1)',ids.actor,scope.kind,shared?ids.workspace:ids.project);
+ const command=(commandType,payload,expectedVersion=1)=>({schemaVersion:1,...args,operationId:uuid(),entityId:resource.id,commandType,payload,expectedVersion}),run=(c,a=actor,options={})=>executeCommand(db,a,c,{now,...options});
+ const create=type==='wiki'?command('Wiki.Create',{pageId:resource.id,scope,parentId:null,title:'Managed',slug:'managed',contentMarkdown:'[[unresolved]]'},0):command('Issue.Create',{projectId:ids.project,title:'Managed',description:'[[unresolved]]',assigneeId:null,priority:null,parentId:null,initialStatus:'ready'},0);const created=run(create);assert.equal(created.data?.committedVersion,1,JSON.stringify(created));
+ const policy={mode:'restricted',readerPrincipalIds:[ids.actor],writerPrincipalIds:[ids.actor]},change=(policyValue=policy,version=1,policyVersion=1)=>command('SetResourceAccess',{resource,expectedPolicyVersion:policyVersion,policy:policyValue},version);
+ const snapshot=()=>JSON.stringify(Object.fromEntries(db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all().map(({name})=>[name,db.prepare('SELECT * FROM "'+name+'"').all()])));
+ return {db,ids,actor,reader,args,resource,scope,sql,command,run,change,created,snapshot};
+}

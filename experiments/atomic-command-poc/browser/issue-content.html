@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Issue content · Projektor</title>
+  <style>
+    :root{font-family:system-ui,sans-serif;color:#172634;background:#f1f4f7;color-scheme:light}body{margin:0}main{max-width:66rem;margin:auto;padding:2rem 1.25rem}nav{display:flex;gap:1rem}h1{margin-bottom:.3rem}h2{font-size:1.2rem}.intro,.boundary{color:#536578}label{display:block;margin:1rem 0;font-weight:600}input,textarea,select,button{font:inherit;border:1px solid #94a3b4;border-radius:.4rem;padding:.65rem;background:white;color:inherit}input,textarea{display:block;box-sizing:border-box;width:100%;margin-top:.4rem}textarea{font:15px/1.5 ui-monospace,monospace;tab-size:2}button{cursor:pointer}button:disabled,input:disabled,select:disabled{opacity:.55;cursor:default}.toolbar{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}section{background:white;border:1px solid #d4dce5;border-radius:.6rem;padding:1.1rem;margin-top:1.2rem}pre{white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.55 ui-monospace,monospace;background:#f3f6f9;padding:1rem;border-radius:.3rem}li{margin:1rem 0}summary{cursor:pointer;overflow-wrap:anywhere}p{overflow-wrap:anywhere}[data-status]{min-height:1.5rem;padding:.75rem;border-left:3px solid #537db3;background:#e8f0fa}:focus-visible{outline:3px solid #477ee0;outline-offset:3px}[hidden]{display:none!important}.boundary{font-size:.85rem;line-height:1.6}
+  </style>
+  <script type="module" src="./issue-content.mjs"></script>
+</head>
+<body><main data-content>
+  <nav><a href="/browser/my-issues.html">My Issues</a><a href="/browser/issue-content.html">New issue</a></nav>
+  <h1>Issue content</h1><p class="intro">Markdown source, comments and immutable history</p>
+  <p data-status role="status" aria-live="polite">Checking your session…</p>
+  <ul data-projects></ul>
+  <section aria-label="Editor">
+    <div class="toolbar"><label>Editing <select data-editor disabled aria-label="Editor"></select></label><button data-verify type="button">Verify session</button></div>
+    <div data-fields></div>
+    <div class="toolbar"><button data-save type="button" disabled>Save</button><button data-check type="button" disabled>Check result</button><button data-retry type="button" disabled>Retry same request</button><button data-rebase type="button" hidden>Use current version, keep my text</button></div>
+  </section>
+  <section aria-label="Current issue"><h2>Current server content</h2><div data-current></div></section>
+  <section aria-label="Comments"><h2>Comments</h2><ul data-comments></ul><button data-more-comments hidden type="button">Load more comments</button></section>
+  <section aria-label="History"><div class="toolbar"><h2>History</h2><button data-load-history type="button" disabled>Load history</button></div><div data-history></div><button data-more-history hidden type="button">Load more history</button></section>
+  <p class="boundary">Local integration laboratory. Drafts are encrypted and checked before requests are sent. Plaintext is hidden when the page is hidden and is shown again only after session and resource checks. Unknown saves retain their original operation ID. Markdown is shown as source; external links and embedded HTML are never fetched or executed. Production sign-in and deployment are outside this slice.</p>
+  <noscript>JavaScript is required to verify access and edit issues.</noscript>
+</main></body></html>

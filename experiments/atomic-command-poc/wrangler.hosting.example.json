@@ -1,0 +1,34 @@
+{
+  "name": "REQUIRES_AUTHORIZED_WORKER_NAME",
+  "main": "service/entry.mjs",
+  "compatibility_date": "2026-07-30",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "../product-ui/dist",
+    "binding": "ASSETS",
+    "html_handling": "none",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/v1", "/v1/*", "/machine", "/machine/*",
+      "/api", "/api/*", "/mcp", "/mcp/*",
+      "/auth", "/auth/*", "/oauth", "/oauth/*",
+      "/.well-known", "/.well-known/*"
+    ]
+  },
+  "rules": [{"type": "Text", "globs": ["**/*.sql"], "fallthrough": true}],
+  "durable_objects": {
+    "bindings": [{"name": "WORKSPACE", "class_name": "WorkspaceService"}]
+  },
+  "migrations": [{
+    "tag": "REQUIRES_REVIEWED_WORKSPACE_MIGRATION_TAG",
+    "new_sqlite_classes": ["WorkspaceService"]
+  }],
+  "vars": {
+    "APP_ORIGIN": "REQUIRES_AUTHORIZED_HTTPS_ORIGIN",
+    "WORKSPACE_IDS": "REQUIRES_APPROVED_UUID_REGISTRY",
+    "REQUEST_TIMEOUT_MS": "5000",
+    "BODY_TIMEOUT_MS": "1000",
+    "PROVIDER_CONFIG": "REQUIRES_VALIDATED_PROVIDER_JSON",
+    "MCP_RATE_LIMIT_CONFIG": "REQUIRES_APPROVED_RATE_POLICY_AND_CAPACITY_EVIDENCE"
+  }
+}
