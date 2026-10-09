@@ -2,7 +2,7 @@ import {useEffect,useLayoutEffect,useMemo,useRef,useState} from 'react';
 import {flushSync} from 'react-dom';
 import {isID,type ProductPorts,type Selected,type Route,type PrepareLeave} from './contracts.ts';
 import {IssueContentController,MyIssuesController,preserveMarkdownInput} from './core.ts';
-import {Notice,IssueRows,listMessage,EntryList,History,editorMessage,states,actionResultText,IssueCompatibilityDetails} from './components.tsx';
+import {Notice,IssueRows,listMessage,EntryList,History,editorMessage,states,actionResultText,IssueCompatibilityDetails,IssueResolution} from './components.tsx';
 export interface ViewProps {ports:ProductPorts;selected:Selected;route:Route;navigate:(patch:Partial<Route>)=>void;replace:(patch:Partial<Route>)=>void;guard:(prepare:PrepareLeave)=>()=>void;locked:boolean;restoreView:()=>void;accessReady?:()=>void;accessRevision?:number}
 export function useLifecycle(controller:any,allowed:boolean,revision?:number){
   const canRun=useRef(allowed);canRun.current=allowed;
@@ -104,7 +104,7 @@ export function ContentView(props:ViewProps){
     {positionError&&<Notice error>Cursor position could not be retained. Text protection is reported separately above.</Notice>}
     <button disabled={locked||s.busy} onClick={()=>controller.revalidate()}>Verify session and reload current data</button>
     {!isLocked&&<>
-      {s.issue&&<article className="current"><h2>Current saved issue</h2><p className="meta">v{s.issue.version} · {s.issue.status} · {s.issue.priority??'No priority'} · Assignee {s.issue.assigneeId??'Unassigned'}{s.issue.assigneeKind==='machine'?' · Agent':''}</p>{s.issue.compatibility&&<IssueCompatibilityDetails value={s.issue.compatibility}/>}<pre>{s.issue.description}</pre>
+      {s.issue&&<article className="current"><h2>Current saved issue</h2><p className="meta">v{s.issue.version} · {s.issue.status} · {s.issue.priority??'No priority'} · Assignee {s.issue.assigneeId??'Unassigned'}{s.issue.assigneeKind==='machine'?' · Agent':''}</p><IssueResolution resolutionKind={s.issue.resolutionKind} resolvedAt={s.issue.resolvedAt}/>{s.issue.compatibility&&<IssueCompatibilityDetails value={s.issue.compatibility}/>}<pre>{s.issue.description}</pre>
       {route.view==='create'&&<button onClick={()=>navigate({view:'issue',issueId:s.issue.id,projectId:null,draftId:crypto.randomUUID(),projectAtProtection:null})}>Open created issue</button>}</article>}
       <div className="editor">
         <label>Editor<select aria-label="Editor" value={s.record.active} onChange={e=>{const[mode,id]=e.target.value.split(':');controller.select(mode,id);}}>

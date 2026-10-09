@@ -10,8 +10,9 @@ const digest=value=>createHash('sha256').update(Buffer.from(value,'base64url')).
 const derived=({passwordBytes,saltBytes})=>createHash('sha256').update('synthetic-KDF-port').update(passwordBytes).update(saltBytes).digest();
 function fixture(){
  const db=new DatabaseSync(':memory:');db.exec('PRAGMA foreign_keys=ON');
- db.exec('CREATE TABLE membership(principal_id TEXT PRIMARY KEY,kind TEXT,revoked INTEGER,read_own INTEGER); CREATE TABLE credential(id TEXT PRIMARY KEY,principal_id TEXT,expires_at INTEGER,revoked INTEGER,can_read INTEGER,can_write INTEGER); CREATE TABLE principal_scope(principal_id TEXT,scope TEXT); CREATE TABLE credential_scope(credential_id TEXT,scope TEXT);');db.exec(APP_AUTH_SCHEMA);
+ db.exec('CREATE TABLE workspace(id TEXT PRIMARY KEY,active INTEGER); CREATE TABLE membership(principal_id TEXT PRIMARY KEY,kind TEXT,revoked INTEGER,read_own INTEGER); CREATE TABLE credential(id TEXT PRIMARY KEY,principal_id TEXT,expires_at INTEGER,revoked INTEGER,can_read INTEGER,can_write INTEGER); CREATE TABLE principal_scope(principal_id TEXT,scope TEXT); CREATE TABLE credential_scope(credential_id TEXT,scope TEXT);');db.exec(APP_AUTH_SCHEMA);
  const principal=randomUUID(),credential=randomUUID(),workspaceId=randomUUID(),authEpoch=randomUUID(),origin='https://password-auth.invalid';let clock=1800000000000,calls=0,hook=null,sequence=0;
+ db.prepare('INSERT INTO workspace VALUES(?,1)').run(workspaceId);
  db.prepare("INSERT INTO membership VALUES(?,'human',0,0)").run(principal);db.prepare('INSERT INTO credential VALUES(?,?,?,0,1,1)').run(credential,principal,Number.MAX_SAFE_INTEGER);db.prepare("INSERT INTO principal_scope VALUES(?,'issue:read')").run(principal);db.prepare("INSERT INTO credential_scope VALUES(?,'issue:read')").run(credential);
  db.prepare("INSERT INTO app_auth_principal VALUES(?,?,'owner',0,0,NULL,NULL,NULL,0)").run(principal,credential);
  const port={prepare:sql=>db.prepare(sql),transactionSync(fn){const name='t'+sequence++;db.exec('SAVEPOINT '+name);try{const result=fn();db.exec('RELEASE '+name);return result;}catch(e){db.exec('ROLLBACK TO '+name);db.exec('RELEASE '+name);throw e;}}};
@@ -106,4 +107,10 @@ test('KDF failures have no weak fallback, wrong-password admission is bounded an
 
 test('session lifetime policy and internal seal key fail closed instead of inventing defaults',()=>use(async f=>{
  assert.throws(()=>validatePolicy({}),{code:'APP_AUTH_POLICY_INVALID'});assert.throws(()=>validatePolicy({idleMs:86400000,absoluteMs:Infinity}),{code:'APP_AUTH_POLICY_INVALID'});assert.throws(()=>createAppAuth({...f.config,sealKey:'weak'}),{code:'APP_AUTH_SEAL_KEY_INVALID'});
+}));
+
+test('FROZEN during KDF denies a pending login before session or receipt mutation',()=>use(async f=>{
+ await f.enroll();let release,started;const began=new Promise(r=>started=r);f.setHook(()=>{started();return new Promise(r=>release=r);});
+ const pending=f.login();await began;f.db.exec('UPDATE workspace SET active=0');release();const result=await pending;
+ assert.equal(result.status,403);assert.equal(result.value.error.code,'WORKSPACE_FROZEN');assert.equal(f.db.prepare('SELECT count(*) n FROM app_auth_session').get().n,0);assert.equal(f.db.prepare('SELECT count(*) n FROM app_auth_login_receipt').get().n,0);
 }));

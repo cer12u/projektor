@@ -20,6 +20,12 @@ export function IssueRows({state,board,onOpen}:{state:any;board:boolean;onOpen:(
 export function compatibilityStatus(value:IssueCompatibilitySummary):string{
   return (value.statusName??value.statusKey??'Unknown status')+(value.isReviewStep?' · Review step':'');
 }
+/** Display the current recorded resolution only; unknown is never backfilled. */
+export function IssueResolution({resolutionKind,resolvedAt}:{resolutionKind?:string|null;resolvedAt?:number|null}){
+  if(!['done','canceled'].includes(resolutionKind??''))return null;
+  const known=typeof resolvedAt==='number'&&Number.isSafeInteger(resolvedAt)&&resolvedAt>=0&&resolvedAt<=8640000000000000;
+  return <p className="meta">Recorded resolution ({resolutionKind}): {known?<time dateTime={new Date(resolvedAt!).toISOString()}>{new Date(resolvedAt!).toLocaleString(undefined,{timeZoneName:'short'})}</time>:'Time unknown'}</p>;
+}
 export function IssueCompatibilityDetails({value}:{value:IssueCompatibility}){
   const dor=value.dor;
   return <section aria-label="Imported issue state">

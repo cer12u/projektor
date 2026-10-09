@@ -19,7 +19,7 @@
     "service/mcp-tools.mjs": "446de74e1494da6780e09f9aa66c389871daf5a64f0402023d4819161a17f6e9",
     "service/mcp.mjs": "21c7d99763b61b59af6db6de8a87ffb975d590b564f3301009285412450df598",
     "service/native-machine-auth.mjs": "2c0c276fea59131037c17434a296d28478aff048552807e4f51ad010020e6d27",
-    "service/native-machine-session.mjs": "e886f9ca47150641ab18ef5f5adb3b404b4908e0554b1d51ba8af20619b0e2ff",
+    "service/native-machine-session.mjs": "2fd72ada0c34184da14c207d8a90fca0393c1e088ce794023d825977a8d88e00",
     "service/store.mjs": "bf4e96cd39df75e85c5a0ede8d4fb86b534093b3f3cbe56c5a56c0e917b9e939",
     "service/workspace-auth.mjs": "af775b2e00bd2d3e9b473752e6c33c082cf0042703537802c78422e013cb106a",
     "service/workspace.mjs": "b8cbedbfe3b368abec6ff0214a01fcb49a08c1caad0e94350c35dbe764760cbd",

@@ -1,7 +1,7 @@
 {
   "scope": "App-owned password and browser session candidate with native machine session integration",
   "baselineCommit": "03fdbc58e5b186901c93a77e07ecddaf754e5a28",
-  "sourceManifestSHA256": "57def6c9168f5614cc70471b5ea21abf60320f34cbe8bde7651f078c3750890b",
+  "sourceManifestSHA256": "f08a94067fb5c023d5ccede44af6fc5cb33e1139b9336847ae0f731f76991323",
   "verification": {
     "chromiumE2E": {
       "selectedEntries": {
@@ -9,7 +9,8 @@
         "e2e/native-device.test.mjs": 1
       },
       "expectedCases": 4,
-      "status": "NOT RUN at source freeze; required in exact-head CI"
+      "status": "Human3 correction requires new exact-head CI; unchanged owner-device1 passed at 4d6283e890c982bfa168aa2c93901bdd4b0035bf",
+      "reusedOwnerEvidence": "https://github.com/cer12u/projektor/actions/runs/37871330589/job/113629939984"
     },
     "serverEvidence": "Owner-provided focused server/client evidence is separate from browser acceptance"
   },

@@ -29,8 +29,8 @@ export async function startAppAuthHarness({accessLeaseMs=300000,onStage=()=>{}}=
  await db.exec('INSERT INTO credential VALUES(?,?,?,0,1,1)',ids.credential,ids.actor,Number.MAX_SAFE_INTEGER);
  for(const scope of scopes){await db.exec('INSERT INTO principal_scope VALUES(?,?)',ids.actor,scope);await db.exec('INSERT INTO credential_scope VALUES(?,?)',ids.credential,scope);}
  await db.exec("INSERT INTO app_auth_principal(principal_id,credential_id,role,auth_version,grant_generation,disabled) VALUES(?,?,'owner',0,0,0)",ids.actor,ids.credential);
- await db.exec('INSERT INTO issue VALUES(?,?,?,1,0)',ids.issue,ids.project,'App session fixture issue');
- await db.exec('INSERT INTO issue_fts VALUES(?,?)',ids.issue,'App session fixture issue');
+ const seeded=await hostControl({action:'seedIssue',command:{schemaVersion:1,workspaceId:ids.workspace,workspaceEpoch:ids.epoch,operationId:randomUUID(),commandType:'Issue.Create',entityId:ids.issue,expectedVersion:0,payload:{projectId:ids.project,title:'App session fixture issue',description:'Synthetic editable content',assigneeId:ids.actor,priority:'P1',parentId:null,initialStatus:'ready'}}});
+ if(!seeded.data)throw Error('Canonical fixture seed failed: '+JSON.stringify(seeded));
  onStage('seed-complete');
  async function approveGrant({grantId,fingerprint,purpose='enroll'}){
   const row=(await db.exec('SELECT role,auth_version,grant_generation FROM app_auth_principal WHERE principal_id=?',ids.actor))[0];

@@ -5,6 +5,7 @@ import {WorkspaceService} from '../service/workspace.mjs';
 import {sqliteStore} from '../service/store.mjs';
 import {configuration} from '../service/config.mjs';
 import {createAppAuth} from '../service/app-auth.mjs';
+import {executeCommand} from '../src/shared-core.mjs';
 export default {fetch(request,env,ctx){
  if(new URL(request.url).pathname==='/__fixture/control'){
   if(request.headers.get('x-fixture-control')!==env.FIXTURE_CONTROL_SECRET)return new Response(null,{status:404});
@@ -21,6 +22,7 @@ export class AppAuthFixtureWorkspace extends WorkspaceService{
    const input=await request.json();
    if(input.action==='sql')return Response.json(this.ctx.storage.sql.exec(input.sql,...input.args).toArray());
    if(input.action==='approve')return Response.json(this.approveFixtureGrant(input.plan));
+   if(input.action==='seedIssue'){const config=configuration(this.env),db=sqliteStore(this.ctx.storage),account=db.prepare('SELECT credential_id FROM app_auth_principal WHERE principal_id=?').get(config.appAuth.humanPrincipalId);return Response.json(executeCommand(db,{workspaceId:config.appAuth.workspaceId,principalId:config.appAuth.humanPrincipalId,credentialId:account.credential_id,actorKind:'human',principalKind:'human',source:'app_session',credentialExpiresAt:Number.MAX_SAFE_INTEGER},input.command,{now:Date.now()}));}
    if(input.action==='armBodyBarrier'){
     if(this.#bodyBarrier&&this.#bodyBarrier.state!=='released')return new Response(null,{status:409});
     let release;const wait=new Promise(resolve=>{release=resolve;});this.#bodyBarrier={state:'armed',wait,release};
