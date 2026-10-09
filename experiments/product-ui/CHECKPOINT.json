@@ -1,16 +1,16 @@
 {
   "scope": "App-owned password and browser session candidate with native machine session integration",
   "baselineCommit": "03fdbc58e5b186901c93a77e07ecddaf754e5a28",
-  "sourceManifestSHA256": "f96765a7109d2cb954ec50821785cc02103da96a1c61ae3926cc5fd8736bfcab",
+  "sourceManifestSHA256": "61ad10f937e5838f6b5d6f9e8ca49b4c1e3ea9e220fa3c209d48b49c722c0b14",
   "verification": {
     "chromiumE2E": {
       "selectedEntries": {
-        "e2e/app-auth.test.mjs": 3,
-        "e2e/native-device.test.mjs": 1
+        "e2e/app-auth.test.mjs": 1
       },
-      "expectedCases": 4,
-      "status": "Human3 correction requires new exact-head CI; unchanged owner-device1 passed at 4d6283e890c982bfa168aa2c93901bdd4b0035bf",
-      "reusedOwnerEvidence": "https://github.com/cer12u/projektor/actions/runs/37871330589/job/113629939984"
+      "expectedCases": 1,
+      "status": "H01 observation-only run pending exact-head CI; H02/H03 passed at c17e7397d3d13ba8522dd8e55295a8bbc8aa664c",
+      "reusedOwnerEvidence": "https://github.com/cer12u/projektor/actions/runs/37871330589/job/113629939984",
+      "reusedHumanEvidence": "https://github.com/cer12u/projektor/actions/runs/37876408774/job/113646006283"
     },
     "serverEvidence": "Owner-provided focused server/client evidence is separate from browser acceptance"
   },

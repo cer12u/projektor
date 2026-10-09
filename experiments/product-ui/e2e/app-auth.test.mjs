@@ -8,8 +8,11 @@ import {resolve,extname} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {chromium} from 'playwright';
 import {build} from 'vite';
-import {authPhase} from './auth-phases.mjs';
+import {authPhase,authPhaseRecord,firstTabWitnessPhases} from './auth-phases.mjs';
 const step=(f,phase,run)=>authPhase(f.id,phase,run);
+const humanSelection=process.env.PROJEKTOR_AUTH_HUMAN_CASES;
+if(humanSelection!==undefined&&humanSelection!=='H01')throw Error('INVALID_HUMAN_BROWSER_SELECTION');
+const humanTest=(id,name,run)=>{if(humanSelection===undefined||humanSelection===id)return test(name,run);};
 const root=resolve(import.meta.dirname,'..');
 const core=resolve(process.env.PROJEKTOR_CORE_SOURCE??resolve(root,'../atomic-command-poc'));
 const {startAppAuthHarness}=await import(pathToFileURL(resolve(core,'browser-test/app-auth-server.mjs')));
@@ -24,6 +27,31 @@ async function setup(t,id,options={}){
  await context.route(h.base+'/**',async route=>{const request=route.request(),url=new URL(request.url());if(url.pathname==='/'||url.pathname==='/setup'||url.pathname.startsWith('/assets/')){const file=url.pathname.startsWith('/assets/')?url.pathname.slice(1):'index.html';await route.fulfill({body:await readFile(resolve(root,'dist',file)),contentType:extname(file)==='.html'?'text/html':extname(file)==='.css'?'text/css':'text/javascript'});return;}requests.push(request.method()+' '+url.pathname);const response=await h.fetch(request.url(),{method:request.method(),headers:request.headers(),...(request.postDataBuffer()?{body:request.postDataBuffer()}:{})});const headers=Object.fromEntries(response.headers);const cookies=response.headers.getSetCookie();if(cookies.length)headers['set-cookie']=cookies.join('\n');await route.fulfill({status:response.status,headers,body:Buffer.from(await response.arrayBuffer())});});
  const page=await context.newPage();page.on('pageerror',error=>errors.push(error.message));page.on('dialog',async dialog=>{dialogs.push(dialog.type());await dialog.dismiss();});return {id,h,context,page,requests,dialogs,errors};
  });
+}
+async function watchOriginalTab(f){
+ f.peerReads=new Set();f.peerRequests=new Set();
+ const classify=url=>{const path=new URL(url).pathname;return path==='/v1/auth/session'?'auth':path==='/v1/bootstrap'?'bootstrap':path==='/v1/session'?'session':path==='/v1/draft-keys'?'key':path==='/v1/workspaces/'+f.h.ids.workspace+'/issues/'+f.h.ids.issue?'issue':null;};
+ f.page.on('request',request=>{const kind=classify(request.url());if(kind)f.peerRequests.add(kind);});
+ f.page.on('response',response=>{if(response.status()!==200)return;const kind=classify(response.url());if(kind)f.peerReads.add(kind);});
+ await f.page.evaluate(()=>{window.fixturePeerSignals=0;window.fixturePeerChannel=new BroadcastChannel('projektor-session');window.fixturePeerChannel.addEventListener('message',event=>{if(event.data?.changed===true)window.fixturePeerSignals++;});});
+}
+async function firstTabStep(f,phase,run){
+ try{return await step(f,phase,run);}
+ catch(error){
+  // Return fixed booleans/enums only. Never return raw DOM/state/error content.
+  let timer;const state=await Promise.race([f.page.evaluate(()=>{
+   const notices=[...document.querySelectorAll('p[role="status"],p[role="alert"]')].map(node=>node.textContent);
+   const known={DRAFT_WRITE_CONFLICT:'draft_conflict',PROTECTION_FAILED:'protection_failed',SCOPE_EXPANSION:'scope_expansion',IDENTITY_CHANGED:'identity_changed',KEY_SESSION_CHANGED:'key_session_changed',INVALID_KEY_LEASE:'key_lease_invalid',KEY_LEASE_EXPIRED:'key_lease_expired',LEASE_EXPIRED:'lease_expired',CHECKING_SESSION:'checking_session',HIDDEN:'hidden',SESSION_CHANGED:'session_changed',AUTH_REQUIRED:'auth_required',VERIFY_BOOTSTRAP:'verify_bootstrap',DRAFT_BINDING_MISMATCH:'draft_binding_mismatch',DRAFT_INVALID:'draft_invalid',FORBIDDEN:'forbidden',NOT_FOUND:'not_found',PROTOCOL_ERROR:'protocol_error',CANCELLED:'cancelled',STALE_CONTEXT:'stale_context',STORAGE_UNAVAILABLE:'storage_unavailable',SESSION_TOMBSTONED:'session_tombstoned',VERIFY_SESSION:'verify_session'};
+   let editor=document.querySelector('textarea[aria-label="Markdown body"]')?'visible':'unavailable';
+   for(const notice of notices)if(notice?.startsWith('Editor locked · ')){editor=known[notice.slice('Editor locked · '.length)]??'other_locked';break;}
+   const identity=document.querySelector('header span');
+   const root=document.querySelector('section[aria-label="Sign in"]')?'login':notices.includes('Checking authenticated workspace access…')?'loading':[...document.querySelectorAll('h1')].some(node=>node.textContent==='Product connection incomplete')?'connection_error':identity?.textContent==='Identity verification required'?'locked':identity?.textContent?.trim()?'ready':'unknown';
+   return {peerSignal:window.fixturePeerSignals>=2,visibility:['visible','hidden'].includes(document.visibilityState)?document.visibilityState:'visibility_unknown',root,editor};
+  }).catch(()=>({})),new Promise(resolve=>{timer=setTimeout(()=>resolve({}),1000);})]).finally(()=>clearTimeout(timer));
+  const reads=Object.fromEntries(['auth','bootstrap','session','key','issue'].map(kind=>[kind,f.peerReads?.has(kind)===true])),requests=Object.fromEntries(['auth','bootstrap','session','key','issue'].map(kind=>[kind,f.peerRequests?.has(kind)===true]));
+  for(const witness of firstTabWitnessPhases({...state,reads,requests}))process.stdout.write(authPhaseRecord(f.id,witness,'pass'));
+  throw error;
+ }
 }
 async function enroll(f,{loseReply=false}={}){
  await step(f,'setup_open',()=>f.page.goto(f.h.base+'/setup'));
@@ -48,28 +76,32 @@ async function enroll(f,{loseReply=false}={}){
 }
 async function login(page){await page.getByLabel('Password',{exact:true}).fill(password);await page.getByRole('button',{name:'Sign in',exact:true}).click();await page.getByRole('heading',{name:'My Issues',exact:true}).waitFor();}
 async function issue(f){return step(f,'issue_open',async()=>{await f.page.goto(f.h.base+'/?view=issue&workspaceId='+f.h.ids.workspace+'&issueId='+f.h.ids.issue);const body=f.page.getByLabel('Markdown body',{exact:true});await body.waitFor();return body;});}
-test('enroll → password login → Issue record → reload/new tab → refresh → sign out/login keeps protected draft',async t=>{
+humanTest('H01','enroll → password login → Issue record → reload/new tab → refresh → sign out/login keeps protected draft',async t=>{
  const f=await setup(t,'H01',{accessLeaseMs:4000});await enroll(f);let body=await issue(f);
  await step(f,'issue_save',async()=>{await body.fill('Recorded through the app-owned session');await f.page.getByRole('button',{name:'Save',exact:true}).click();await f.page.getByText('Saved snapshot confirmed.',{exact:false}).waitFor();});
  await step(f,'draft_protect',async()=>{await body.fill('protected latest draft 日本語');await f.page.getByText('Unsaved changes · protected',{exact:false}).waitFor();});const route=f.page.url(),posts=f.requests.filter(x=>x.endsWith('/commands')).length;
  await step(f,'reload_restore',async()=>{await f.page.reload();await body.waitFor();assert.equal(await body.inputValue(),'protected latest draft 日本語');assert.deepEqual(f.dialogs,[]);});
  const tab=await step(f,'newtab_restore',async()=>{const tab=await f.context.newPage();tab.on('pageerror',error=>f.errors.push(error.message));await tab.goto(route);await tab.getByLabel('Markdown body',{exact:true}).waitFor();assert.equal(await tab.getByLabel('Markdown body',{exact:true}).inputValue(),'protected latest draft 日本語');return tab;});
+ await watchOriginalTab(f);
  // A deliberate sign-out/login in the second tab establishes a new family.
  // The original editor must reauthorize and restore, without another password.
- await step(f,'newfamily_signin',async()=>{await tab.getByRole('button',{name:'Sign out',exact:true}).click();await tab.getByLabel('Password',{exact:true}).fill(password);await tab.getByRole('button',{name:'Sign in',exact:true}).click();await tab.getByLabel('Markdown body',{exact:true}).waitFor();});const passwordSubmissions=f.requests.filter(x=>x==='POST /v1/auth/login').length;
- await step(f,'firsttab_restore',async()=>{await f.page.bringToFront();await body.waitFor();assert.equal(await body.inputValue(),'protected latest draft 日本語');assert.equal(await f.page.getByLabel('Password',{exact:true}).count(),0);assert.equal(f.requests.filter(x=>x==='POST /v1/auth/login').length,passwordSubmissions);await f.page.close();f.page=tab;await tab.bringToFront();body=tab.getByLabel('Markdown body',{exact:true});});
+ await step(f,'newfamily_signin',async()=>{await tab.getByRole('button',{name:'Sign out',exact:true}).click();await tab.getByLabel('Password',{exact:true}).fill(password);f.peerReads.clear();f.peerRequests.clear();await tab.getByRole('button',{name:'Sign in',exact:true}).click();await tab.getByLabel('Markdown body',{exact:true}).waitFor();});const passwordSubmissions=f.requests.filter(x=>x==='POST /v1/auth/login').length;
+ await firstTabStep(f,'firsttab_focus',()=>f.page.bringToFront());
+ await firstTabStep(f,'firsttab_editor',()=>body.waitFor());
+ await firstTabStep(f,'firsttab_assert',async()=>{assert.equal(await body.inputValue(),'protected latest draft 日本語');assert.equal(await f.page.getByLabel('Password',{exact:true}).count(),0);assert.equal(f.requests.filter(x=>x==='POST /v1/auth/login').length,passwordSubmissions);});
+ await firstTabStep(f,'firsttab_close',async()=>{await f.page.evaluate(()=>window.fixturePeerChannel.close());await f.page.close();f.page=tab;await tab.bringToFront();body=tab.getByLabel('Markdown body',{exact:true});});
  await step(f,'automatic_refresh',async()=>{await tab.waitForResponse(response=>new URL(response.url()).pathname==='/v1/auth/refresh'&&response.status()===200);await body.waitFor();assert.equal(await body.inputValue(),'protected latest draft 日本語');assert.equal(tab.url(),route);assert.ok(f.requests.includes('POST /v1/auth/refresh'));assert.equal(f.requests.filter(x=>x.endsWith('/commands')).length,posts);});
  await step(f,'logout_restore',async()=>{await tab.getByRole('button',{name:'Sign out',exact:true}).click();await tab.getByLabel('Password',{exact:true}).waitFor();await tab.getByLabel('Password',{exact:true}).fill(password);await tab.getByRole('button',{name:'Sign in',exact:true}).click();await body.waitFor();assert.equal(await body.inputValue(),'protected latest draft 日本語');assert.equal(tab.url(),route);assert.equal(f.requests.filter(x=>x.endsWith('/commands')).length,posts);assert.deepEqual(f.errors,[]);});
  await step(f,'storage_audit',async()=>{const storage=await tab.evaluate(()=>({local:Object.values(localStorage),session:Object.values(sessionStorage),cookies:document.cookie}));assert.ok(!JSON.stringify(storage).includes(password));assert.ok(!JSON.stringify(storage).includes('protected latest draft'));assert.ok(!storage.cookies.includes('projektor_session'));});
 });
-test('lost enrollment response stays receipt-only and expired authority requests login without draft loss',async t=>{
+humanTest('H02','lost enrollment response stays receipt-only and expired authority requests login without draft loss',async t=>{
  const f=await setup(t,'H02');await enroll(f,{loseReply:true});const body=await issue(f);
  await step(f,'draft_protect',async()=>{await body.fill('protected across absolute expiry');await f.page.getByText('Unsaved changes · protected',{exact:false}).waitFor();});const posts=f.requests.filter(x=>x.endsWith('/commands')).length;
  await step(f,'absolute_expire',async()=>{await f.h.control('expireSessionAbsolute');await f.page.getByRole('button',{name:'Verify session and reload current data',exact:true}).click();await f.page.getByLabel('Password',{exact:true}).waitFor();assert.equal(await body.count(),0);assert.equal(f.requests.filter(x=>x.endsWith('/commands')).length,posts);});
  await step(f,'absolute_restore',async()=>{await f.page.getByLabel('Password',{exact:true}).fill(password);await f.page.getByRole('button',{name:'Sign in',exact:true}).click();await body.waitFor();assert.equal(await body.inputValue(),'protected across absolute expiry');});
  await step(f,'revoke_lock',async()=>{await f.h.control('revokeSession');await f.page.getByRole('button',{name:'Verify session and reload current data',exact:true}).click();await f.page.getByLabel('Password',{exact:true}).waitFor();assert.equal(await body.count(),0);assert.equal(f.requests.filter(x=>x.endsWith('/commands')).length,posts);});
 });
-test('latest unprotected input blocks sign-out; repeated 401 does not loop refresh or resend',async t=>{
+humanTest('H03','latest unprotected input blocks sign-out; repeated 401 does not loop refresh or resend',async t=>{
  const f=await setup(t,'H03');await enroll(f);const body=await issue(f);
  await step(f,'storage_failure',async()=>{await f.page.evaluate(()=>{window.fixtureTransaction=IDBDatabase.prototype.transaction;IDBDatabase.prototype.transaction=function(){throw new DOMException('Synthetic storage failure','QuotaExceededError');};});await body.fill('must stay in memory');await f.page.getByText('protection-failed',{exact:false}).waitFor();});
  await step(f,'logout_blocked',async()=>{await f.page.getByRole('button',{name:'Sign out',exact:true}).click();await f.page.getByText('Sign-out stopped:',{exact:false}).waitFor();assert.equal(await body.inputValue(),'must stay in memory');assert.ok(!f.requests.includes('POST /v1/auth/logout'));});
