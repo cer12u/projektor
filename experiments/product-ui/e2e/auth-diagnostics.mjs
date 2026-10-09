@@ -2,6 +2,7 @@
 // assertions, cookies, passwords, response bodies and unknown names are dropped.
 import {appendFileSync} from 'node:fs';
 import {failureCategory} from './github-reporter.mjs';
+import {AUTH_PHASE_PREFIX,AUTH_PHASE_CASES,AUTH_PHASE_STATES,AUTH_PHASES} from './auth-phases.mjs';
 export const CASES=Object.freeze({
  human:[
   'enroll → password login → Issue record → reload/new tab → refresh → sign out/login keeps protected draft',
@@ -20,9 +21,23 @@ function location(data){
 export default async function* reporter(source){
  const group=process.env.PROJEKTOR_AUTH_CASES,expected=CASES[group];
  if(!expected)throw Error('INVALID_AUTH_BROWSER_SELECTION');
- const results=new Map();let runnerFailed=false;const summaries=[];
+ const results=new Map(),lastPhase=new Map(),failedPhase=new Map();let runnerFailed=false,phaseBuffer='';const summaries=[];
  yield 'TAP version 13\n';
  for await(const event of source){
+  if(event.type==='test:stdout'){
+   phaseBuffer+=typeof event.data?.message==='string'?event.data.message:'';
+   if(phaseBuffer.length>32768)phaseBuffer=phaseBuffer.slice(-32768);
+   for(;;){
+    const end=phaseBuffer.indexOf('\n');if(end<0)break;
+    const line=phaseBuffer.slice(0,end);phaseBuffer=phaseBuffer.slice(end+1);
+    if(!line.startsWith(AUTH_PHASE_PREFIX))continue;
+    let value;try{value=JSON.parse(line.slice(AUTH_PHASE_PREFIX.length));}catch{continue;}
+    if(group!=='human'||!value||Object.keys(value).sort().join(',')!=='id,phase,state'||!AUTH_PHASE_CASES.includes(value.id)||!AUTH_PHASES.includes(value.phase)||!AUTH_PHASE_STATES.includes(value.state))continue;
+    lastPhase.set(value.id,value.phase);
+    if(['fail','timeout'].includes(value.state)&&!failedPhase.has(value.id))failedPhase.set(value.id,value.phase);
+   }
+   continue;
+  }
   if(event.type!=='test:pass'&&event.type!=='test:fail')continue;
   const data=event.data??{},index=expected.indexOf(data.name),known=index!==-1;
   const id=known?(group==='human'?'H':'O')+String(index+1).padStart(2,'0'):'RUNNER';
@@ -33,7 +48,8 @@ export default async function* reporter(source){
   else runnerFailed=true;
   if(event.type==='test:fail'){
    const at=location(data),where=at?`${at.file}:${at.line}:${at.column}`:'unavailable';
-   const diagnostic=`Auth browser ${id}: category=${errorClass}/${failureType}; location=${where}`;
+   const phase=failedPhase.get(id)??lastPhase.get(id)??'unavailable';
+   const diagnostic=`Auth browser ${id}: phase=${phase}; category=${errorClass}/${failureType}; location=${where}`;
    summaries.push(diagnostic);
    if(process.env.GITHUB_ACTIONS==='true')yield `::error ${at?`file=${at.file},line=${at.line},col=${at.column},`:''}title=Auth browser ${id}::${diagnostic}\n`;
    yield '# '+diagnostic+'\n';
