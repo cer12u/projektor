@@ -1,0 +1,8 @@
+// @module workbench
+// @role view
+import {type Issue} from './editor-contracts';
+import {displayTime,dateInZone} from './planning-time';
+export function CalendarSchedule({issues,zone,month,setMonth,open}:{issues:Issue[];zone:string;month:string;setMonth:(month:string)=>void;open:(id:string)=>void}){
+ const [year,m]=month.split('-').map(Number),days=new Date(Date.UTC(year,m,0)).getUTCDate(),offset=new Date(month+'-01T00:00:00Z').getUTCDay();
+ return <section className="planning-calendar"><h3>表示中 {issues.length} 件の予定</h3><label>表示月<input id="calendar-month" type="month" value={month} onChange={e=>{if(e.target.value)setMonth(e.target.value);}}/></label><div className="calendar-grid">{['日','月','火','水','木','金','土'].map(day=><strong key={day}>{day}</strong>)}{Array.from({length:offset},(_,n)=><div key={'blank'+n}/>)}{Array.from({length:days},(_,n)=>{const date=month+'-'+String(n+1).padStart(2,'0');return <div className="calendar-day" key={date} data-date={date}><span>{n+1}</span>{issues.flatMap(i=>(['start','end','due']as const).filter(k=>dateInZone(i.schedule[k],zone)===date).map(k=><button key={i.id+k} onClick={()=>open(i.id)}>{k==='start'?'開始':k==='end'?'終了':'期限'} · {i.title||i.body.slice(0,20)}</button>))}</div>;})}</div><div className="table-scroll"><table className="issue-table" data-testid="schedule-table"><thead><tr><th>Issue</th><th>開始</th><th>終了</th><th>期限</th></tr></thead><tbody>{issues.map(i=><tr key={i.id}><td>{i.title||i.body.slice(0,30)}</td>{(['start','end','due']as const).map(k=><td key={k}>{displayTime(i.schedule[k],zone)}</td>)}</tr>)}</tbody></table></div></section>;
+}
