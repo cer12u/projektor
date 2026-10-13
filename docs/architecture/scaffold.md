@@ -51,9 +51,10 @@ UPDATE and DELETE; views are compiled on SELECT, so empty fixtures and false
 trigger predicates cannot hide foreign access. Checks are repeated against the
 combined schema to detect foreign reads even when those tables actually exist.
 
-FTS was added in Step 04 for Issues. The virtual table and all five FTS5 shadow
-tables are registered to Issues; the checker treats shadow schemas as SQLite
-internals while enforcing their exact ownership. See [Issues](issues.md).
+FTS was added in Step 04 for Issues and Step 05 for Wiki. Each virtual table and
+its five FTS5 shadow tables are registered to its owner; the checker treats
+shadow schemas as SQLite internals while enforcing their exact ownership. See
+[Issues](issues.md) and [Wiki](wiki.md).
 
 `platform_schema_versions(owner, version, checksum)` is inaccessible through a
 runtime store. The operator-only migration entry accepts owner IDs, not arbitrary

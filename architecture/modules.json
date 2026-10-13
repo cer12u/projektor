@@ -176,6 +176,38 @@
       }
     },
     {
+      "id": "wiki",
+      "root": "modules/wiki",
+      "public": "modules/wiki/public.ts",
+      "factory": "modules/wiki/internal/factory.ts",
+      "kind": "module",
+      "dependencies": ["platform", "projects"],
+      "external": [],
+      "storage": {
+        "prefix": "wiki_",
+        "tables": [
+          "wiki_pages",
+          "wiki_revisions",
+          "wiki_receipts",
+          "wiki_events",
+          "wiki_guards",
+          "wiki_search",
+          "wiki_search_data",
+          "wiki_search_idx",
+          "wiki_search_content",
+          "wiki_search_docsize",
+          "wiki_search_config"
+        ],
+        "objects": ["wiki_project_slug"],
+        "virtualTables": ["wiki_search"],
+        "globalTables": [],
+        "catalog": "modules/wiki/storage/queries.ts",
+        "migrations": "modules/wiki/storage/migrations",
+        "kvPrefix": null,
+        "r2Prefix": null
+      }
+    },
+    {
       "id": "tools",
       "root": "tools",
       "public": null,
@@ -189,7 +221,8 @@
         "fixture_b",
         "access",
         "projects",
-        "issues"
+        "issues",
+        "wiki"
       ],
       "external": ["node:*", "typescript", "esbuild", "miniflare"]
     }
