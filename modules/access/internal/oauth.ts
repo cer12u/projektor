@@ -68,6 +68,7 @@ interface Dependencies {
 }
 interface ConsentState {
   readonly principalId: string;
+  readonly workspaceId: string;
   readonly request: OAuthAuthorizationRequest;
   readonly scope: string;
   readonly expiresAt: number;
@@ -228,7 +229,7 @@ export function createOAuth(deps: Dependencies): {
       return {
         resource,
         authorization_servers: [issuer],
-        scopes_supported: ["read"],
+        scopes_supported: ["read", "write"],
         bearer_methods_supported: ["header"],
       };
     },
@@ -255,7 +256,7 @@ export function createOAuth(deps: Dependencies): {
         response_types: ["code"],
       };
     },
-    async getOAuthConsent(principal, input) {
+    async getOAuthConsent(principal, input, workspaceScope) {
       const p = await deps.interactivePrincipal(principal);
       oauthObject(input);
       const c = await client(input.client_id);
@@ -275,8 +276,12 @@ export function createOAuth(deps: Dependencies): {
             /^[A-Za-z0-9_-]{43}$/.test(input.code_challenge),
         );
         target(input.resource);
-        const scope = scopes(input.scope);
-        oauthCheck(scope === "read" || c.scope === "read write", "invalid_scope");
+        const requestedScope = scopes(input.scope);
+        oauthCheck(requestedScope === "read" || c.scope === "read write", "invalid_scope");
+        const selected = await deps.interactiveScope(workspaceScope, "read");
+        oauthCheck(selected.principalId === p.id, "access_denied");
+        const scope =
+          requestedScope === "read write" && selected.role !== "viewer" ? "read write" : "read";
         oauthCheck(
           input.state === undefined ||
             (typeof input.state === "string" && input.state.length <= 2048),
@@ -286,10 +291,12 @@ export function createOAuth(deps: Dependencies): {
           clientName: str(c, "name"),
           redirectUri: input.redirect_uri,
           resource: input.resource,
+          requestedScope,
           scope,
         }) as OAuthConsent;
         consents.set(consent, {
           principalId: p.id,
+          workspaceId: selected.workspaceId,
           request: { ...input },
           scope,
           expiresAt: Math.min(p.expiresAt, clock.now() + 600),
@@ -311,15 +318,20 @@ export function createOAuth(deps: Dependencies): {
     async approveOAuthConsent(scope, consent, input) {
       const state = consents.get(consent);
       oauthCheck(!!state && state.expiresAt > clock.now(), "access_denied");
-      const s = await deps.interactiveScope(scope, state.scope === "read write" ? "write" : "read");
-      oauthCheck(state.principalId === s.principalId, "access_denied");
+      const s = await deps.interactiveScope(scope, "read");
+      oauthCheck(
+        state.principalId === s.principalId && state.workspaceId === s.workspaceId,
+        "access_denied",
+      );
+      const grantedScope =
+        state.scope === "read write" && s.role !== "viewer" ? "read write" : "read";
       inputObject(input);
       identifier(input.operationId);
       oauthCheck(secret(input.codeSecret));
       const request = state.request;
       const raw = `pc1.${s.workspaceId}.${input.codeSecret}`;
       const codeHash = await hash(raw);
-      const fp = await hash(JSON.stringify(["oauthConsent", request, state.scope, codeHash]));
+      const fp = await hash(JSON.stringify(["oauthConsent", request, grantedScope, codeHash]));
       const saved = await deps.replay(s.workspaceId, s.principalId, input.operationId, fp);
       if (!saved) {
         const m = await one("admission", [s.workspaceId, s.principalId]);
@@ -344,7 +356,7 @@ export function createOAuth(deps: Dependencies): {
                 request.redirect_uri,
                 request.code_challenge,
                 request.resource,
-                state.scope,
+                grantedScope,
                 clock.now() + 120,
                 s.workspaceId,
                 request.client_id,

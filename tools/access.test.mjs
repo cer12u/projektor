@@ -673,7 +673,7 @@ async function authorization(f, owner, client, overrides = {}, op = crypto.rando
     state: "state + &=雪",
     ...overrides,
   };
-  const consent = await f.api.getOAuthConsent(owner.principal, request);
+  const consent = await f.api.getOAuthConsent(owner.principal, request, owner.scope);
   const input = { operationId: op, codeSecret: platform.oauthRules.randomSecret() };
   const response = await f.api.approveOAuthConsent(owner.scope, consent, input);
   const exchange = {
@@ -795,7 +795,7 @@ test("OAuth metadata, public DCR quota, no confidential secrets and authorizatio
   assert.deepEqual(f.api.getProtectedResourceMetadata(), {
     resource,
     authorization_servers: [metadata.issuer],
-    scopes_supported: ["read"],
+    scopes_supported: ["read", "write"],
     bearer_methods_supported: ["header"],
   });
   assert.equal(f.client.client_secret, undefined);
@@ -816,21 +816,33 @@ test("OAuth metadata, public DCR quota, no confidential secrets and authorizatio
     [{ state: "x".repeat(2049) }, "invalid_request"],
   ])
     await assert.rejects(
-      f.api.getOAuthConsent(f.ownerIdentity.principal, { ...auth.request, ...overrides }),
+      f.api.getOAuthConsent(
+        f.ownerIdentity.principal,
+        { ...auth.request, ...overrides },
+        f.ownerIdentity.scope,
+      ),
       code(expected),
     );
   await assert.rejects(
-    f.api.getOAuthConsent(f.ownerIdentity.principal, { ...auth.request, scope: "admin" }),
+    f.api.getOAuthConsent(
+      f.ownerIdentity.principal,
+      { ...auth.request, scope: "admin" },
+      f.ownerIdentity.scope,
+    ),
     (e) =>
       e.code === "invalid_scope" &&
       e.authorizationRedirect.redirect_uri === auth.request.redirect_uri &&
       e.authorizationRedirect.state === auth.request.state,
   );
   await assert.rejects(
-    f.api.getOAuthConsent(f.ownerIdentity.principal, {
-      ...auth.request,
-      redirect_uri: "https://evil.test/cb",
-    }),
+    f.api.getOAuthConsent(
+      f.ownerIdentity.principal,
+      {
+        ...auth.request,
+        redirect_uri: "https://evil.test/cb",
+      },
+      f.ownerIdentity.scope,
+    ),
     (e) => e.code === "invalid_redirect_uri" && e.authorizationRedirect === undefined,
   );
   for (let i = 1; i < 99; i++) await f.api.registerOAuthClient(oauthInput);
@@ -881,11 +893,14 @@ test("OAuth public API: same human, client attribution, workspace confinement, s
     }),
     code("forbidden"),
   );
-  await assert.rejects(f.api.getOAuthConsent(principal, auth.request), code("forbidden"));
+  await assert.rejects(f.api.getOAuthConsent(principal, auth.request, scope), code("forbidden"));
   await assert.rejects(f.api.provisionMachine(scope, machineInput), code("forbidden"));
   await assert.rejects(f.api.getOAuthClient(other.scope, f.client.client_id), code("not_found"));
   const bot = await machine(f, f.ownerIdentity.scope);
-  await assert.rejects(f.api.getOAuthConsent(bot.principal, auth.request), code("forbidden"));
+  await assert.rejects(
+    f.api.getOAuthConsent(bot.principal, auth.request, bot.scope),
+    code("forbidden"),
+  );
   const writeAuth = await authorization(f, f.ownerIdentity, f.client);
   const writeTokens = await f.api.exchangeOAuthToken(writeAuth.exchange);
   const writer = await oauthLogin(f, writeTokens);
@@ -906,6 +921,7 @@ test("OAuth public API: same human, client attribution, workspace confinement, s
 test("OAuth consent: principal/provenance, explicit workspace, idempotent operation, conflict and hash-only persistence", async () => {
   const f = await oauthFixture();
   const other = await f.owner("w2", "bob");
+  const sameHumanElsewhere = await f.owner("w3");
   const auth = await authorization(f, f.ownerIdentity, f.client);
   assert.deepEqual(
     await f.api.approveOAuthConsent(f.ownerIdentity.scope, auth.consent, auth.input),
@@ -925,6 +941,14 @@ test("OAuth consent: principal/provenance, explicit workspace, idempotent operat
   );
   await assert.rejects(
     f.api.approveOAuthConsent(other.scope, auth.consent, auth.input),
+    code("access_denied"),
+  );
+  await assert.rejects(
+    f.api.approveOAuthConsent(sameHumanElsewhere.scope, auth.consent, auth.input),
+    code("access_denied"),
+  );
+  await assert.rejects(
+    f.api.getOAuthConsent(f.ownerIdentity.principal, auth.request, other.scope),
     code("access_denied"),
   );
   await assert.rejects(
@@ -1108,7 +1132,11 @@ test("OAuth live admission: membership removal/reinvite, archive, client revocat
 test("OAuth D1 atomicity: consent receipt/history rollback, retry recovery, token partial failure and concurrent refresh/code consumption", async () => {
   const f = await oauthFixture();
   const auth = await authorization(f, f.ownerIdentity, f.client);
-  const consent = await f.api.getOAuthConsent(f.ownerIdentity.principal, auth.request);
+  const consent = await f.api.getOAuthConsent(
+    f.ownerIdentity.principal,
+    auth.request,
+    f.ownerIdentity.scope,
+  );
   const input = { operationId: "rollback-consent", codeSecret: platform.oauthRules.randomSecret() };
   f.state.hook = (calls) =>
     f.store.batch(
@@ -1172,9 +1200,16 @@ test("OAuth limits: public-client defaults, viewer consent ceiling, expired cons
   const member = await f.api.inviteMember(f.ownerIdentity.scope, invite("viewer", "viewer"));
   const principal = await f.human("viewer");
   const viewer = { principal, scope: await f.api.requireMembership(principal, "w1", "viewer") };
-  await assert.rejects(authorization(f, viewer, f.client), code("forbidden"));
-  const read = await authorization(f, viewer, f.client, { scope: "read" });
-  const readToken = await f.api.exchangeOAuthToken(read.exchange);
+  const explicitlyRead = await authorization(f, viewer, f.client, { scope: "read" });
+  assert.equal(explicitlyRead.consent.scope, "read");
+  const narrowed = await authorization(f, viewer, f.client);
+  assert.equal(narrowed.consent.requestedScope, "read write");
+  assert.equal(narrowed.consent.scope, "read");
+  const readToken = await f.api.exchangeOAuthToken(narrowed.exchange);
+  assert.equal(readToken.scope, "read");
+  const readPrincipal = await oauthLogin(f, readToken);
+  const readScope = await f.api.requireMembership(readPrincipal, "w1", "viewer-oauth");
+  await assert.rejects(f.api.authorize(readScope, "write"), code("forbidden"));
   await f.api.changeRole(f.ownerIdentity.scope, {
     principalId: member.id,
     role: "member",
@@ -1182,8 +1217,28 @@ test("OAuth limits: public-client defaults, viewer consent ceiling, expired cons
     operationId: "promote",
   });
   await assert.rejects(oauthLogin(f, readToken), code("forbidden"));
+  const pendingViewer = await f.api.getOAuthConsent(principal, narrowed.request, viewer.scope);
+  assert.equal(pendingViewer.scope, "read write");
+  await f.api.changeRole(f.ownerIdentity.scope, {
+    principalId: member.id,
+    role: "viewer",
+    expectedVersion: 2,
+    operationId: "demote",
+  });
+  const afterDemotion = await f.api.approveOAuthConsent(viewer.scope, pendingViewer, {
+    operationId: "demoted-consent",
+    codeSecret: platform.oauthRules.randomSecret(),
+  });
+  assert.equal(
+    (await f.api.exchangeOAuthToken({ ...narrowed.exchange, code: afterDemotion.code })).scope,
+    "read",
+  );
   const auth = await authorization(f, f.ownerIdentity, f.client);
-  const pending = await f.api.getOAuthConsent(f.ownerIdentity.principal, auth.request);
+  const pending = await f.api.getOAuthConsent(
+    f.ownerIdentity.principal,
+    auth.request,
+    f.ownerIdentity.scope,
+  );
   let tokens = await f.api.exchangeOAuthToken(auth.exchange);
   f.state.now += 601;
   await assert.rejects(

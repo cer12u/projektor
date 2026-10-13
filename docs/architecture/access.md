@@ -188,10 +188,10 @@ Normal business reads/writes use existing `requireMembership` / `authorize`.
 `read` permits reads. `write` includes read, and is normalized to `read write`.
 An omitted authorization scope defaults to read. Registration's omitted scope
 permits requesting read/write later; it grants neither. Membership is still the
-ceiling: viewers cannot consent to write. Refresh may narrow but never enlarge
-scope; narrowing is permanent for that family and also invalidates held write
-handles. Protected-resource discovery advertises minimal `read`; AS metadata
-advertises both scopes. Every token request must contain the exact configured
+ceiling: a viewer requesting `read write` grants `read`; the token response reports
+that actual scope. Refresh may narrow but never enlarge scope; narrowing is permanent
+for that family and also invalidates held write handles. Protected-resource discovery
+and AS metadata both advertise `read` and `write`. Every token request must contain the exact configured
 resource. Access admission requires that same resource, never the Access JWT
 audience, client ID, URL supplied by a bearer, or a caller-selected audience.
 
@@ -223,15 +223,18 @@ revoking an independently consented client binding in another workspace.
 accepts `operationId` and `expectedVersion`. There is no re-enable in this step;
 a deliberate future management feature must define that policy.
 
-`getOAuthConsent(principal, request)` validates the client, redirect, response
+`getOAuthConsent(principal, request, workspaceScope)` validates the client, redirect, response
 `code`, resource, scopes, S256 challenge and optional state (at most 2048 characters),
-then returns a frozen request-local handle and safe display values. The challenge
+then checks the selected workspace and returns a frozen request-local handle and safe
+display values. `requestedScope` shows the client request; `scope` shows the scope
+the human can grant in that workspace. The challenge
 must be 43 base64url characters; verifier is 43–128 RFC 7636 unreserved characters.
-The handle binds the exact request to that human and expires within 10 minutes
-or their assertion expiry. It confers no workspace rights. After explicit user
-approval and selection, obtain a scope from that same human and call
+The handle binds the exact request to that human and selected workspace and expires within 10 minutes
+or their assertion expiry. After explicit user
+approval and workspace selection, obtain a scope from that same human and call
 `approveOAuthConsent(scope, consent, {operationId, codeSecret})`. Approval rechecks
-membership and scope. A handle from another instance, copy or human is rejected.
+membership and can narrow the grant further if the role was downgraded. A handle
+from another instance, copy or human is rejected.
 
 Gateway generates the 32-byte random hex `codeSecret`, retains it with the operation
 ID for a request retry, and never accepts it from the OAuth client. Access returns
@@ -304,8 +307,8 @@ For example issuer `https://projektor.example`, resource
 | `GET /.well-known/oauth-authorization-server` | `getAuthorizationServerMetadata()`, 200 JSON |
 | `GET /.well-known/oauth-protected-resource/mcp` | `getProtectedResourceMetadata()`, 200 JSON; derive suffix from resource path, also serve root fallback with identical data |
 | `POST /oauth/register`, JSON | `registerOAuthClient`, 201 JSON; fields as `OAuthClientInput`/`OAuthClient`; no secret/auth cookie required |
-| `GET /oauth/authorize`, query | Cloudflare Access human login, `getOAuthConsent`, `listWorkspaces`; render escaped client name, callback host, requested scopes, explicit workspace selector and approve/deny buttons |
-| `POST /oauth/authorize`, form | Verify browser Origin/CSRF and integrity-bound consent request, reauthenticate assertion, reconstruct handle, resolve selected workspace with `requireMembership`, call `approveOAuthConsent`; 303 to returned callback with URL-encoded `code`, unchanged optional `state`, and `iss` |
+| `GET /oauth/authorize`, query | Cloudflare Access human login, `listWorkspaces`, selected workspace's `requireMembership`, `getOAuthConsent`; render escaped client name, callback host, requested and grantable scopes, explicit workspace selector and approve/deny buttons; update grantable scope when selection changes |
+| `POST /oauth/authorize`, form | Verify browser Origin/CSRF and integrity-bound consent request, reauthenticate assertion, resolve selected workspace with `requireMembership`, call `getOAuthConsent` and `approveOAuthConsent` within this POST request; 303 to returned callback with URL-encoded `code`, unchanged optional `state`, and `iss` |
 | `POST /oauth/token`, form URL encoded | `exchangeOAuthToken`, 200 JSON `access_token`, `token_type: Bearer`, `expires_in`, `scope`, optional `refresh_token`; public `client_id` in body |
 | `POST /oauth/revoke`, form URL encoded | `revokeOAuthToken`, 200 empty body even for unknown token; public `client_id`, required `token`, optional hint |
 | Protected MCP requests | Extract Authorization Bearer on every request; `pa1` maps to `authenticate(kind: oauth, resource: configured URL)`, `pt1` to existing machine path; resolve workspace explicitly and reject URL/header/body/connection disagreement |
@@ -322,9 +325,10 @@ The GET-to-POST consent binding is mandatory transport work: use a short-lived
 signed/encrypted server envelope bound to the authenticated subject and CSRF cookie,
 containing the original validated request, expiry and unpredictable nonce. Never
 trust hidden form client/scope/redirect values merely because GET validated them.
-No Access handle is serialized. On POST verify the envelope and origin, recreate
-`getOAuthConsent` with its original request in the same Access instance used for
-approval, and obtain the selected workspace scope from the fresh human login.
+No Access handle is serialized or held across requests: its WeakMap provenance is
+request-local. On POST verify the envelope, CSRF token and origin, obtain the selected
+workspace scope from the fresh human login, then call `getOAuthConsent` with the
+original request and `approveOAuthConsent` in the same POST request and Access instance.
 Use an operation ID and code secret tied to that consent attempt for retries;
 any recovered code is usable only once. GET/login by itself must never grant a
 code. Deny redirects only to the validated callback, with `error=access_denied`,
@@ -359,8 +363,8 @@ same-origin and must never allow credentialed wildcard CORS.
 Unauthenticated/expired/invalid MCP tokens: 401 with `WWW-Authenticate: Bearer
 resource_metadata="https://projektor.example/.well-known/oauth-protected-resource/mcp",
 scope="read"` (and `error="invalid_token"` for a supplied bad token). Insufficient
-scope: 403 with `error="insufficient_scope"`, required scope (`read write` for
-writes), and the same metadata URL. Never accept bearer tokens from query strings,
+scope: 403 with `WWW-Authenticate: Bearer error="insufficient_scope", scope="read write", resource_metadata="https://projektor.example/.well-known/oauth-protected-resource/mcp"`
+for writes, enabling MCP step-up authorization. Never accept bearer tokens from query strings,
 forward them upstream, or use browser assertion audience as MCP resource. Gateway
 must distinguish scope denial from missing membership without exposing another
 tenant; when Access returns only generic forbidden, use a generic 403 instead of

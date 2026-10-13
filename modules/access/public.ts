@@ -210,6 +210,8 @@ export interface OAuthConsent {
   readonly clientName: string;
   readonly redirectUri: string;
   readonly resource: string;
+  readonly requestedScope: string;
+  /** Scope this human can grant in the selected workspace. */
   readonly scope: string;
 }
 export interface OAuthAuthorizationResponse {
@@ -259,7 +261,7 @@ export interface OAuthServerMetadata {
 export interface OAuthResourceMetadata {
   readonly resource: string;
   readonly authorization_servers: readonly string[];
-  readonly scopes_supported: readonly "read"[];
+  readonly scopes_supported: readonly ("read" | "write")[];
   readonly bearer_methods_supported: readonly "header"[];
 }
 export interface OAuthApi {
@@ -269,6 +271,7 @@ export interface OAuthApi {
   getOAuthConsent(
     principal: AuthenticatedPrincipal,
     input: OAuthAuthorizationRequest,
+    workspaceScope: RequestScope,
   ): Promise<OAuthConsent>;
   /** Interactive, explicit workspace selection and consent only. Caller retains random secret for retry. */
   approveOAuthConsent(
