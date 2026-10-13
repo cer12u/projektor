@@ -23,7 +23,7 @@ type Name = keyof typeof queries;
 type Statement = Call<Name>;
 interface Dependencies {
   readonly store: ModuleStore<"projects", Name>;
-  readonly access: Pick<AccessApi, "authorize" | "getPrincipalSummary">;
+  readonly access: Pick<AccessApi, "authorize" | "getPrincipalSummary" | "getMembership">;
   readonly clock: Clock;
   readonly ids: IdGenerator;
   readonly eventConsumer?: string;
@@ -357,6 +357,14 @@ export function createProjects(deps: Dependencies): {
       };
     },
     authorizeProject,
+    async authorizeProjectPrincipal(scope, projectId, principalId) {
+      await authorizeProject(scope, id(projectId), "write");
+      const member = await access.getMembership(scope, id(principalId));
+      if (!member.active) missing();
+      if (member.role === "owner" || member.role === "admin") return;
+      const grant = await one("grant", [workspace(scope), projectId, principalId]);
+      if (!grant || grant.active !== 1) missing();
+    },
     async readOperation(scope, operationId) {
       const s = await access.authorize(scope, "read");
       const saved = await one("readReceipt", [workspace(s), actor(s), id(operationId)]);

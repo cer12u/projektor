@@ -15,3 +15,9 @@ Projects owns project identity, direct principal grants, archive state, operatio
 ## Limits and later integration
 
 The selected Q1 policy allows an already admitted operation to commit after a concurrent Access or grant revoke. Every new operation rechecks Access and the Projects grant. Gateway, Issues, Wiki, and Coordination will use this public API in later steps; this step introduces no routes or UI. Hard purge belongs to a later Lifecycle module. The current storage test uses Miniflare D1, not a deployed Cloudflare database.
+
+## Step 04 consumer contract addition
+
+`authorizeProjectPrincipal(scope, projectId, principalId)` checks an assignee's
+live workspace membership and project visibility through Projects-owned grants.
+Issues uses this public method before assignment; it never reads Projects tables.

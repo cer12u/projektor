@@ -18,7 +18,7 @@ interface Actor {
 }
 /** Consumer fake for precisely the Access public methods Projects uses. */
 export function fakeAccess(): {
-  readonly access: Pick<AccessApi, "authorize" | "getPrincipalSummary">;
+  readonly access: Pick<AccessApi, "authorize" | "getPrincipalSummary" | "getMembership">;
   issue(actor: Actor): RequestScope;
   revoke(scope: RequestScope): void;
 } {
@@ -65,7 +65,16 @@ export function fakeAccess(): {
     };
   }
   return {
-    access: { authorize, getPrincipalSummary },
+    access: {
+      authorize,
+      getPrincipalSummary,
+      async getMembership(scope, principalId) {
+        const live = await authorize(scope);
+        const member = actors.get(`${live.workspaceId}:${principalId}`);
+        if (!member) throw new PlatformError("not_found", "Membership not found");
+        return { id: principalId, role: member.role, version: 1, active: member.active };
+      },
+    },
     issue,
     revoke(scope) {
       const actor = issued.get(scope);

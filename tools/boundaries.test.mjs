@@ -305,6 +305,21 @@ const cases = [
     "sql-ownership",
     (r) => ddl(r, "CREATE VIRTUAL TABLE fixture_a_bad USING fts4(value);", "fixture_a_bad"),
   ],
+  ["foreign FTS virtual read", "sql-ownership", (r) => query(r, "SELECT * FROM issues_search")],
+  [
+    "foreign FTS shadow read",
+    "sql-ownership",
+    (r) => query(r, "SELECT * FROM issues_search_content"),
+  ],
+  [
+    "unregistered FTS shadow",
+    "schema",
+    (r) =>
+      manifest(r, (owners) => {
+        const tables = owners.find((o) => o.id === "issues").storage.tables;
+        tables.splice(tables.indexOf("issues_search_idx"), 1);
+      }),
+  ],
   [
     "Gateway SQL",
     "sql-static",
