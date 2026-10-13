@@ -164,9 +164,9 @@ result=await call('prepare',{route:{kind:'issue',projectId:'P',id:issueId},input
 assert.equal((await call('execute',{operationId:'assign_saved'})).status,200);
 result=await call('prepare',{route:{kind:'execution',projectId:'P',issueId,action:'acquire'},input:{operationId:'acquire_saved'}});assert.equal(result.status,200);
 result=await call('execute',{operationId:'acquire_saved'});assert.equal(result.status,200);const attemptId=result.body.snapshot.attemptId;
-result=await call('prepare',{route:{kind:'report',projectId:'P',issueId,action:'progress'},input:{operationId:'progress_saved',attemptId,message:'Durable progress',references:[]}});assert.equal(result.status,200);
+result=await call('prepare',{route:{kind:'report',projectId:'P',issueId,action:'progress'},input:{operationId:'progress_saved',attemptId,leaseVersion:1,message:'Durable progress',references:[]}});assert.equal(result.status,200);
 result=await call('execute',{operationId:'progress_saved'});assert.equal(result.status,200);assert.equal(result.body.snapshot.message,'Durable progress');
-result=await call('prepare',{route:{kind:'report',projectId:'P',issueId,action:'completed'},input:{operationId:'complete_saved',attemptId,message:'Durable completion'}});assert.equal(result.status,200);
+result=await call('prepare',{route:{kind:'report',projectId:'P',issueId,action:'completed'},input:{operationId:'complete_saved',attemptId,leaseVersion:1,message:'Durable completion'}});assert.equal(result.status,200);
 result=await call('execute',{operationId:'complete_saved'});assert.equal(result.status,200);assert.equal(result.body.snapshot.kind,'completed');
 result=await call('prepare',{route:{kind:'execution',projectId:'P',issueId,action:'end'},input:{operationId:'end_saved',attemptId,leaseVersion:1}});assert.equal(result.status,200);
 assert.equal((await call('execute',{operationId:'end_saved'})).status,200);

@@ -120,7 +120,7 @@ try{
  const ex=issuePath+'/execution',rp=issuePath+'/execution-reports';await call(ex);const acquired=await call(ex+'/acquire','POST',{operationId:'acquire'},{status:200});
  const lease={attemptId:acquired.snapshot.attemptId,leaseVersion:acquired.snapshot.leaseVersion};
  await call(ex+'/renew','POST',{operationId:'early_renew',...lease},{status:409});
- for(const action of ['progress','failed','completed'])await call(rp+'/'+action,'POST',{operationId:action,attemptId:lease.attemptId,message:'Synthetic '+action,...(action==='failed'?{failureReason:'Synthetic failure'}:{}),references:refs},{status:200});
+ for(const action of ['progress','failed','completed'])await call(rp+'/'+action,'POST',{operationId:action,attemptId:lease.attemptId,leaseVersion:lease.leaseVersion,message:'Synthetic '+action,...(action==='failed'?{failureReason:'Synthetic failure'}:{}),references:refs},{status:200});
  await call(rp);await call(rp+'/history');await call('/api/projects/P/execution-operations/acquire');await call('/api/projects/P/execution-report-operations/progress');
  const interrupted=await call(ex+'/interrupt','POST',{operationId:'interrupt',...lease},{status:200});
  const confirmed=await call(rp+'/reconcile','POST',{operationId:'reconcile',attemptId:lease.attemptId,leaseVersion:interrupted.snapshot.leaseVersion,outcome:'not_performed',message:'Synthetic observation',externalOperationId:'synthetic-external'},{status:200});

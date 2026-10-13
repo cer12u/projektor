@@ -13,9 +13,9 @@ export interface OperationQuery {projectId:string;operationId:string}
 export interface AcquireInput {operationId:string}
 export interface LeaseInput extends AcquireInput {attemptId:string;leaseVersion:number}
 export type ExecutionCommand=ExecutionQuery&({action:'acquire';input:AcquireInput}|{action:'renew'|'end'|'interrupt';input:LeaseInput});
-export interface ReportInput {operationId:string;attemptId:string;message:string;references:ContentReference[]}
+export interface ReportInput {operationId:string;attemptId:string;leaseVersion:number;message:string;references:ContentReference[]}
 export interface FailedReportInput extends ReportInput {failureReason:string}
-export interface ConfirmationInput extends ReportInput {leaseVersion:number;outcome:ConfirmationOutcome;externalOperationId?:string}
+export interface ConfirmationInput extends ReportInput {outcome:ConfirmationOutcome;externalOperationId?:string}
 export interface RestartInput {operationId:string;attemptId:string;leaseVersion:number;confirmationOperationId:string}
 export type ReportCommand=ExecutionQuery&(
  {action:'progress'|'completed';input:ReportInput}|

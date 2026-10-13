@@ -11,6 +11,19 @@ const built=await build({stdin:{contents:`export * from './src/modules/execution
 const m=await import(dir+'/pure.mjs?'+Date.now()),checks=[];
 const test=async(name,fn)=>{await fn();checks.push({name,passed:true});};
 const query={projectId:'P',issueId:'I_'+'1'.repeat(64)},attemptId='A_'+'2'.repeat(64);
+await test('live reports require the submitted lease version and reject stale planning',()=>{
+ for(const action of ['progress','failed','completed']){
+  const base={operationId:'versioned-'+action,attemptId,message:'result',...(action==='failed'?{failureReason:'failure'}:{})};
+  assert.throws(()=>m.decodeReportCommand(query,action,base),m.InputError,'missing version must not be upgraded to the current lease');
+  for(const leaseVersion of [0,-1,1.5,Number.MAX_SAFE_INTEGER])assert.throws(()=>m.decodeReportCommand(query,action,{...base,leaseVersion}),m.InputError);
+  const command=m.decodeReportCommand(query,action,{...base,leaseVersion:1});
+  const head={attemptId,principalId:'A',leaseVersion:2,storedState:'running',expiresAt:400,updatedAt:160};
+  const state={actorId:'A',observedAt:200,assignedToActor:true,head,finalReportExists:false,latestConfirmation:null};
+  assert.equal(m.planReport(command,state).reason,'live_attempt_conflict');
+  const current=m.decodeReportCommand(query,action,{...base,leaseVersion:2});
+  assert.equal(m.planReport(current,state).plan.expectedHead.leaseVersion,2);
+ }
+});
 await test('application and rules have no D1, SQL, provider, Node or clock implementation dependency',()=>{
  const files=Object.keys(built.metafile.inputs);assert(files.every(f=>!(/node_modules|\/identity\/|\/operations\/|platform\/d1|issue-execution|execution-reports|\/execution\/d1|\/execution\/assembly/.test(f))));
 });
@@ -18,13 +31,13 @@ await test('closed inputs normalize once without admitting actor or lease substi
  assert.deepEqual(m.decodeExecutionCommand(query,'acquire',{operationId:'start'}),{...query,action:'acquire',input:{operationId:'start'}});
  for(const value of [{operationId:'x',principalId:'other'},{operationId:'x',attemptId},{operationId:'x',leaseVersion:1}])assert.throws(()=>m.decodeExecutionCommand(query,'acquire',value),m.InputError);
  for(const version of [0,-1,1.2,Number.MAX_SAFE_INTEGER])assert.throws(()=>m.decodeExecutionCommand(query,'renew',{operationId:'x',attemptId,leaseVersion:version}),m.InputError);
- const report=m.decodeReportCommand(query,'progress',{operationId:'p',attemptId,message:' original '});assert.deepEqual(report.input.references,[]);assert.equal(report.input.message,' original ');
+ const report=m.decodeReportCommand(query,'progress',{operationId:'p',attemptId,leaseVersion:1,message:' original '});assert.deepEqual(report.input.references,[]);assert.equal(report.input.message,' original ');
 });
 await test('reconcile evidence and report finality inputs have explicit semantic rules',()=>{
  const base={operationId:'r',attemptId,leaseVersion:2,message:'checked',outcome:'applied'};
  assert.throws(()=>m.decodeReportCommand(query,'reconcile',{...base,externalOperationId:'remote'}),m.InputError);
  const value=m.decodeReportCommand(query,'reconcile',{...base,references:[{kind:'link',url:'https://example.invalid/result'}]});assert.equal(value.input.references.length,1);
- assert.throws(()=>m.decodeReportCommand(query,'failed',{operationId:'f',attemptId,message:'blocked'}),m.InputError);
+ assert.throws(()=>m.decodeReportCommand(query,'failed',{operationId:'f',attemptId,leaseVersion:1,message:'blocked'}),m.InputError);
  assert.throws(()=>m.decodeReportCommand(query,'restart',{operationId:'again',attemptId,leaseVersion:2,confirmationOperationId:'r',message:'extra'}),m.InputError);
 });
 await test('lease observation is pure and expiration is inclusive; planning is not authority',()=>{
@@ -43,7 +56,7 @@ await test('invalid application input never reaches commit and never fabricates 
  const before=calls.length,result=await api.change({...query,action:'renew',input:{operationId:'bad',attemptId,leaseVersion:0}});assert.equal(calls.length,before);assert.equal(result.application,'unknown');assert.equal(result.disclosure,'withheld');assert.equal(result.failure.kind,'invalid');assert(!('certificate' in result));
 });
 await test('one authorized planning observation then one commit preserves unknown denial and operation ID without retry',async()=>{
- const before=calls.length,result=await api.report(m.decodeReportCommand(query,'progress',{operationId:'p',attemptId,message:'original'}));assert.equal(result,unknown);assert.equal(calls.length,before+2);assert.equal(calls[before][0],'inspectReport');assert.equal(calls.at(-1)[0],'commitReport');assert.equal(calls.at(-1)[1].input.operationId,'p');assert.deepEqual(calls.at(-1)[1].input.references,[]);
+ const before=calls.length,result=await api.report(m.decodeReportCommand(query,'progress',{operationId:'p',attemptId,leaseVersion:1,message:'original'}));assert.equal(result,unknown);assert.equal(calls.length,before+2);assert.equal(calls[before][0],'inspectReport');assert.equal(calls.at(-1)[0],'commitReport');assert.equal(calls.at(-1)[1].input.operationId,'p');assert.deepEqual(calls.at(-1)[1].input.references,[]);
  const receipt=await api.reportResult({projectId:'P',operationId:'p'});assert.equal(receipt,missing);assert.equal(receipt.application,'unknown');
 });
 await test('current denial and historical receipt remain separate; invalid history cursor performs no read',async()=>{
@@ -86,7 +99,7 @@ await test('application recovers receipt before state rules, and planning confli
 await test('stored fence and selected expected-state plan cross only the typed atomic commit boundary',async()=>{
  const fence={operationId:'p',formatVersion:1};let seen;
  const api=m.createExecution({...port,commitReport:async(c,p,f)=>{seen={c,p,f};return unknown;}});
- await api.report(m.decodeReportCommand(query,'progress',{operationId:'p',attemptId,message:'original'}),fence);
+ await api.report(m.decodeReportCommand(query,'progress',{operationId:'p',attemptId,leaseVersion:1,message:'original'}),fence);
  assert.equal(seen.f,fence);assert.equal(seen.p.expectedHead.leaseVersion,1);assert.equal(seen.p.timing,'live');assert.equal(seen.c.input.operationId,'p');
 });
 const hashes=Object.fromEntries(await Promise.all(Object.keys(built.metafile.inputs).filter(x=>!x.startsWith('<')).map(async path=>[path,createHash('sha256').update(await readFile(path)).digest('hex')])));

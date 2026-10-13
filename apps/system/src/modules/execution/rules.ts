@@ -48,12 +48,12 @@ export function parseReportInput(value:unknown,action:ReportAction):ReportInput|
   if(!REPORT_ACTIONS.includes(action))throw new InputError('invalid_input',{action:'defined report action required'});
   if(!value||typeof value!=='object'||Array.isArray(value))throw new InputError('invalid_input',{body:'object required'});
   const v=value as Record<string,unknown>,fields:Record<string,string>={};
-  const allowed=['operationId','attemptId',...(action==='restart'?['leaseVersion','confirmationOperationId']:['message','references',
-    ...(action==='failed'?['failureReason']:[]),...(action==='reconcile'?['leaseVersion','outcome','externalOperationId']:[])])];
+  const allowed=['operationId','attemptId','leaseVersion',...(action==='restart'?['confirmationOperationId']:['message','references',
+    ...(action==='failed'?['failureReason']:[]),...(action==='reconcile'?['outcome','externalOperationId']:[])])];
   for(const key of Object.keys(v))if(!allowed.includes(key))Object.defineProperty(fields,key,{value:'unknown field',enumerable:true});
   if(typeof v.operationId!=='string'||!operationIdPattern.test(v.operationId))fields.operationId='ASCII operation ID required';
   if(typeof v.attemptId!=='string'||!attemptIdPattern.test(v.attemptId))fields.attemptId='server attempt ID required';
-  if(action==='reconcile'||action==='restart')if(typeof v.leaseVersion!=='number'||!Number.isSafeInteger(v.leaseVersion)||v.leaseVersion<1||v.leaseVersion>=Number.MAX_SAFE_INTEGER)fields.leaseVersion='positive safe integer';
+  if(typeof v.leaseVersion!=='number'||!Number.isSafeInteger(v.leaseVersion)||v.leaseVersion<1||v.leaseVersion>=Number.MAX_SAFE_INTEGER)fields.leaseVersion='positive safe integer';
   if(action==='restart'){
     if(typeof v.confirmationOperationId!=='string'||!operationIdPattern.test(v.confirmationOperationId))fields.confirmationOperationId='saved confirmation operation ID required';
   }else{
@@ -70,9 +70,9 @@ export function parseReportInput(value:unknown,action:ReportAction):ReportInput|
   }
   if(Object.keys(fields).length)throw new InputError('invalid_input',fields);
   if(action==='restart')return {operationId:v.operationId as string,attemptId:v.attemptId as string,leaseVersion:v.leaseVersion as number,confirmationOperationId:v.confirmationOperationId as string};
-  const base:ReportInput|FailedReportInput={operationId:v.operationId as string,attemptId:v.attemptId as string,message:v.message as string,references,
+  const base:ReportInput|FailedReportInput={operationId:v.operationId as string,attemptId:v.attemptId as string,leaseVersion:v.leaseVersion as number,message:v.message as string,references,
     ...(action==='failed'?{failureReason:v.failureReason as string}:{})};
-  return action==='reconcile'?{...base,leaseVersion:v.leaseVersion as number,outcome:v.outcome as ConfirmationOutcome,
+  return action==='reconcile'?{...base,outcome:v.outcome as ConfirmationOutcome,
     ...(Object.hasOwn(v,'externalOperationId')?{externalOperationId:v.externalOperationId as string}:{})}:base;
 }
 
@@ -140,7 +140,7 @@ export function planExecution(command:ExecutionCommand,state:ExecutionPlanningSt
 export function planReport(command:ReportCommand,state:ExecutionPlanningState):PlanningDecision<ReportPlan>{
  const head=state.head;
  if(command.action!=='reconcile'&&command.action!=='restart'){
-  if(!state.assignedToActor||!head||head.attemptId!==command.input.attemptId||head.principalId!==state.actorId||head.storedState!=='running'||leaseExpired(head.expiresAt,state.observedAt))return conflict('live_attempt_conflict');
+  if(!state.assignedToActor||!head||head.attemptId!==command.input.attemptId||head.principalId!==state.actorId||head.leaseVersion!==command.input.leaseVersion||head.storedState!=='running'||leaseExpired(head.expiresAt,state.observedAt))return conflict('live_attempt_conflict');
   if(state.finalReportExists)return conflict('report_finalized');
   return {status:'planned',plan:{action:command.action,expectedHead:expected(head),timing:'live'}};
  }
