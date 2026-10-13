@@ -10,6 +10,7 @@ export type {IssueListQuery} from './issue-list-query';
 import type {Issue,IssueChanges,Receipt,IssueHistory} from './editor-contracts';
 import type {ContentReference} from "../../modules/work/reference-contracts";
 import {resourceKey,idPrefix,validContentId,scopeOf,type EditingResource,type BodyDocument} from "../../modules/work/content-contracts";
+import type {ExecutionReports,ReportHistory} from '../../modules/execution/public';
 import type {Identity} from "../../modules/identity/dto";
 export {CreationNotApplied} from './creation-not-applied';
 export {isIssue} from './content-response-validation';
@@ -43,5 +44,7 @@ export class IssueApi{
   list(project:string,query:IssueListQuery){return this.authority.observe(project,async()=>{const r=await request<{issues:Issue[];total:number;page:number;pageSize:number;order:string}>(this.path(project)+'?'+new URLSearchParams({q:query.q,state:query.state,mine:query.mine,page:query.page,pageSize:query.pageSize,order:query.order}).toString());return r;});}
   documents(project:string,page=1,pageSize=20){return this.authority.observe(project,async()=>{const r=await request<{documents:BodyDocument[];total:number;page:number;pageSize:number}>(this.path(project)+`?page=${page}&pageSize=${pageSize}`);if(!r.documents.every(v=>this.valid(v)&&scopeOf(v)===project))throw new Error('invalid_content_list');return r;});}
   assignees(project:string){return this.authority.observe(project,async()=>{const r=await request<{principals:{id:string;kind:'human'|'agent';displayName:string}[]}>(`/api/projects/${encodeURIComponent(project)}/assignees`);return r;});}
+  executionReports(project:string,id:string):Promise<ExecutionReports>{return this.authority.observe(project,()=>request<ExecutionReports>(this.path(project,id)+'/execution-reports'),id);}
+  executionHistory(project:string,id:string,after=0):Promise<ReportHistory>{return this.authority.observe(project,()=>request<ReportHistory>(this.path(project,id)+'/execution-reports/history?after='+after),id);}
   history(project:string,id:string,afterRevision=0){return this.authority.observe(project,async()=>{const r=await request<{history:IssueHistory[];resolutionEvents:{revision:number;kind:string;time:import("../../modules/work/planning-contracts").TimeValue;recordedAt:string}[];nextAfterRevision:number|null;nextResolutionAfterRevision:number|null}>(this.path(project,this.documentId(id)??id)+'/history?limit=50&afterRevision='+afterRevision);return r;},this.documentId(id)??id);}
 }

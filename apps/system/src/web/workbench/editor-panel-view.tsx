@@ -13,6 +13,7 @@ import {HistoryEntry} from './history-entry';
 import {displayTime} from './planning-time';
 import {isIssue} from './content-response-validation';
 import {labels} from './editor-status';
+import {IssueExecutionPanel} from './issue-execution';
 import {ParentComments} from './parent-comments';
 export function EditorPanelView({model}:{model:ReturnType<typeof useEditorPanelController>}){
 const {directory,editor,canEdit,identity,zone,identityChanged,openContent,view,r,label,canView,historyRows,historyMessage,copyMessage,historyAfter,historyLoading,events,textRef,copy,download,history}=model;
@@ -34,6 +35,7 @@ return <article className="editor" aria-busy={!view.ready}>
     {!!r.heldOperations?.length&&<details className="operation" open><summary>保持した操作の記録</summary><p>保存済みとは扱っていません。自動再送しません。現在の入力と別に、元の主体の下書きへ保持しています。</p>{r.heldOperations.map(op=><div key={op.operationId}><p>操作ID: {op.operationId} · 元の改訂: {op.revision}</p><pre>{op.changes?JSON.stringify(op.changes,null,2):op.body}</pre><ReferenceList references={op.references} label="保留した送信参照"/>{op.phase==='rejected'?<p>作成前に拒否され、未反映と確認済みです。</p>:<button className="secondary" onClick={()=>void editor.checkHeldOperation(op.operationId)}>保留した操作の結果を確認</button>}</div>)}</details>}
     {isIssue(r.base)&&r.base.schedule&&<IssueAttributes editor={editor} issue={r.base} identity={identity} zone={zone} disabled={!view.ready||!canView||!!r.pending||!!r.latest}/> }
     {r.base&&(editor.api.resource.kind==='issue'||r.base.metadata)&&<ImportedContext key={r.base.id} document={r.base} resource={editor.api.resource} draft={r.attributes} open={openContent} editor={editor} directory={directory} canEdit={view.ready&&canView&&canEdit&&!r.pending&&!r.latest}/> }
+    {r.base&&editor.api.resource.kind==='issue'&&<IssueExecutionPanel key={identity.principal.id+':'+r.projectId+':'+r.base.id} api={editor.api} projectId={r.projectId} issueId={r.base.id} ownerId={identity.principal.id} zone={zone}/>}
     {r.base&&<details className="history"><summary onClick={()=>void history()}>更新履歴を確認</summary>{historyMessage&&<p role="status">{historyMessage}</p>}{historyLoading&&<p role="status">履歴を読み込み中…</p>}{historyAfter!==null&&<button className="secondary" disabled={historyLoading} onClick={()=>void history(true)}>続きを表示</button>}{events.map(e=><p key={e.revision} data-testid="resolution-event">改訂 {e.revision} · {e.kind==='resolved'?'解決':'再開'} · {displayTime(e.time,zone)}</p>)}{historyRows.map(h=><HistoryEntry key={h.revision} history={h} zone={zone}/>)}</details>}
     {r.base&&editor.api.resource.kind!=='comment'&&<ParentComments document={r.base} kind={editor.api.resource.kind} identity={identity} identityChanged={identityChanged} open={openContent} canEdit={canEdit}/>}
   </article>;
