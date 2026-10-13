@@ -34,6 +34,11 @@ const ddl = (root, sql, object) => {
 };
 const cases = [
   [
+    "barrel leaks SQL catalog",
+    "public-type",
+    (r) => append(r, `${a}/public.ts`, 'export { queries } from "./storage/queries";'),
+  ],
+  [
     "package export private import",
     "import",
     (r) => {
@@ -147,7 +152,7 @@ const cases = [
       write(
         r,
         `${a}/internal/leak.ts`,
-        `import type { ModuleStore } from "../../../platform/public"; type Wrapped = { nested: ReadonlyArray<ModuleStore<string>> }; export function leak(value: Wrapped) { return value; }`,
+        `import type { ModuleStore } from "../../../platform/public"; type Wrapped = { nested: ReadonlyArray<ModuleStore<"fixture_a", string>> }; export function leak(value: Wrapped) { return value; }`,
       );
       append(r, `${a}/public.ts`, `export { leak } from "./internal/leak";`);
     },

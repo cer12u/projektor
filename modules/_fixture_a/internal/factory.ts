@@ -1,8 +1,9 @@
-import type { ModuleStore } from "../../../platform/public";
+import { type ModuleStore, PlatformError } from "../../../platform/public";
 import type { queries } from "../storage/queries";
 
 /** Test-only repository: proves same-owner CAS + receipt atomicity. */
-export function createFixture(store: ModuleStore<keyof typeof queries>) {
+export function createFixture(store: ModuleStore<"fixture_a", keyof typeof queries>) {
+  if (store.owner !== "fixture_a") throw new PlatformError("forbidden", "Wrong store owner");
   return {
     seed: (workspace: string, id: string, value: string) =>
       store.run("insert", [workspace, id, value]),

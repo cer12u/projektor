@@ -263,6 +263,8 @@ export function check(root = process.cwd(), onlyRule, { freshness = true } = {})
     function inspect(type, trail) {
       if (!type || visited.has(type)) return;
       visited.add(type);
+      if (type.flags & ts.TypeFlags.StringLiteral && sqlStart.test(type.value))
+        report("public-type", `${owner.id}: ${trail} exports SQL text`);
       if (
         type.flags &
         (ts.TypeFlags.StringLike |

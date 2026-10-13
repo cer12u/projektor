@@ -21,7 +21,8 @@ queries, migration checksums and resource declarations. Every full boundary
 check and build recomputes it; generated catalogs are never accepted by filename
 alone. No adapter accepts caller-supplied SQL. `createModuleStore(db, owner)` is
 composition-only; its returned methods take only names from that fixed catalog
-and bound values. All batch statements are prepared and checked before submission.
+and bound values. The store also carries a frozen owner type/tag; factories reject
+a store wired to the wrong owner, even when query names happen to match. All batch statements are prepared and checked before submission.
 KV/R2 adapters similarly close over manifest prefixes and return only portable
 values, not binding objects.
 
@@ -105,9 +106,9 @@ executor rejection cases live in `tools/runtime.test.mjs`.
 | Checker | Injected violations and reason for failure |
 |---|---|
 | Import / DAG | Private relative import, TS alias private import, package export private import, undeclared public dependency, type-only owner cycle, literal dynamic private import, nonliteral import, require alias, unowned source: forbidden entry/edge, unresolved owner or cycle |
-| Public type | Barrel ModuleStore export, inferred nested store, SQL alias, D1 binding, Env, generic execute method, callback transaction: forbidden transitive signature |
+| Public type | Barrel ModuleStore/SQL catalog exports, inferred nested store, SQL alias, D1 binding, Env, generic execute method, callback transaction: forbidden transitive signature |
 | SQL ownership | Cross-owner SELECT/UPDATE/JOIN/subquery/CTE, trigger read/write, view read: authorizer denies the foreign table; query DDL, ATTACH, PRAGMA, unapproved virtual module: prohibited operation |
 | Static SQL | Concatenated/interpolated catalog, multiple statements, Gateway SQL, SQL file outside migrations: invalid static catalog/location |
 | Capability | Raw binding alias, any, double cast, eval alias/indexed eval, overlapping KV/R2 prefixes, generated manifest/hash drift: raw capability/evaluation/prefix or stale build input |
 | Schema | Cross-owner FK, owner spoofing, missing tenant column, global unique key: resource/FK/tenant invariant; unregistered index: DDL authorizer rejects undeclared object |
-| Executor / prefix (runtime) | Foreign query ID, raw SQL as ID, platform/prototype owner, 101 binds, foreign/empty KV and R2 keys on get/put/delete: reject before operation; 100 binds and own-prefix operations pass |
+| Executor / prefix (runtime) | Foreign query ID, raw SQL as ID, platform/prototype owner, cross-wired/mutated owner, 101 binds, foreign/empty KV and R2 keys on get/put/delete: reject before operation; 100 binds and own-prefix operations pass |

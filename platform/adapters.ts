@@ -14,7 +14,7 @@ type QueryName<O extends Owner> = keyof (typeof catalogs)[O]["queries"] & string
 export function createModuleStore<O extends Owner>(
   db: D1Database,
   owner: O,
-): ModuleStore<QueryName<O>> {
+): ModuleStore<O, QueryName<O>> {
   const catalog = catalogs[owner];
   if (!Object.hasOwn(catalogs, owner) || owner === ("platform" as string))
     throw new PlatformError("forbidden", "Unknown runtime owner");
@@ -26,6 +26,7 @@ export function createModuleStore<O extends Owner>(
     return db.prepare(queries[name]).bind(...values);
   };
   return Object.freeze({
+    owner,
     async run(name: QueryName<O>, values: readonly Value[]) {
       const result = await prepare(name, values).all();
       return { rows: result.results, changes: result.meta.changes };

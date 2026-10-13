@@ -85,6 +85,13 @@ for (const [owner, binding, factory] of [
 test("executor rejects foreign catalog IDs, owner spoofing and >100 binds before batch submission", async () => {
   const db = await mf.getD1Database("A");
   const store = platform.createModuleStore(db, "fixture_a");
+  assert.throws(
+    () => platform.createA(platform.createModuleStore(db, "fixture_b")),
+    /Wrong store owner/,
+  );
+  assert.throws(() => {
+    store.owner = "fixture_b";
+  }, TypeError);
   await assert.rejects(store.run("SELECT * FROM fixture_b_items", []), /Unknown query/);
   await assert.rejects(store.run("fixture_b.read", []), /Unknown query/);
   assert.throws(() => platform.createModuleStore(db, "platform"), /Unknown runtime owner/);

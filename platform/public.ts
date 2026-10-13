@@ -15,7 +15,8 @@ export interface Call<Name extends string> {
   readonly name: Name;
   readonly values: readonly Value[];
 }
-export interface ModuleStore<Name extends string> {
+export interface ModuleStore<Owner extends string, Name extends string> {
+  readonly owner: Owner;
   run(name: Name, values: readonly Value[]): Promise<QueryResult>;
   batch(calls: readonly Call<Name>[]): Promise<readonly QueryResult[]>;
 }
