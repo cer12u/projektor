@@ -9,7 +9,6 @@ on:
       - 'query-review-evidence/*.mjs'
       - 'service-review-evidence/*.mjs'
       - '.github/workflows/atomic-command-poc.yml'
-      - '.github/workflows/ci.yml'
 
 permissions:
   contents: read

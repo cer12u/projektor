@@ -16,9 +16,9 @@ permissions:
   contents: write   # create the GitHub Release
 
 jobs:
-  # Run the full CI suite (tests, type-check, catalog freshness, island API) as a
-  # gate. Reuses ci.yml so the checks never drift from the branch/PR CI. The
-  # release job below won't start unless this passes.
+  # Gate releases on canonical apps/system verification, public API freshness
+  # and repository release integration. Reuse the same checks as branch/PR CI;
+  # retained implementations are not dependencies of the active release.
   ci:
     if: ${{ !(github.event_name == 'workflow_dispatch' && startsWith(inputs.version, 'deploy:')) }}
     name: CI checks
