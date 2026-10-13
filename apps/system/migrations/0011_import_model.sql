@@ -1,0 +1,34 @@
+-- New independent schema; never apply to the unrelated current-service D1.
+CREATE TABLE model_settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
+INSERT INTO model_settings VALUES('schema_family','projektor-new-v1');
+CREATE TABLE write_gate(id INTEGER PRIMARY KEY CHECK(id=1),mode TEXT NOT NULL CHECK(mode IN('open','stopped','importing')),epoch INTEGER NOT NULL);
+INSERT INTO write_gate VALUES(1,'open',1);
+CREATE TABLE workspaces(id TEXT PRIMARY KEY,name TEXT NOT NULL,source_json TEXT NOT NULL CHECK(json_valid(source_json)));
+CREATE TABLE projects(id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),key TEXT NOT NULL,slug TEXT NOT NULL,name TEXT NOT NULL,description TEXT NOT NULL,source_json TEXT NOT NULL CHECK(json_valid(source_json)),UNIQUE(workspace_id,key),UNIQUE(workspace_id,slug));
+CREATE TABLE imported_entities(kind TEXT NOT NULL,id TEXT NOT NULL,workspace_id TEXT NOT NULL,scope_id TEXT NOT NULL,record TEXT NOT NULL CHECK(json_valid(record)),record_hash TEXT NOT NULL,PRIMARY KEY(kind,id));
+CREATE TABLE import_runs(id TEXT PRIMARY KEY,input_hash TEXT NOT NULL,phase TEXT NOT NULL CHECK(phase IN('importing','verified')),counts TEXT NOT NULL CHECK(json_valid(counts)),recorded_at INTEGER NOT NULL);
+CREATE UNIQUE INDEX one_active_import ON import_runs(phase) WHERE phase='importing';
+CREATE TABLE import_row_receipts(dataset_id TEXT NOT NULL REFERENCES import_runs(id),kind TEXT NOT NULL,entity_id TEXT NOT NULL,record_hash TEXT NOT NULL,PRIMARY KEY(dataset_id,kind,entity_id));
+CREATE TRIGGER imported_source_no_update BEFORE UPDATE ON imported_entities BEGIN SELECT RAISE(ABORT,'imported source is immutable'); END;
+CREATE TRIGGER imported_source_no_delete BEFORE DELETE ON imported_entities BEGIN SELECT RAISE(ABORT,'imported source is immutable'); END;
+CREATE TRIGGER import_receipt_no_update BEFORE UPDATE ON import_row_receipts BEGIN SELECT RAISE(ABORT,'import receipt is immutable'); END;
+CREATE TRIGGER import_receipt_no_delete BEFORE DELETE ON import_row_receipts BEGIN SELECT RAISE(ABORT,'import receipt is immutable'); END;
+ALTER TABLE issues ADD COLUMN workspace_id TEXT REFERENCES workspaces(id);
+ALTER TABLE issues ADD COLUMN number INTEGER;
+ALTER TABLE issues ADD COLUMN parent_id TEXT REFERENCES issues(id);
+ALTER TABLE issues ADD COLUMN type_id TEXT;
+ALTER TABLE issues ADD COLUMN status_id TEXT;
+ALTER TABLE issues ADD COLUMN created_by_id TEXT REFERENCES principals(id);
+ALTER TABLE issues ADD COLUMN priority_key TEXT CHECK(priority_key IS NULL OR priority_key IN('none','low','medium','high','urgent'));
+ALTER TABLE issues ADD COLUMN metadata_json TEXT CHECK(metadata_json IS NULL OR json_valid(metadata_json));
+CREATE UNIQUE INDEX issue_number ON issues(project_id,number);
+ALTER TABLE content_documents RENAME COLUMN project_id TO scope_id;
+ALTER TABLE content_history RENAME COLUMN project_id TO scope_id;
+ALTER TABLE content_documents ADD COLUMN project_id TEXT;
+ALTER TABLE content_documents ADD COLUMN workspace_id TEXT;
+ALTER TABLE content_documents ADD COLUMN slug TEXT;
+ALTER TABLE content_documents ADD COLUMN wiki_parent_id TEXT;
+ALTER TABLE content_documents ADD COLUMN metadata_json TEXT CHECK(metadata_json IS NULL OR json_valid(metadata_json));
+UPDATE content_documents SET project_id=scope_id;
+CREATE UNIQUE INDEX wiki_slug ON content_documents(workspace_id,slug) WHERE kind='wiki';
+
