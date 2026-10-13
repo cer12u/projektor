@@ -2,17 +2,30 @@
   "name": "projektor",
   "private": true,
   "scripts": {
-    "dev": "turbo dev",
-    "build": "turbo build",
-    "type-check": "turbo type-check",
-    "deploy": "turbo deploy",
-    "lint": "biome check .",
-    "lint:fix": "biome check --write .",
-    "format": "biome format --write .",
-    "gen:docs": "pnpm --filter @projektor/api gen:catalog && pnpm --filter @projektor/api gen:workflow-spec && pnpm --filter @projektor/api gen:playbooks && tsx scripts/gen-conventions-page.ts && tsx scripts/gen-feedback-example-page.ts",
-    "bundle-budget": "tsx scripts/bundle-budget.ts",
-    "bundle-budget:update": "tsx scripts/bundle-budget.ts --update",
-    "prepare": "lefthook install"
+    "dev": "npm --prefix apps/system run dev",
+    "build": "npm --prefix apps/system run build",
+    "type-check": "npm --prefix apps/system run typecheck",
+    "deploy": "node scripts/require-deployment-review.mjs",
+    "lint": "npm --prefix apps/system run lint",
+    "lint:fix": "npm --prefix apps/system run lint:fix",
+    "format": "npm --prefix apps/system run lint:fix",
+    "gen:docs": "npm --prefix apps/system run docs:generate",
+    "legacy:bundle-budget": "tsx scripts/bundle-budget.ts",
+    "legacy:bundle-budget:update": "tsx scripts/bundle-budget.ts --update",
+    "prepare": "lefthook install",
+    "legacy:dev": "turbo dev",
+    "legacy:build": "turbo build",
+    "legacy:type-check": "turbo type-check",
+    "legacy:deploy": "turbo deploy",
+    "legacy:lint": "biome check .",
+    "legacy:lint:fix": "biome check --write .",
+    "legacy:format": "biome format --write .",
+    "legacy:gen:docs": "pnpm --filter @projektor/api gen:catalog && pnpm --filter @projektor/api gen:workflow-spec && pnpm --filter @projektor/api gen:playbooks && tsx scripts/gen-conventions-page.ts && tsx scripts/gen-feedback-example-page.ts",
+    "setup": "npm --prefix apps/system ci --include=dev --include=optional",
+    "start": "npm --prefix apps/system run dev",
+    "test": "npm --prefix apps/system run test:ci",
+    "verify": "npm --prefix apps/system run verify:ci",
+    "release:build": "bash scripts/build-release.sh"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.8",
@@ -32,7 +45,7 @@
     ]
   },
   "engines": {
-    "node": ">=22.12",
+    "node": "24.19.0",
     "pnpm": ">=9"
   }
 }

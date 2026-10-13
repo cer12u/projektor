@@ -12,7 +12,8 @@
 			"!apps/web/src/pages/**/*.astro",
 			"!apps/web/src/layouts",
 			"!apps/web/src/styles/global.css",
-			"packages/**"
+			"packages/**",
+			"!apps/system/**"
 		]
 	},
 	"linter": {

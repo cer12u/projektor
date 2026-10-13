@@ -1,0 +1,85 @@
+{
+  "format": 1,
+  "activeApplication": {
+    "path": "apps/system",
+    "registry": "apps/system/architecture/module-registry.json",
+    "responsibility": "Canonical Worker, Web, Agent, domain rules/application ports, concrete adapters, migration/build/test tooling"
+  },
+  "repositoryIntegration": {
+    "module": "repository.integration",
+    "responsibility": "Select the canonical application, validate exact measured inputs and package its local release; no business policy or provider deployment",
+    "authoredCode": [
+      "scripts/build-release.sh",
+      "scripts/stage-system-release.mjs",
+      "scripts/system-release-inputs.mjs",
+      "scripts/system-integration.test.mjs",
+      "scripts/require-deployment-review.mjs"
+    ],
+    "configuration": [
+      "package.json",
+      "pnpm-workspace.yaml",
+      ".node-version",
+      ".github/workflows/ci.yml",
+      ".github/workflows/release.yml",
+      ".github/workflows/release-prepare.yml",
+      ".github/workflows/release-tag.yml",
+      "lefthook.yml",
+      ".gitignore"
+    ],
+    "documentation": [
+      "AGENTS.md",
+      "README.md",
+      "docs/system-integration.md"
+    ]
+  },
+  "retainedReferenceTrees": [
+    {
+      "path": "apps/api",
+      "runtimeDependency": false,
+      "purpose": "Preserved existing source/history and separately named legacy verification; not subject to a false claim of new-module completion"
+    },
+    {
+      "path": "apps/web",
+      "runtimeDependency": false,
+      "purpose": "Preserved existing source/history and separately named legacy verification; not subject to a false claim of new-module completion"
+    },
+    {
+      "path": "apps/docs",
+      "runtimeDependency": false,
+      "purpose": "Preserved existing source/history and separately named legacy verification; not subject to a false claim of new-module completion"
+    },
+    {
+      "path": "packages",
+      "runtimeDependency": false,
+      "purpose": "Preserved existing source/history and separately named legacy verification; not subject to a false claim of new-module completion"
+    },
+    {
+      "path": "plugins",
+      "runtimeDependency": false,
+      "purpose": "Preserved existing source/history and separately named legacy verification; not subject to a false claim of new-module completion"
+    },
+    {
+      "path": "experiments",
+      "runtimeDependency": false,
+      "purpose": "Preserved existing source/history and separately named legacy verification; not subject to a false claim of new-module completion"
+    }
+  ],
+  "retainedDocumentation": [
+    "AGENTS.legacy.md",
+    "README.legacy.md"
+  ],
+  "generatedOutputs": [
+    "dist",
+    "apps/system/dist",
+    "apps/system/src/adapters/crypto/generated"
+  ],
+  "installedDependencies": [
+    "node_modules",
+    "apps/system/node_modules"
+  ],
+  "runtimePrivateState": [
+    "apps/system/.local",
+    "apps/system/.wrangler"
+  ],
+  "limits": "The app registry enforces declared boundaries of the canonical implementation. This repository map classifies retained source honestly; it does not certify unmodified legacy modules or infer feature/data parity."
+}

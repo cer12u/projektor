@@ -9,21 +9,23 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag to release (e.g. v1.2.0)'
+        description: 'Release tag, or deploy:<approved full commit> for the protected manual deployment route'
         required: true
 
 permissions:
   contents: write   # create the GitHub Release
 
 jobs:
-  # Run the full CI suite (tests, type-check, catalog freshness, island API) as a
-  # gate. Reuses ci.yml so the checks never drift from the branch/PR CI. The
-  # release job below won't start unless this passes.
+  # Gate releases on canonical apps/system verification, public API freshness
+  # and repository release integration. Reuse the same checks as branch/PR CI;
+  # retained implementations are not dependencies of the active release.
   ci:
+    if: ${{ !(github.event_name == 'workflow_dispatch' && startsWith(inputs.version, 'deploy:')) }}
     name: CI checks
     uses: ./.github/workflows/ci.yml
 
   release:
+    if: ${{ !(github.event_name == 'workflow_dispatch' && startsWith(inputs.version, 'deploy:')) }}
     name: Build & publish release artifact
     needs: ci
     runs-on: ubuntu-latest
@@ -32,13 +34,14 @@ jobs:
       VERSION: ${{ github.event.inputs.version || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'   # wrangler 4.x requires Node >= 22
-          cache: 'pnpm'
+          node-version: '24.19.0'
+          cache: 'npm'
+          cache-dependency-path: apps/system/package-lock.json
 
-      - run: pnpm install --frozen-lockfile
+      - run: npm install --global npm@11.9.0 --ignore-scripts --no-audit --no-fund
+      - run: test "$(npm --version)" = "11.9.0" && npm --prefix apps/system ci --include=dev --include=optional
 
       - name: Build release artifact
         run: bash scripts/build-release.sh "$VERSION"
@@ -69,3 +72,92 @@ jobs:
           gh api "repos/${{ vars.DEPLOY_DISPATCH_REPO }}/dispatches" \
             -f event_type=projektor-release \
             -F "client_payload[version]=$VERSION"
+
+  deployment-build:
+    if: ${{ github.event_name == 'workflow_dispatch' && startsWith(inputs.version, 'deploy:') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+      - name: Validate the selected immutable commit
+        env:
+          DEPLOYMENT_REQUEST: ${{ inputs.version }}
+        run: node scripts/github-deployment-host.mjs request
+      - run: npm install --global npm@11.9.0 --ignore-scripts --no-audit --no-fund
+      - run: test "$(npm --version)" = "11.9.0" && npm --prefix apps/system ci --include=dev --include=optional
+      - run: node --test scripts/system-integration.test.mjs scripts/github-deployment-host.test.mjs
+      - name: Check and measure the reviewed application before secrets are available
+        run: npm --prefix apps/system run verify:ci
+      - name: Preserve the exact measured build for the protected job
+        run: tar -czf deployment-build.tar.gz -C apps/system dist .local/verification/release src/adapters/crypto/generated
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deployment-build-${{ github.run_id }}
+          path: deployment-build.tar.gz
+          retention-days: 7
+
+  deployment:
+    if: ${{ github.event_name == 'workflow_dispatch' && startsWith(inputs.version, 'deploy:') }}
+    needs: deployment-build
+    runs-on: ubuntu-latest
+    environment: projektor-production
+    concurrency:
+      group: projektor-production-deployment
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      actions: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+      - run: npm install --global npm@11.9.0 --ignore-scripts --no-audit --no-fund
+      - run: test "$(npm --version)" = "11.9.0" && npm --prefix apps/system ci --include=dev --include=optional
+      - uses: actions/download-artifact@v4
+        with:
+          name: deployment-build-${{ github.run_id }}
+          path: .local-deployment-build
+      - run: tar -xzf .local-deployment-build/deployment-build.tar.gz -C apps/system
+      - name: Verify actual environment reviewer and exact branch restrictions
+        env:
+          DEPLOYMENT_REQUEST: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/github-deployment-host.mjs environment
+      - name: Bind approved source, artifacts, target and this single run without a credential
+        env:
+          DEPLOYMENT_REQUEST: ${{ inputs.version }}
+          PROJEKTOR_APPROVED_RELEASE_JSON: ${{ secrets.PROJEKTOR_APPROVED_RELEASE_JSON }}
+          PROJEKTOR_DEPLOYMENT_CONFIG_JSON: ${{ secrets.PROJEKTOR_DEPLOYMENT_CONFIG_JSON }}
+        run: node scripts/github-deployment-host.mjs prepare
+      - name: Official Wrangler upload and explicitly approved activation
+        env:
+          DEPLOYMENT_REQUEST: ${{ inputs.version }}
+          PROJEKTOR_APPROVED_RELEASE_JSON: ${{ secrets.PROJEKTOR_APPROVED_RELEASE_JSON }}
+          PROJEKTOR_DEPLOYMENT_MODE: github-actions
+          PROJEKTOR_EXPECTED_COMMIT: ${{ github.sha }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: node --use-env-proxy scripts/github-deployment-host.mjs run
+      - name: Retain only sanitized outcome and hash evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-result-${{ github.run_id }}
+          path: apps/system/.local/deployment-public-result.json
+          if-no-files-found: ignore
+          retention-days: 30
+      - name: Remove private runner-local configuration and journal
+        if: always()
+        run: node scripts/github-deployment-host.mjs clean

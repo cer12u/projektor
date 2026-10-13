@@ -1,6 +1,6 @@
 pre-commit:
   commands:
     type-check:
-      run: pnpm turbo type-check
+      run: npm run type-check
     lint:
-      run: pnpm biome check --changed --no-errors-on-unmatched
+      run: npm run lint

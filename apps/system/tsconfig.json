@@ -1,0 +1,31 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": [
+      "ES2023",
+      "DOM"
+    ],
+    "jsx": "react-jsx",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowJs": true,
+    "types": [
+      "./worker-configuration.d.ts",
+      "node",
+      "vite/client"
+    ],
+    "allowImportingTsExtensions": true
+  },
+  "include": [
+    "src",
+    "worker-configuration.d.ts",
+    "tests/support/retained-fixture.ts",
+    "tests/support/mcp-*.ts",
+    "tests/support/p2-fixture/**/*.ts",
+    "tests/support/p2-02-fixture/**/*.ts",
+    "tests/support/p2-03-fixture/**/*.ts"
+  ]
+}

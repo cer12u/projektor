@@ -1,0 +1,19 @@
+// @module verification
+// @role retained-access-error
+import assert from 'node:assert/strict';import {build} from 'esbuild';import {mkdtemp,writeFile,rm} from 'node:fs/promises';import {tmpdir} from 'node:os';import {join} from 'node:path';
+const root=await mkdtemp(join(tmpdir(),'retained-errors-')),oldFetch=globalThis.fetch,report={scope:'actual bundled client with synthetic response boundary; no network or production operations',results:[]};
+try{
+ await build({entryPoints:['src/agent/public.ts'],outfile:root+'/client.mjs',bundle:true,format:'esm',platform:'node'});const {privateAgentClient:createClient}=await import(root+'/client.mjs');await build({entryPoints:['src/adapters/credentials/cloudflare-admission.ts'],outfile:root+'/admission.mjs',bundle:true,format:'esm',platform:'node'});const {accessServiceAdmission}=await import(root+'/admission.mjs');async function privateAgentClient(options){const {access,...core}=options;return createClient({...core,admission:accessServiceAdmission(core.origin,core.environment,access)});}
+ const origin='https://synthetic.invalid',appToken='a'.repeat(43),clientId='synthetic-client-id',clientSecret='synthetic-client-secret';
+ const identity={principal:{id:'A',kind:'agent',displayName:'Synthetic'},authentication:'api',projects:[]};let body=identity,status=200,requests=0;
+ globalThis.fetch=async()=>{requests++;return Response.json(body,{status});};
+ const options={origin,principalId:'A',credentialId:'A-key',environment:'synthetic-local',loadCredential:async()=>({version:1,origin,principalId:'A',credentialId:'A-key',environment:'synthetic-local',token:appToken}),access:{mode:'service-auth',applicationId:'11111111-1111-4111-8111-111111111111',serviceTokenId:'22222222-2222-4222-8222-222222222222',loadCredential:async()=>({version:1,origin,environment:'synthetic-local',applicationId:'11111111-1111-4111-8111-111111111111',serviceTokenId:'22222222-2222-4222-8222-222222222222',expiresAt:Math.floor(Date.now()/1000)+600,clientId,clientSecret})}};
+ const client=await privateAgentClient(options);
+ for(const secret of [appToken,clientId,clientSecret])for(const make of [s=>({error:s}),s=>({error:'forbidden',fields:{problem:s}}),s=>({error:'conflict',reason:s}),s=>({error:'conflict',current:{nested:[s]}}),s=>({...identity,data:{[s]:'value'}})])for(const code of [200,403]){body=make(secret);status=code;await assert.rejects(client.identity(),e=>e.code==='credential_reflection_rejected'&&!e.message.includes(secret)&&!JSON.stringify(e).includes(secret));}
+ report.results.push({name:'submitted app and service credentials rejected in JSON error/success, nested values and keys',cases:30,passed:true});
+ body={error:'conflict',fields:{revision:'stale'},reason:'revision_changed',current:{revision:2,body:'ordinary application text'}};status=409;await assert.rejects(client.identity(),e=>e.status===409&&e.code==='conflict'&&e.reason==='revision_changed'&&e.current.revision===2&&e.fields.revision==='stale');report.results.push({name:'normal structured application errors preserved exactly',passed:true});
+ body=identity;status=200;assert.deepEqual(await client.identity(),identity);report.results.push({name:'normal successful identity payload unchanged',passed:true});
+ const before=requests;await assert.rejects(privateAgentClient({...options,loadCredential:async()=>{throw Error(appToken)}}),e=>e.message==='application_credential_provider_unavailable'&&!JSON.stringify(e).includes(appToken));assert.equal(requests,before);report.results.push({name:'app provider exception sanitized before network',passed:true});
+ report.passed=true;
+}finally{globalThis.fetch=oldFetch;await rm(root,{recursive:true,force:true});await writeFile('.local/evidence/retained-access-error-check.json',JSON.stringify(report,null,2)+'\n');}
+console.log(JSON.stringify(report));

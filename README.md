@@ -1,82 +1,35 @@
-# projektor
+# Projektor
 
-This is the [cer12u Fork](https://github.com/cer12u/projektor) of
-[TAJD/projektor](https://github.com/TAJD/projektor). The CI badge below reports this
-Fork; release, hosted documentation, demo and deployment-template links refer to
-upstream. Fork-specific machine credential behavior is documented in [SECURITY.md](./SECURITY.md).
+This is the [cer12u fork](https://github.com/cer12u/projektor) of [TAJD/projektor](https://github.com/TAJD/projektor), under the existing [MIT license](LICENSE).
 
-[![CI](https://github.com/cer12u/projektor/actions/workflows/ci.yml/badge.svg)](https://github.com/cer12u/projektor/actions/workflows/ci.yml)
-[![Upstream release](https://img.shields.io/github/v/release/TAJD/projektor)](https://github.com/TAJD/projektor/releases)
-[![License: MIT](https://img.shields.io/github/license/TAJD/projektor)](./LICENSE)
+## Canonical application
 
-> **AI-native project management, self-hosted on Cloudflare.**
+[`apps/system`](apps/system) contains the current modular implementation: one Worker, one D1 schema lineage, a React Web client and an Agent SDK over the same business API. Identity, Work and Execution own typed business contracts and rules. D1, HTTP/MCP and provider adapters are composed at the application boundary.
 
-**[Upstream docs](https://tajd.github.io/projektor/)** ·
-**[Upstream demo](https://projektor-demo.tajdickson.workers.dev)** ·
-**[Deploy your own](https://github.com/TAJD/projektor-deploy-example)**
+Start with the [adopted architecture](apps/system/docs/architecture-spec.md), [application guide](apps/system/README.md), [current API](apps/system/docs/openapi.json), and [integration scope](docs/system-integration.md). The implementation and verification limits are stated there; this branch does not claim production deployment, completion of [A1–A12 operational acceptance](apps/system/docs/history/acceptance-baseline.md), or full legacy feature parity.
 
-![Projektor issue backlog - list view with projects sidebar, issue refs, status, priority, and assignees](docs/images/backlog.png)
+### Reproduce locally
 
-## What it is
+Use Node **24.19.0** and npm **11.9.0**.
 
-Projektor is an issue tracker and wiki that an AI coding agent runs as well as you do.
-Issues, boards, sprints and a wiki are exposed over MCP
-(<!-- gen-mcp-stats:start -->123 tools across 22 domains<!-- gen-mcp-stats:end -->), so the
-agent files the ticket, moves it and writes the page instead of asking you to. The whole thing is one
-Cloudflare Worker (Hono, D1, KV, R2) in your own account. No servers, no containers.
-
-## Why it's different
-
-- **Coordination lives in the work graph.** Issue leases and file claims sit in the same
-  schema as the tickets, so "which issue is this claim for" is a join.
-  [Coordination model](https://tajd.github.io/projektor/philosophy/coordination-model/)
-- **Contention is data.** Refused and forced claims are logged and ranked in a code heatmap.
-  [Conflict as an event log](https://tajd.github.io/projektor/philosophy/coordination-model/#conflict-as-an-event-log)
-- **It is deployed, not local.** CI runners and agents on other machines can take leases
-  too. [How Projektor differs](https://tajd.github.io/projektor/philosophy/alternatives/)
-- **You still run the project.** Backlog, kanban, epics, sprints, a nested wiki with
-  full-text search, flow metrics and a feedback widget, in a normal web app.
-
-## Get started
-
-**Deploy.** The one-click **Deploy to Cloudflare** button in
-[projektor-deploy-example](https://github.com/TAJD/projektor-deploy-example) provisions D1,
-KV and R2 and installs a pre-built release. Put Cloudflare Access in front of the Worker
-before anyone logs in. See the [deploy guide](https://tajd.github.io/projektor/guides/deploying/).
-
-**Connect Claude.** Add your instance as a connector and sign in with your web UI account;
-Claude Code does it with `claude mcp add --transport http projektor "https://<host>/mcp/<workspace-id>"`.
-Headless agents use a workspace API token instead. See
-[connecting an agent](https://tajd.github.io/projektor/agents/mcp-connection/).
-
-## Docs
-
-| | |
-|---|---|
-| [Getting started](https://tajd.github.io/projektor/guides/getting-started/) | first workspace, projects, issues |
-| [Deploying](https://tajd.github.io/projektor/guides/deploying/) | Cloudflare setup, Access, updates |
-| [MCP connection](https://tajd.github.io/projektor/agents/mcp-connection/) and [tool catalog](https://tajd.github.io/projektor/agents/tool-catalog/) | wiring an agent up, every tool it gets |
-| [Agentic workflows](https://tajd.github.io/projektor/agents/agent-workflows/) | how agents are meant to use the tracker |
-| [System design](https://tajd.github.io/projektor/architecture/system-design/) | REST and MCP over one service layer |
-
-## Development
-
-```bash
-pnpm install
-cp apps/api/.dev.vars.example apps/api/.dev.vars   # DEV_USER_EMAIL + BOOTSTRAP_SECRET
-cp apps/web/.env.example      apps/web/.env        # PUBLIC_WORKSPACE_SLUG=projektor
-pnpm dev                                           # API :8787, web :4321
-
-pnpm --filter @projektor/api test   # vitest against an in-process Worker + D1
-pnpm turbo type-check               # tsc --noEmit across the monorepo
+```sh
+npm run setup                  # locked install in apps/system
+npm run verify                 # types, lint, build, boundaries and focused runtime checks
+npm --prefix apps/system run db:migrate
+npm run start                  # local Worker + built Web at https://localhost:8787
+npm run release:build -- v0.7.7 # local artifact only
 ```
 
-Seed a workspace with `curl -H "X-Bootstrap-Secret: localdev" http://127.0.0.1:8787/bootstrap`,
-then open <http://localhost:4321>. [AGENTS.md](./AGENTS.md) has the full pre-PR checklist
-and the conventions.
+The local database is separate from any hosted database. Initial application credentials/identity must be established through the documented setup flow or synthetic local fixtures; no automatic business-permission provisioning is enabled. Hosted configuration uses an ignored private copy of the example config.
 
-## Contributing
+The application uses an isolated npm lock. The existing pnpm lock remains for retained reference packages; root runtime commands never use Turbo to select an old application.
 
-Projektor is built with itself. [CONTRIBUTING.md](./CONTRIBUTING.md) explains how issues
-and PRs are handled, [SECURITY.md](./SECURITY.md) how to report a vulnerability. Licensed
-under [MIT](./LICENSE).
+## Retained source and history
+
+The previous Hono/Astro application, packages, plugins and PR#7 experiments remain intact as reference source. They are outside the canonical runtime graph. Their original documentation is [README.legacy.md](README.legacy.md); its generated MCP counts describe that legacy implementation only. `npm run legacy:gen:docs` regenerates its catalog. New API documentation comes from `npm run gen:docs`.
+
+Features such as attachments, sprints, feedback, old fleet/file-claim coordination, realtime notifications and the full upstream administration suite are not implicitly ported by retaining their source. See the explicit [scope and data limitations](docs/system-integration.md). The new migration chain must never be concatenated with `packages/db/migrations`.
+
+## Release behavior
+
+`npm run release:build -- <version>` packages only `apps/system` Worker/WASM/Web and its migration chain with hashes and a placeholder configuration. It does not upload, migrate, tag or deploy. Existing release workflows now read the application version from `apps/system/package.json`; production release remains a separate reviewed operation. Root `deploy` stops with a review-required message rather than invoking a legacy deployment.

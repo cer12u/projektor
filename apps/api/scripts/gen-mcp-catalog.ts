@@ -32,7 +32,7 @@ const outPath = join(
 	"tool-catalog.md",
 );
 const statsPath = join(repoRoot, "apps", "docs", "src", "generated", "mcp-stats.json");
-const readmePath = join(repoRoot, "README.md");
+const readmePath = join(repoRoot, "README.legacy.md");
 
 const START = "<!-- gen-mcp-catalog:start";
 const END = "<!-- gen-mcp-catalog:end -->";

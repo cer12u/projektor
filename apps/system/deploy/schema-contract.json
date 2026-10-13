@@ -1,0 +1,125 @@
+{
+  "format": 1,
+  "source": "Canonical migrations applied to empty local SQLite; no installation-specific state",
+  "normalization": "Outer trim and CRLF to LF only",
+  "migrations": [
+    {
+      "name": "0001_auth.sql",
+      "sha256": "6ebe4c6c205d47872746ab190f6b80357794ca1f909fd4d13f55e6e42df82d6b"
+    },
+    {
+      "name": "0002_mutations.sql",
+      "sha256": "b4c063b4473f4032c40f32a58d52a3ec8a0cf69849bebb12a22f970938c99170"
+    },
+    {
+      "name": "0003_management.sql",
+      "sha256": "9b1ab35e6773f21e396b4dee2e70c954cbf1cfa4f0fdd5dd4f9fbc310e335c13"
+    },
+    {
+      "name": "0004_issues.sql",
+      "sha256": "784722044ebf8606d15917390cb8409283c9080c0dee04b5d26493d52b36c89b"
+    },
+    {
+      "name": "0005_password_setup.sql",
+      "sha256": "7bc7db8c26c63ba8ab64afb9b230a20bcb82c3dada35e7b674a51d5d0f271da2"
+    },
+    {
+      "name": "0006_browser_exchange.sql",
+      "sha256": "0b4471b436f162d4fbebcebed7ec985800def139fe77f34ce1fbdd1b92392b9a"
+    },
+    {
+      "name": "0007_issue_planning.sql",
+      "sha256": "641b28695262948693d27a3130d59b66cb9858572fcb650964c3f220c61bde60"
+    },
+    {
+      "name": "0008_wiki_comments.sql",
+      "sha256": "1077df5151fcd776908af9a0ac7ce41d9e4615c1d950c618e373e259898681e6"
+    },
+    {
+      "name": "0009_deployment_operations.sql",
+      "sha256": "f977874805557eede7aae67796cf5ea1fe9c5f79c0370464fc5f020ac3935a16"
+    },
+    {
+      "name": "0010_content_compatibility.sql",
+      "sha256": "ee101f0aa10755e6cec86559f6e0061f6495abdae6d7f9927877e2b004ca9722"
+    },
+    {
+      "name": "0011_import_model.sql",
+      "sha256": "081ff76b4e8702f6ea666e43683d8b2d5ac010378d21b10d88e1992469e22c2a"
+    },
+    {
+      "name": "0012_auth_capacity_indexes.sql",
+      "sha256": "e4d9578a5a5a0387b18e1754b74093fbb842afaf1f65488f11c35dbef348dfae"
+    },
+    {
+      "name": "0013_references.sql",
+      "sha256": "21e971397772d06bbcb479badfb932e40c2a9bf0de289c85839070f7d3410af2"
+    },
+    {
+      "name": "0014_issue_execution.sql",
+      "sha256": "4774dadff0d239f7029da16648b09a7cf8d7d37fc75e9b323a89cfd9daa48d42"
+    },
+    {
+      "name": "0015_execution_reports.sql",
+      "sha256": "04307c2f9fb9d107ccec66b0d01b7b943fe047e3a225f19547dba24c33844243"
+    },
+    {
+      "name": "0016_federated_agent_credentials.sql",
+      "sha256": "4a5dcfa1ad127a0e47cdd3bbed004b4bce7a81408cc4dcae5a9e8602fe9fe0a7"
+    },
+    {
+      "name": "0017_operation_intents.sql",
+      "sha256": "013416deef49cd99f92ba5887ae0fd5bd6a797895c8bc9e8d1660251e8e8746b"
+    },
+    {
+      "name": "0018_owner_setup_contexts.sql",
+      "sha256": "57c217671858081f6d46041de46ef70b2c72d9bf8f58b29055e4b522048ad6e7"
+    },
+    {
+      "name": "0019_recipient_setup_contexts.sql",
+      "sha256": "7228a80662fbe61bf70c28895cb63183e0dace1300542239b2332cd8532464d4"
+    }
+  ],
+  "objects": [
+    {
+      "type": "trigger",
+      "name": "owner_setup_context_binding_immutable",
+      "sql": "CREATE TRIGGER owner_setup_context_binding_immutable BEFORE UPDATE ON owner_setup_contexts\n WHEN OLD.right_id IS NOT NULL AND (NEW.context_hash IS NOT OLD.context_hash OR NEW.owner_id IS NOT OLD.owner_id OR NEW.operation_id IS NOT OLD.operation_id OR NEW.right_id IS NOT OLD.right_id OR NEW.issuer IS NOT OLD.issuer OR NEW.audience IS NOT OLD.audience OR NEW.subject IS NOT OLD.subject OR NEW.expires_at IS NOT OLD.expires_at OR NEW.created_at IS NOT OLD.created_at)\n BEGIN SELECT RAISE(ABORT,'owner setup binding is immutable'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "owner_setup_context_no_extend",
+      "sql": "CREATE TRIGGER owner_setup_context_no_extend BEFORE UPDATE ON owner_setup_contexts\n WHEN NEW.expires_at>OLD.expires_at OR NEW.created_at IS NOT OLD.created_at\n BEGIN SELECT RAISE(ABORT,'owner setup context lifetime is fixed'); END"
+    },
+    {
+      "type": "table",
+      "name": "owner_setup_contexts",
+      "sql": "CREATE TABLE owner_setup_contexts (\n context_hash TEXT PRIMARY KEY CHECK(length(context_hash)=64),\n csrf_hash TEXT NOT NULL CHECK(length(csrf_hash)=64),\n created_at INTEGER NOT NULL,\n expires_at INTEGER NOT NULL CHECK(expires_at>created_at),\n revoked_at INTEGER,\n owner_id TEXT REFERENCES principals(id),\n operation_id TEXT,\n right_id TEXT UNIQUE REFERENCES password_setup_rights(id),\n issuer TEXT,\n audience TEXT,\n subject TEXT,\n CHECK((owner_id IS NULL AND operation_id IS NULL AND right_id IS NULL AND issuer IS NULL AND audience IS NULL AND subject IS NULL)\n  OR (owner_id IS NOT NULL AND operation_id IS NOT NULL AND right_id IS NOT NULL AND issuer IS NOT NULL AND audience IS NOT NULL AND subject IS NOT NULL))\n)"
+    },
+    {
+      "type": "index",
+      "name": "owner_setup_operation",
+      "sql": "CREATE UNIQUE INDEX owner_setup_operation ON owner_setup_contexts(owner_id,operation_id) WHERE owner_id IS NOT NULL"
+    },
+    {
+      "type": "trigger",
+      "name": "recipient_setup_binding_immutable",
+      "sql": "CREATE TRIGGER recipient_setup_binding_immutable BEFORE UPDATE ON recipient_setup_contexts\n WHEN NEW.context_hash IS NOT OLD.context_hash OR NEW.request_id IS NOT OLD.request_id OR NEW.replaces_context_hash IS NOT OLD.replaces_context_hash\n OR (OLD.right_id IS NOT NULL AND (NEW.issuer_id IS NOT OLD.issuer_id OR NEW.issuer_display_name IS NOT OLD.issuer_display_name OR NEW.operation_id IS NOT OLD.operation_id OR NEW.principal_id IS NOT OLD.principal_id OR NEW.right_id IS NOT OLD.right_id OR NEW.purpose IS NOT OLD.purpose OR NEW.target_auth_version IS NOT OLD.target_auth_version OR NEW.expires_at IS NOT OLD.expires_at))\n BEGIN SELECT RAISE(ABORT,'recipient setup binding is immutable'); END"
+    },
+    {
+      "type": "table",
+      "name": "recipient_setup_contexts",
+      "sql": "CREATE TABLE recipient_setup_contexts (\n context_hash TEXT PRIMARY KEY CHECK(length(context_hash)=64),\n request_id TEXT NOT NULL UNIQUE CHECK(length(request_id)=43),\n replaces_context_hash TEXT UNIQUE CHECK(replaces_context_hash IS NULL OR length(replaces_context_hash)=64),\n csrf_hash TEXT NOT NULL CHECK(length(csrf_hash)=64),\n created_at INTEGER NOT NULL,\n expires_at INTEGER NOT NULL CHECK(expires_at>created_at),\n revoked_at INTEGER,\n issuer_id TEXT REFERENCES principals(id),\n issuer_display_name TEXT,\n operation_id TEXT,\n principal_id TEXT REFERENCES principals(id),\n right_id TEXT UNIQUE REFERENCES password_setup_rights(id),\n purpose TEXT CHECK(purpose IN ('initial','reset')),\n target_auth_version INTEGER,\n CHECK((issuer_id IS NULL AND issuer_display_name IS NULL AND operation_id IS NULL AND principal_id IS NULL AND right_id IS NULL AND purpose IS NULL AND target_auth_version IS NULL)\n  OR (issuer_id IS NOT NULL AND issuer_display_name IS NOT NULL AND operation_id IS NOT NULL AND principal_id IS NOT NULL AND right_id IS NOT NULL AND purpose IS NOT NULL AND target_auth_version IS NOT NULL))\n)"
+    },
+    {
+      "type": "trigger",
+      "name": "recipient_setup_no_extend",
+      "sql": "CREATE TRIGGER recipient_setup_no_extend BEFORE UPDATE ON recipient_setup_contexts\n WHEN NEW.expires_at>OLD.expires_at OR NEW.created_at IS NOT OLD.created_at OR (OLD.revoked_at IS NOT NULL AND NEW.revoked_at IS NOT OLD.revoked_at)\n BEGIN SELECT RAISE(ABORT,'recipient setup context lifetime is fixed'); END"
+    },
+    {
+      "type": "index",
+      "name": "recipient_setup_operation",
+      "sql": "CREATE UNIQUE INDEX recipient_setup_operation ON recipient_setup_contexts(issuer_id,operation_id) WHERE issuer_id IS NOT NULL"
+    }
+  ]
+}

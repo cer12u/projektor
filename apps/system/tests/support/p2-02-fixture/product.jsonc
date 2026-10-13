@@ -1,0 +1,17 @@
+// @module verification
+// @role fixture-p2-02
+{
+  "$schema": "../../../node_modules/wrangler/config-schema.json",
+  "name": "projektor-p2-02-product-local-check",
+  "main": "../../../src/apps/worker.ts",
+  "compatibility_date": "2026-10-09",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false, "preview_urls": false,
+  "assets": {"directory":"../../../dist/web","binding":"ASSETS","not_found_handling":"single-page-application","run_worker_first":["/api/*"]},
+  "vars": {"AUTH_ORIGIN":"http://localhost:8794"},
+  "d1_databases": [{
+    "binding":"DB","database_name":"projektor-p2-02-isolated-fixture",
+    "database_id":"00000000-0000-0000-0000-000000000003","migrations_dir":"../../../migrations","remote":false
+  }],
+  "dev": {"ip":"127.0.0.1","port":8794,"inspector_port":9236,"local_protocol":"http"}
+}

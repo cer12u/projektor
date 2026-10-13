@@ -1,5 +1,7 @@
 packages:
   - 'apps/*'
+  # Canonical runtime has its own reproducible npm lock and toolchain.
+  - '!apps/system'
   - 'packages/*'
   - 'plugins/*'
 
