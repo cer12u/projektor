@@ -45,22 +45,11 @@ export function createAssertionVerifier(
   textValue(config.audience);
   const issuer = config.teamDomain;
   const audience = config.audience;
-  const key = `access:jwks:${issuer}`;
-  async function cached(): Promise<readonly Record<string, unknown>[] | null> {
-    try {
-      const value = await kv.get(key);
-      if (!value) return null;
-      const entry = object(JSON.parse(value));
-      if (
-        typeof entry.expiresAt !== "number" ||
-        entry.expiresAt <= clock.now() ||
-        entry.expiresAt > clock.now() + 300
-      )
-        return null;
-      return keys(entry.jwks);
-    } catch {
-      return null;
-    }
+  // Only keys fetched from the configured HTTPS origin are trusted. KV contents
+  // are mutable operational hints, never signing-key provenance.
+  let trusted: { expiresAt: number; list: readonly Record<string, unknown>[] } | undefined;
+  function cached(): readonly Record<string, unknown>[] | null {
+    return trusted && trusted.expiresAt > clock.now() ? trusted.list : null;
   }
   const throttleKey = `access:jwks-refresh:${issuer}`;
   let forcedAfter = 0;
@@ -72,7 +61,7 @@ export function createAssertionVerifier(
     forcedAfter = now + 30;
     try {
       const saved = Number(await kv.get(throttleKey));
-      if (Number.isFinite(saved) && saved > now && saved <= now + 30) deny();
+      if (trusted && Number.isFinite(saved) && saved > now && saved <= now + 30) deny();
       await kv.put(throttleKey, String(forcedAfter));
     } catch (error) {
       // A stored cooldown must still deny; KV outages leave the local bound intact.
@@ -80,11 +69,7 @@ export function createAssertionVerifier(
     }
     const jwks = await load(`${issuer}/cdn-cgi/access/certs`);
     const list = keys(jwks);
-    try {
-      await kv.put(key, JSON.stringify({ expiresAt: clock.now() + 300, jwks }));
-    } catch {
-      /* Cache availability is not authentication correctness. */
-    }
+    trusted = { expiresAt: clock.now() + 300, list };
     return list;
   }
   function fresh(): Promise<readonly Record<string, unknown>[]> {
@@ -137,7 +122,7 @@ export function createAssertionVerifier(
         claims.service_token_id !== undefined
       )
         deny();
-      let list = await cached();
+      let list = cached();
       if (!list) list = await fresh();
       else if (!list.some((k) => k.kid === header.kid)) list = await fresh();
       const matching = list.filter(

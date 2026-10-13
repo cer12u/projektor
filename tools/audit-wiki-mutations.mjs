@@ -7,6 +7,20 @@ const factory = "modules/wiki/internal/factory.ts";
 const queries = "modules/wiki/storage/queries.ts";
 const cases = [
   [
+    "live-authorize",
+    factory,
+    'await projects.authorizeProject(scope, field(row, "project_id"), permission);',
+    "",
+    "two workspaces, project predicates",
+  ],
+  [
+    "fts-update",
+    factory,
+    '{ name: "upsertSearch", values: [w, pageId] },',
+    '...(action === "edit" ? [] : [{ name: "upsertSearch", values: [w, pageId] }]),',
+    "Japanese, English, mixed",
+  ],
+  [
     "page-tenant",
     queries,
     "FROM wiki_pages WHERE workspace_id=? AND id=?",
@@ -50,7 +64,11 @@ const lock = ".tmp/wiki-mutation.lock";
 const fd = fs.openSync(lock, "wx");
 const catalog = "platform/generated/catalogs.ts";
 const run = (args) =>
-  spawnSync(process.execPath, args, { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 });
+  spawnSync(process.execPath, args, {
+    encoding: "utf8",
+    timeout: 120000,
+    maxBuffer: 8 * 1024 * 1024,
+  });
 const results = [];
 try {
   for (const [id, path, before, after, pattern] of chosen) {

@@ -15,19 +15,31 @@ Human assertions use Web Crypto RS256 verification and exact issuer/audience,
 expiry, issued-at and optional not-before checks. Require application type,
 subject and email; service-token claims are rejected. The identity key hashes
 `[human, issuer, subject]`, never email. Authentication creates no durable rows.
-Membership commands explicitly register identity records. Public signing keys
-alone are cached as `access:jwks:<issuer>` for 300 seconds, with an embedded expiry
-because Platform's KV port has no TTL option. Outbound refresh attempts (including
-unknown kids and failed fetches) have a 30-second issuer cooldown recorded at
-`access:jwks-refresh:<issuer>`. One instance coalesces concurrent fetches and keeps
-a local cooldown even if KV fails. Known cached keys still work during cooldown;
-a new signing key can take up to the cooldown to become usable. KV is eventually
-consistent, so this bounds amplification per instance and propagated KV state,
-not exactly one fetch globally across all isolates/locations. A strict distributed
-quota would require a strongly consistent coordinator, outside this step.
-Expired cache plus network failure fails closed. KV failures do not reject a signature
-that can be checked with fresh keys. Membership and credential status are never
-cached. [Cloudflare's signed JWT and JWKS contract](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)
+Membership commands explicitly register identity records. Public signing keys are
+cached for 300 seconds only inside the verifier that fetched them from the
+configured HTTPS origin. KV is never read as a signing-key source: the 05a audit
+reproduced a forged assertion accepted after replacing the old KV JWKS entry.
+No new secret or binding is needed for the fix; legacy `access:jwks:<issuer>`
+entries are ignored.
+
+Outbound refresh attempts (including unknown kids and failed fetches) have a
+30-second local cooldown and an advisory issuer cooldown recorded at
+`access:jwks-refresh:<issuer>`. One verifier coalesces concurrent fetches. A cold
+verifier must fetch trusted keys even during the shared cooldown, so that creating
+an Access instance for a new request does not deny every login for 30 seconds.
+After obtaining trusted keys, refresh also honors the propagated KV cooldown.
+Known cached keys still work during cooldown; new signing keys can take up to the
+cooldown to become usable. Expired cache plus network failure fails closed.
+KV failures do not reject signatures verifiable with trusted fresh/cached keys.
+Membership and credential status are never cached.
+
+This deliberately trades shared-key-cache efficiency for key provenance. It
+bounds repeated misses per verifier, not requests across cold instances. Gateway
+must limit authentication request rates before public exposure; retaining a
+verifier in trusted composition could reduce fetches later, but no global service
+context is introduced here. KV poisoning can influence refresh availability,
+not grant authority. See the [05a security review](test-audit.md#access-attacker-review).
+[Cloudflare's signed JWT and JWKS contract](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)
 is the external protocol reference.
 
 `authenticate` returns an opaque principal. `requireMembership` resolves a
@@ -373,7 +385,7 @@ claiming that a scope upgrade will fix membership/client revocation.
 ## Part 2 evidence and remaining work
 
 `tools/access.test.mjs` adds pure URI/PKCE/registration rules, issuer JWKS abuse
-bounds including concurrency/restart/fetch failure, metadata/DCR quota races,
+bounds including concurrency/cold-start/fetch failure, metadata/DCR quota races,
 human identity/client attribution, provider membership contract, hash-only state,
 consent provenance/expiry/retry/fingerprint, incorrect PKCE/redirect/resource,
 code replay/expiry, two-workspace client bindings, interactive-management denial,
