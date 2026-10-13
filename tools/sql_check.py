@@ -46,13 +46,13 @@ def quote(name):
     return '"' + name.replace('"', '""') + '"'
 
 
-def guard(owner, storage, migration=False, fts_creation=False):
+def guard(owner, storage, migration=False, fts_lifecycle=False):
     allowed = set(storage["tables"]) | set(storage["objects"])
     violations = []
 
     def auth(action, first, second, database, source):
         reason = None
-        if action == sqlite3.SQLITE_PRAGMA and fts_creation and first == "data_version":
+        if action == sqlite3.SQLITE_PRAGMA and fts_lifecycle and first == "data_version":
             pass
         elif action in TEMP or action in {sqlite3.SQLITE_ATTACH, sqlite3.SQLITE_DETACH, sqlite3.SQLITE_PRAGMA, sqlite3.SQLITE_TRANSACTION, sqlite3.SQLITE_SAVEPOINT}:
             reason = "prohibited SQL operation"
@@ -84,7 +84,12 @@ def guard(owner, storage, migration=False, fts_creation=False):
 
 def execute_checked(db, owner, storage, sql, migration=False):
     fts_creation = migration and bool(re.match(r"\s*CREATE\s+VIRTUAL\s+TABLE\s+", sql, re.I))
-    auth, violations = guard(owner, storage, migration, fts_creation)
+    # SQLite reconnects FTS5 during DROP after schema changes, reading data_version.
+    # Only an exact DROP of an owned virtual table receives the same internal
+    # introspection allowance as CREATE; explicit PRAGMA remains forbidden.
+    drop = re.fullmatch(r"\s*DROP\s+TABLE\s+([A-Za-z_][A-Za-z_0-9]*)\s*;?\s*", sql, re.I)
+    fts_drop = migration and drop is not None and drop[1] in storage.get("virtualTables", [])
+    auth, violations = guard(owner, storage, migration, fts_creation or fts_drop)
     db.set_authorizer(auth)
     try:
         if migration:
@@ -142,11 +147,11 @@ def validate(data):
             ownership[name] = owner
         if not set(storage["globalTables"]).issubset(storage["tables"]):
             fail("schema", f"{owner}: unknown global table")
-    combined = sqlite3.connect(":memory:")
+    combined = sqlite3.connect(":memory:", isolation_level=None)
     combined.execute("PRAGMA foreign_keys=ON")
     isolated_dbs = {}
     for owner, storage in data.items():
-        isolated = sqlite3.connect(":memory:")
+        isolated = sqlite3.connect(":memory:", isolation_level=None)
         isolated.execute("PRAGMA foreign_keys=ON")
         for migration in storage["migrations"]:
             migration["statements"] = statements(migration.pop("sql"))

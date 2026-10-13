@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { after, before, test } from "node:test";
 import { build } from "esbuild";
 import { Miniflare } from "miniflare";
+import { projectsConsumerContract } from "./projects-consumer-contract.mjs";
 
 let platform;
 let mf;
 let counter = 0;
 const code = (name) => (error) => error.code === name;
-const scope = (workspaceId, principalId, kind = "human") =>
-  Object.freeze({ workspaceId, principalId, kind, role: "member", requestId: "test" });
 const input = (issueId, operationId = `create-${issueId}`, projectId = "p1") => ({
   issueId,
   operationId,
@@ -33,7 +33,7 @@ before(async () => {
     modules: true,
     script: "export default { fetch() { return new Response('test'); } }",
     compatibilityDate: "2026-07-30",
-    d1Databases: ["ISSUES0", "ISSUES1", "ISSUES2", "ISSUES3", "ISSUES4"],
+    d1Databases: Array.from({ length: 60 }, (_, i) => `ISSUES${i}`),
   });
 });
 after(async () => {
@@ -48,23 +48,42 @@ async function fixture() {
     hook: null,
     denied: new Set(),
     archived: new Set(),
+    readHook: null,
     grants: new Map(),
     members: new Map(),
   };
   const store = {
     owner: "issues",
-    run: (...args) => rawStore.run(...args),
+    run: async (...args) => {
+      const result = await rawStore.run(...args);
+      return state.readHook ? state.readHook(args, result) : result;
+    },
     batch: (calls) => (state.hook ? state.hook(calls) : rawStore.batch(calls)),
   };
+  const auth = platform.fakeAccess();
+  const issueScope = (w, p, kind = "human", overrides = {}) =>
+    auth.issue({
+      id: p,
+      workspaceId: w,
+      kind,
+      role: "member",
+      scope: "write",
+      active: true,
+      ...overrides,
+    });
   const projectKey = (projectId) => (projectId === "p2" ? "TWO" : "ONE");
   const projects = {
     async authorizeProject(s, projectId, permission = "read") {
+      await auth.access.authorize(s, "read");
       if (!["p1", "p2"].includes(projectId) || state.archived.has(`${s.workspaceId}:${projectId}`))
         throw new platform.PlatformError("not_found", "Project absent");
       if (state.denied.has(`${s.workspaceId}:${s.principalId}:${projectId}`))
-        throw new platform.PlatformError("forbidden", "Grant revoked");
-      if (permission === "write" && s.role === "viewer")
-        throw new platform.PlatformError("forbidden", "Read only");
+        throw new platform.PlatformError("not_found", "Project absent");
+      if (permission !== "read") {
+        if (state.grants.get(`${s.workspaceId}:${s.principalId}:${projectId}`) === "viewer")
+          throw new platform.PlatformError("forbidden", "Read only");
+        await auth.access.authorize(s, "write");
+      }
       return {
         id: projectId,
         key: projectKey(projectId),
@@ -86,56 +105,54 @@ async function fixture() {
         throw new platform.PlatformError("not_found", "Assignee lacks project access");
     },
   };
-  const access = {
-    async authorize(s, permission = "read") {
-      if (!state.members.has(`${s.workspaceId}:${s.principalId}`))
-        throw new platform.PlatformError("forbidden", "Principal absent");
-      if (permission === "write" && s.role === "viewer")
-        throw new platform.PlatformError("forbidden", "Read only");
-      return s;
-    },
-    async getPrincipalSummary(s, principalId) {
-      if (!state.members.has(`${s.workspaceId}:${principalId}`))
-        throw new platform.PlatformError("not_found", "Principal absent");
-      return {
-        id: principalId,
-        kind: state.members.get(`${s.workspaceId}:${principalId}`),
-        issuer: "fake",
-        subject: principalId,
-      };
-    },
-  };
+  const access = auth.access;
   state.members.set("w1:human", "human");
   state.members.set("w1:bot", "machine");
   state.members.set("w2:human", "human");
-  const { api, eventReader } = platform.createIssues({
+  const deps = {
     store,
     projects,
     access,
     clock: { now: () => 1800000000 },
     ids: { next: () => crypto.randomUUID() },
     eventConsumer: "test",
-  });
+  };
+  const { api, eventReader } = platform.createIssues(deps);
   return {
     db,
     rawStore,
     state,
     api,
     eventReader,
-    human: scope("w1", "human"),
-    bot: scope("w1", "bot", "machine"),
-    other: scope("w2", "human"),
+    deps,
+    auth,
+    issueScope,
+    projects,
+    human: issueScope("w1", "human"),
+    bot: issueScope("w1", "bot", "machine"),
+    other: issueScope("w2", "human"),
   };
 }
 
 test("fixed state graph and literal FTS tokenization without storage", () => {
   const rules = platform.issuesRules;
-  assert.equal(rules.canTransition("todo", "in_progress"), true);
-  assert.equal(rules.canTransition("todo", "done"), false);
-  assert.equal(rules.canTransition("done", "in_progress"), true);
-  assert.equal(rules.canTransition("cancelled", "todo"), true);
-  assert.equal(rules.searchExpression('hello" OR * world'), '"hello" AND "OR" AND "world"');
-  assert.equal(rules.searchExpression("***"), null);
+  const allowed = new Set([
+    "todo:in_progress",
+    "todo:cancelled",
+    "in_progress:todo",
+    "in_progress:done",
+    "in_progress:cancelled",
+    "done:in_progress",
+    "cancelled:todo",
+  ]);
+  for (const from of ["todo", "in_progress", "done", "cancelled"])
+    for (const to of ["todo", "in_progress", "done", "cancelled"])
+      assert.equal(rules.canTransition(from, to), allowed.has(`${from}:${to}`), `${from}:${to}`);
+  assert.equal(
+    rules.searchExpression(rules.searchTerms('hello" OR * world')),
+    '"hello""" AND "OR" AND "world"',
+  );
+  assert.deepEqual(rules.searchTerms("***"), []);
 });
 
 test("rules, fixed transitions, assignee admission and machine history", async () => {
@@ -369,13 +386,682 @@ test("two workspaces, two projects, keyset filters and live revocation", async (
       priority: "low",
       operationId: "revoked",
     }),
-    code("forbidden"),
+    code("not_found"),
   );
-  await assert.rejects(f.api.readOperation(f.human, "w1-create"), code("forbidden"));
+  await assert.rejects(f.api.readOperation(f.human, "w1-create"), code("not_found"));
   await assert.rejects(
     f.api.searchIssues(f.human, { projectId: "p1", text: "initial" }),
-    code("forbidden"),
+    code("not_found"),
   );
   assert.equal((await f.api.listIssues(f.human, { projectId: "p2" })).issues.length, 1);
   assert.equal((await f.api.getIssue(f.other, { issueId: "same" })).version, 1);
+});
+
+const mutations = (issueId = "x", expectedVersion = 1) => [
+  [
+    "editIssue",
+    {
+      issueId,
+      expectedVersion,
+      operationId: "edit",
+      title: "Revised",
+      description: "new",
+      priority: "urgent",
+    },
+  ],
+  [
+    "transitionIssue",
+    { issueId, expectedVersion, operationId: "transition", state: "in_progress" },
+  ],
+  ["assignIssue", { issueId, expectedVersion, operationId: "assign", assigneeId: "bot" }],
+  [
+    "addComment",
+    { issueId, expectedVersion, operationId: "comment", commentId: "comment", body: "Note" },
+  ],
+  ["archiveIssue", { issueId, expectedVersion, operationId: "archive" }],
+];
+const reads = (f, s) => [
+  () => f.api.getIssue(s, { issueId: "x" }),
+  () => f.api.getIssue(s, { projectId: "p1", number: 1 }),
+  () => f.api.getIssue(s, { projectId: "p1", reference: "ONE-1" }),
+  () => f.api.listIssues(s, { projectId: "p1" }),
+  () => f.api.searchIssues(s, { projectId: "p1", text: "title" }),
+  () => f.api.getHistory(s, "x"),
+  () => f.api.authorizeIssue(s, "x"),
+  () => f.api.readOperation(s, "create-x"),
+];
+async function counts(f, workspace = "w1") {
+  const result = {};
+  for (const table of [
+    "issues",
+    "counters",
+    "comments",
+    "history",
+    "receipts",
+    "events",
+    "guards",
+    "search",
+  ]) {
+    result[table] = (
+      await f.db
+        .prepare(`SELECT COUNT(*) AS n FROM issues_${table} WHERE workspace_id=?`)
+        .bind(workspace)
+        .first()
+    ).n;
+  }
+  return result;
+}
+
+test("all public operations enforce live membership, capability provenance and project visibility", async () => {
+  const f = await fixture();
+  await f.api.createIssue(f.human, input("x"));
+  for (const s of [{ ...f.human }, f.issueScope("w1", "revoked")]) {
+    if (s.principalId === "revoked") f.auth.revoke(s);
+    for (const call of reads(f, s)) await assert.rejects(call(), code("forbidden"));
+    for (const [method, data] of mutations())
+      await assert.rejects(f.api[method](s, data), code("forbidden"));
+    await assert.rejects(f.api.createIssue(s, input("new")), code("forbidden"));
+  }
+  f.state.denied.add("w1:human:p1");
+  for (const call of reads(f, f.human)) await assert.rejects(call(), code("not_found"));
+  for (const [method, data] of mutations())
+    await assert.rejects(f.api[method](f.human, data), code("not_found"));
+  await assert.rejects(f.api.createIssue(f.human, input("x")), code("not_found"));
+  await assert.rejects(f.api.getIssue(f.human, { issueId: "absent" }), code("not_found"));
+  f.state.denied.clear();
+  f.state.archived.add("w1:p1");
+  for (const call of reads(f, f.human)) await assert.rejects(call(), code("not_found"));
+  for (const [method, data] of mutations())
+    await assert.rejects(f.api[method](f.human, data), code("not_found"));
+  assert.deepEqual(await counts(f), {
+    issues: 1,
+    counters: 1,
+    comments: 0,
+    history: 1,
+    receipts: 1,
+    events: 1,
+    guards: 0,
+    search: 1,
+  });
+});
+
+test("every write rejects workspace viewer, project viewer, and read-only machine/OAuth scopes", async () => {
+  const f = await fixture();
+  await f.api.createIssue(f.human, input("x"));
+  const viewers = [
+    f.issueScope("w1", "workspace-viewer", "human", { role: "viewer" }),
+    f.issueScope("w1", "project-viewer"),
+    f.issueScope("w1", "readonly-bot", "machine", { scope: "read" }),
+    f.issueScope("w1", "oauth-reader", "human", { scope: "read", clientId: "claude-code" }),
+  ];
+  f.state.grants.set("w1:project-viewer:p1", "viewer");
+  for (const s of viewers) {
+    assert.equal((await f.api.getIssue(s, { issueId: "x" })).id, "x");
+    for (const [method, data] of mutations())
+      await assert.rejects(f.api[method](s, data), code("forbidden"));
+    await assert.rejects(f.api.createIssue(s, input("new")), code("forbidden"));
+    await assert.rejects(f.api.authorizeIssue(s, "x", "write"), code("forbidden"));
+  }
+  assert.equal((await f.api.getIssue(f.human, { issueId: "x" })).version, 1);
+});
+
+test("distinct tenant data, receipts, history, counters and event reader pagination cannot bleed", async () => {
+  const f = await fixture();
+  await f.api.createIssue(f.human, { ...input("same", "same-op"), title: "Workspace One" });
+  await f.api.createIssue(f.other, { ...input("same", "same-op"), title: "Workspace Two" });
+  await f.api.createIssue(f.human, input("only-one"));
+  await f.api.createIssue(f.human, input("project-two", "p2", "p2"));
+  assert.equal((await f.api.getIssue(f.human, { projectId: "p2", number: 1 })).id, "project-two");
+  assert.equal((await f.api.getIssue(f.other, { issueId: "same" })).title, "Workspace Two");
+  assert.equal(
+    (await f.api.getIssue(f.other, { projectId: "p1", number: 1 })).title,
+    "Workspace Two",
+  );
+  assert.equal(
+    JSON.parse((await f.api.getHistory(f.other, "same"))[0].detail).title,
+    "Workspace Two",
+  );
+  await assert.rejects(f.api.getIssue(f.other, { issueId: "only-one" }), code("not_found"));
+  assert.equal(await f.api.readOperation(f.other, "create-only-one"), null);
+  assert.equal(await f.api.readOperation(f.bot, "same-op"), null);
+  assert.equal((await f.api.listIssues(f.other, { projectId: "p1" })).issues.length, 1);
+  assert.equal((await f.api.searchIssues(f.other, { projectId: "p1", text: "One" })).length, 0);
+  const one = await f.api.readEvents(f.eventReader, "w1", 0, 1);
+  const rest = await f.api.readEvents(f.eventReader, "w1", one[0].cursor, 100);
+  assert.deepEqual(
+    [...one, ...rest].map((e) => e.aggregateId),
+    ["same", "only-one", "project-two"],
+  );
+  assert.deepEqual(
+    (await f.api.readEvents(f.eventReader, "w2", 0, 100)).map((e) => e.aggregateId),
+    ["same"],
+  );
+  assert.equal((await f.api.readEvents(f.eventReader, "w1", rest.at(-1).cursor, 1)).length, 0);
+  assert.equal(new Set([...one, ...rest].map((e) => e.eventId)).size, 3);
+  const restarted = platform.createIssues(f.deps);
+  await assert.rejects(restarted.api.readEvents(f.eventReader, "w1", 0, 10), code("forbidden"));
+  await assert.rejects(f.api.readEvents({}, "w1", 0, 10), code("forbidden"));
+  const noReader = platform.createIssues({ ...f.deps, eventConsumer: undefined });
+  await assert.rejects(noReader.api.readEvents(undefined, "w1", 0, 10), code("forbidden"));
+});
+
+for (const [method, original] of mutations()) {
+  test(`${method}: stale CAS, exact retry, changed fingerprint, receipt after restart, atomic failure`, async () => {
+    const f = await fixture();
+    await f.api.createIssue(f.human, input("x"));
+    const baseline = await counts(f);
+    await assert.rejects(
+      f.api[method](f.human, { ...original, expectedVersion: 8 }),
+      code("conflict"),
+    );
+    assert.deepEqual(await counts(f), baseline);
+    assert.equal(await f.api.readOperation(f.human, original.operationId), null);
+    f.state.hook = (calls) =>
+      f.rawStore.batch(
+        calls.map((call) =>
+          call.name === "event"
+            ? { ...call, values: [call.values[0], call.values[1], null, ...call.values.slice(3)] }
+            : call,
+        ),
+      );
+    await assert.rejects(f.api[method](f.human, original), code("unknown"));
+    assert.deepEqual(await counts(f), baseline);
+    assert.equal((await f.api.getIssue(f.human, { issueId: "x" })).version, 1);
+    assert.equal(
+      (await f.api.searchIssues(f.human, { projectId: "p1", text: "initial" })).length,
+      1,
+    );
+    f.state.hook = null;
+    const result = await f.api[method](f.human, original);
+    assert.equal(result.version, 2);
+    assert.deepEqual(await f.api[method](f.human, original), result);
+    await assert.rejects(
+      f.api[method](f.human, { ...original, expectedVersion: 2 }),
+      code("conflict"),
+    );
+    const restart = platform.createIssues(f.deps).api;
+    assert.deepEqual(await restart.readOperation(f.human, original.operationId), result);
+    assert.deepEqual(await restart[method](f.human, original), result);
+    assert.deepEqual(await counts(f), {
+      ...baseline,
+      comments: method === "addComment" ? 1 : 0,
+      history: 2,
+      receipts: 2,
+      events: 2,
+    });
+    const events = await f.api.readEvents(f.eventReader, "w1", 0, 100);
+    assert.deepEqual(
+      events.map((e) => e.aggregateVersion),
+      [1, 2],
+    );
+    assert(
+      events.every(
+        (e) => e.aggregateId === "x" && e.payload.actorId === "human" && e.schemaVersion === 1,
+      ),
+    );
+  });
+}
+
+test("create rollback restores counter; concurrent identical retry emits one result and one event", async () => {
+  const f = await fixture();
+  f.state.hook = (calls) =>
+    f.rawStore.batch(
+      calls.map((call) =>
+        call.name === "event"
+          ? { ...call, values: [call.values[0], call.values[1], null, ...call.values.slice(3)] }
+          : call,
+      ),
+    );
+  await assert.rejects(f.api.createIssue(f.human, input("x")), code("unknown"));
+  assert.deepEqual(await counts(f), {
+    issues: 0,
+    counters: 0,
+    comments: 0,
+    history: 0,
+    receipts: 0,
+    events: 0,
+    guards: 0,
+    search: 0,
+  });
+  f.state.hook = null;
+  const [a, b] = await Promise.all([
+    f.api.createIssue(f.human, input("x")),
+    f.api.createIssue(f.human, input("x")),
+  ]);
+  assert.deepEqual(a, b);
+  assert.equal(a.number, 1);
+  await assert.rejects(f.api.createIssue(f.human, input("x", "duplicate")), code("conflict"));
+  assert.equal((await f.api.createIssue(f.human, input("next"))).number, 2);
+  assert.equal((await f.api.readEvents(f.eventReader, "w1", 0, 100)).length, 2);
+});
+
+test("Projects fake satisfies the same consumer contract as the real provider", async () => {
+  const f = await fixture();
+  const viewer = f.issueScope("w1", "viewer");
+  f.state.members.set("w1:viewer", "human");
+  f.state.grants.set("w1:viewer:p1", "viewer");
+  await projectsConsumerContract({
+    api: f.projects,
+    editor: f.human,
+    viewer,
+    projectId: "p1",
+    assigneeId: "viewer",
+    missingPrincipalId: "absent",
+  });
+  f.auth.revoke(f.human);
+  await assert.rejects(f.projects.authorizeProject(f.human, "p1"), code("forbidden"));
+});
+
+test("Japanese, English, mixed and short literal substrings use scoped bounded search", async () => {
+  const f = await fixture();
+  const add = (s, id, title, projectId = "p1") =>
+    f.api.createIssue(s, {
+      ...input(id, `create-${id}`, projectId),
+      title,
+      description: "詳細 body",
+    });
+  await add(f.human, "japanese", "認証の不具合 OAuth login API");
+  await add(f.human, "english", "Authentication LOGIN worker");
+  await add(f.human, "literal", "a_ b% c\\ path");
+  await add(f.human, "decoy", "ax by cZ path");
+  await add(f.human, "foreign-project", "認証の不具合 OAuth login API", "p2");
+  await add(f.other, "foreign-workspace", "認証の不具合 OAuth login API");
+  for (const text of [
+    "認証の",
+    "認証",
+    "認",
+    "不具合",
+    "oauth 認証",
+    "API 認",
+    "認証 login",
+    "詳細 OAuth",
+  ]) {
+    assert.deepEqual(
+      (await f.api.searchIssues(f.human, { projectId: "p1", text })).map((i) => i.id),
+      ["japanese"],
+      text,
+    );
+  }
+  assert.deepEqual(
+    (await f.api.searchIssues(f.human, { projectId: "p1", text: "authent" })).map((i) => i.id),
+    ["english"],
+  );
+  assert.equal((await f.api.searchIssues(f.human, { projectId: "p1", text: "LOGIN" })).length, 2);
+  for (const text of ["a_", "b%", "c\\", "a_ path"]) {
+    assert.deepEqual(
+      (await f.api.searchIssues(f.human, { projectId: "p1", text })).map((i) => i.id),
+      ["literal"],
+      text,
+    );
+  }
+  for (const text of ['認証" OR login', "認証 -login", "a_ OR *"]) {
+    assert.equal((await f.api.searchIssues(f.human, { projectId: "p1", text })).length, 0);
+  }
+  assert.equal(
+    (await f.api.searchIssues(f.human, { projectId: "p1", text: "body", limit: 1 })).length,
+    1,
+  );
+  assert.equal(
+    (await f.api.searchIssues(f.human, { projectId: "p1", text: "b", limit: 1 })).length,
+    1,
+  );
+  await f.api.editIssue(f.human, {
+    ...mutations("japanese")[0][1],
+    title: "修正済み",
+    description: "resolved",
+  });
+  assert.equal((await f.api.searchIssues(f.human, { projectId: "p1", text: "認証" })).length, 0);
+  assert.equal((await f.api.searchIssues(f.human, { projectId: "p1", text: "修正済" })).length, 1);
+  await f.api.archiveIssue(f.human, {
+    issueId: "japanese",
+    operationId: "archive",
+    expectedVersion: 2,
+  });
+  assert.equal((await f.api.searchIssues(f.human, { projectId: "p1", text: "修" })).length, 0);
+});
+
+test("actor and acting client persist across all history/comments/events and replay", async () => {
+  const f = await fixture();
+  const oauth = f.issueScope("w1", "human", "human", { clientId: "claude-code-client" });
+  await f.api.createIssue(oauth, input("x"));
+  let v = 1;
+  for (const [method, data] of mutations().slice(0, 4))
+    await f.api[method](oauth, { ...data, expectedVersion: v++ });
+  const history = await f.api.getHistory(oauth, "x");
+  assert.deepEqual(
+    history.map((h) => h.version),
+    [1, 2, 3, 4, 5],
+  );
+  assert(
+    history.every(
+      (h) =>
+        h.actorId === "human" &&
+        h.actorKind === "human" &&
+        h.clientId === "claude-code-client" &&
+        h.occurredAt === 1800000000,
+    ),
+  );
+  const comment = await f.db
+    .prepare(
+      "SELECT actor_id,actor_kind,client_id,body FROM issues_comments WHERE workspace_id=? AND id=?",
+    )
+    .bind("w1", "comment")
+    .first();
+  assert.deepEqual(comment, {
+    actor_id: "human",
+    actor_kind: "human",
+    client_id: "claude-code-client",
+    body: "Note",
+  });
+  await f.api.archiveIssue(oauth, { issueId: "x", operationId: "archive", expectedVersion: 5 });
+  assert(
+    (await f.api.readEvents(f.eventReader, "w1", 0, 100)).every(
+      (e) => e.payload.actorKind === "human" && e.payload.clientId === "claude-code-client",
+    ),
+  );
+  const otherClient = f.issueScope("w1", "human", "human", { clientId: "codex-client" });
+  assert.equal((await f.api.createIssue(otherClient, input("x"))).version, 1);
+  assert.equal((await counts(f)).events, 6);
+  await f.api.createIssue(f.human, input("direct"));
+  await f.api.createIssue(f.bot, input("machine"));
+  for (const [id, kind] of [
+    ["direct", "human"],
+    ["machine", "machine"],
+  ]) {
+    const h = (await f.api.getHistory(f.human, id))[0];
+    assert.equal(h.actorKind, kind);
+    assert.equal(h.clientId, null);
+  }
+});
+
+test("pagination applies all filters before limit and remains stable across new inserts", async () => {
+  const f = await fixture();
+  for (const id of ["a", "b", "c", "d"])
+    await f.api.createIssue(f.human, { ...input(id), priority: id === "b" ? "high" : "low" });
+  await f.api.assignIssue(f.human, {
+    issueId: "c",
+    operationId: "assign",
+    expectedVersion: 1,
+    assigneeId: "bot",
+  });
+  await f.api.transitionIssue(f.human, {
+    issueId: "c",
+    operationId: "start",
+    expectedVersion: 2,
+    state: "in_progress",
+  });
+  const first = await f.api.listIssues(f.human, { projectId: "p1", limit: 1, priority: "low" });
+  assert.equal(first.issues[0].id, "d");
+  await f.api.createIssue(f.human, input("new"));
+  const second = await f.api.listIssues(f.human, {
+    projectId: "p1",
+    limit: 1,
+    priority: "low",
+    cursor: first.nextCursor,
+  });
+  const last = await f.api.listIssues(f.human, {
+    projectId: "p1",
+    limit: 1,
+    priority: "low",
+    cursor: second.nextCursor,
+  });
+  assert.deepEqual([second.issues[0].id, last.issues[0].id], ["c", "a"]);
+  assert.equal(last.nextCursor, null);
+  assert.deepEqual(
+    (
+      await f.api.listIssues(f.human, {
+        projectId: "p1",
+        assigneeId: "bot",
+        state: "in_progress",
+        priority: "low",
+      })
+    ).issues.map((i) => i.id),
+    ["c"],
+  );
+  assert.deepEqual(
+    (
+      await f.api.listIssues(f.human, {
+        projectId: "p1",
+        assigneeId: null,
+        state: "todo",
+        priority: "high",
+      })
+    ).issues.map((i) => i.id),
+    ["b"],
+  );
+  assert.equal(
+    (await f.api.listIssues(f.human, { projectId: "p1", cursor: "1" })).nextCursor,
+    null,
+  );
+});
+
+test("Q1 admission permits in-flight commit but revoke blocks recovery and subsequent commands", async () => {
+  const f = await fixture();
+  await f.api.createIssue(f.human, input("x"));
+  f.state.hook = async (calls) => {
+    f.auth.revoke(f.human);
+    return f.rawStore.batch(calls);
+  };
+  await assert.rejects(f.api.editIssue(f.human, mutations()[0][1]), code("forbidden"));
+  f.state.hook = null;
+  assert.equal((await counts(f)).events, 2);
+  await assert.rejects(f.api.editIssue(f.human, mutations()[0][1]), code("forbidden"));
+  await assert.rejects(f.api.readOperation(f.human, "edit"), code("forbidden"));
+  const fresh = f.issueScope("w1", "human");
+  assert.equal((await f.api.readOperation(fresh, "edit")).version, 2);
+  assert.equal((await f.api.getIssue(fresh, { issueId: "x" })).title, "Revised");
+});
+
+test("unknown outcomes recover after restart without duplicate comments or history", async () => {
+  const f = await fixture();
+  await f.api.createIssue(f.human, input("x"));
+  const comment = mutations()[3][1];
+  f.state.hook = async (calls) => {
+    await f.rawStore.batch(calls);
+    f.state.readHook = () => {
+      throw new Error("storage unavailable");
+    };
+    throw new Error("lost response");
+  };
+  await assert.rejects(f.api.addComment(f.human, comment), code("unknown"));
+  f.state.hook = f.state.readHook = null;
+  const restarted = platform.createIssues(f.deps).api;
+  assert.equal((await restarted.readOperation(f.human, "comment")).version, 2);
+  assert.equal((await restarted.addComment(f.human, comment)).version, 2);
+  assert.equal((await counts(f)).comments, 1);
+  assert.equal((await restarted.getHistory(f.human, "x")).length, 2);
+});
+
+test("public inputs enforce text, IDs, versions, enums, limits and cursor boundaries", async () => {
+  const f = await fixture();
+  await f.api.createIssue(f.human, input("x"));
+  for (const bad of [null, [], "x"]) {
+    await assert.rejects(f.api.createIssue(f.human, bad), code("validation"));
+    await assert.rejects(f.api.getIssue(f.human, bad), code("validation"));
+    await assert.rejects(f.api.listIssues(f.human, bad), code("validation"));
+    await assert.rejects(f.api.searchIssues(f.human, bad), code("validation"));
+  }
+  for (const patch of [
+    { title: " " },
+    { title: "x".repeat(513) },
+    { description: "x".repeat(100001) },
+    { priority: "critical" },
+    { issueId: "bad id" },
+    { operationId: "" },
+    { projectId: "x".repeat(129) },
+  ]) {
+    await assert.rejects(
+      f.api.createIssue(f.human, { ...input("invalid"), ...patch }),
+      code("validation"),
+    );
+  }
+  for (const [method, data] of mutations()) {
+    for (const expectedVersion of [0, -1, 1.5, "1", null, Number.MAX_SAFE_INTEGER, Number.NaN])
+      await assert.rejects(
+        f.api[method](f.human, { ...data, expectedVersion }),
+        code("validation"),
+      );
+    await assert.rejects(
+      f.api[method](f.human, { ...data, operationId: "bad id" }),
+      code("validation"),
+    );
+  }
+  for (const [method, patch] of [
+    ["editIssue", { title: "x".repeat(513) }],
+    ["editIssue", { description: "x".repeat(100001) }],
+    ["editIssue", { priority: "critical" }],
+    ["transitionIssue", { state: "unknown" }],
+    ["assignIssue", { assigneeId: "bad id" }],
+    ["addComment", { body: " " }],
+    ["addComment", { body: "x".repeat(100001) }],
+    ["addComment", { commentId: "" }],
+  ]) {
+    await assert.rejects(
+      f.api[method](f.human, { ...mutations().find(([m]) => m === method)[1], ...patch }),
+      code("validation"),
+    );
+  }
+  for (const limit of [0, -1, 101, 1.5, "1"]) {
+    await assert.rejects(f.api.listIssues(f.human, { projectId: "p1", limit }), code("validation"));
+    await assert.rejects(
+      f.api.searchIssues(f.human, { projectId: "p1", text: "a", limit }),
+      code("validation"),
+    );
+    await assert.rejects(f.api.readEvents(f.eventReader, "w1", 0, limit), code("validation"));
+  }
+  for (const cursor of [null, 2, "", "0", "-1", "1.1", "1e2", "0x10", " 1", "bad"]) {
+    await assert.rejects(
+      f.api.listIssues(f.human, { projectId: "p1", cursor }),
+      code("validation"),
+    );
+  }
+  for (const patch of [
+    { state: "bad" },
+    { priority: "bad" },
+    { assigneeId: 3 },
+    { assigneeId: "bad id" },
+  ]) {
+    await assert.rejects(
+      f.api.listIssues(f.human, { projectId: "p1", ...patch }),
+      code("validation"),
+    );
+  }
+  for (const text of ["", " ", "***", "a".repeat(257), Array(13).fill("term").join(" ")]) {
+    await assert.rejects(
+      f.api.searchIssues(f.human, { projectId: "p1", text }),
+      code("validation"),
+    );
+  }
+  for (const cursor of [-1, 0.5, "0", Number.MAX_SAFE_INTEGER + 1]) {
+    await assert.rejects(f.api.readEvents(f.eventReader, "w1", cursor, 1), code("validation"));
+  }
+  for (const reference of ["ONE-0", "ONE-01", "ONE--1", "ONE-1e2", "TWO-1"]) {
+    await assert.rejects(
+      f.api.getIssue(f.human, { projectId: "p1", reference }),
+      code("not_found"),
+    );
+  }
+  await assert.rejects(f.api.getIssue(f.human, { projectId: "p1", number: 0 }), code("validation"));
+  await assert.rejects(f.api.readOperation(f.human, "bad id"), code("validation"));
+  const boundary = {
+    ...input("a".repeat(128)),
+    operationId: "b".repeat(128),
+    title: "x".repeat(512),
+    description: "x".repeat(100000),
+  };
+  await f.api.createIssue(f.human, boundary);
+  await f.api.addComment(f.human, { ...mutations()[3][1], body: "x".repeat(100000) });
+  assert.equal((await f.api.listIssues(f.human, { projectId: "p1", limit: 100 })).issues.length, 2);
+});
+
+test("trigram upgrade rebuilds existing indexed rows and preserves unknown attribution", async () => {
+  const db = await mf.getD1Database(`ISSUES${counter++}`);
+  const oldSql = fs.readFileSync("modules/issues/storage/migrations/0001_issues.sql", "utf8");
+  await db.batch(
+    oldSql
+      .split(";")
+      .filter((s) => s.trim())
+      .map((s) => db.prepare(s)),
+  );
+  await db
+    .prepare(
+      "CREATE TABLE platform_schema_versions(owner TEXT NOT NULL, version TEXT NOT NULL, checksum TEXT NOT NULL, PRIMARY KEY(owner, version))",
+    )
+    .run();
+  await db
+    .prepare("INSERT INTO platform_schema_versions VALUES(?,?,?)")
+    .bind("issues", "0001_issues.sql", createHash("sha256").update(oldSql).digest("hex"))
+    .run();
+  await db
+    .prepare(
+      "INSERT INTO issues_issues(workspace_id,id,project_id,number,title,description,priority,state,version) VALUES('w1','old','p1',1,'認証の不具合','legacy English','medium','todo',1)",
+    )
+    .run();
+  await db
+    .prepare("INSERT INTO issues_history VALUES('w1','old',1,'create','human','human',1,'{}')")
+    .run();
+  await platform.migrate(db, ["issues"]);
+  await platform.migrate(db, ["issues"]);
+  assert.equal(
+    (
+      await db
+        .prepare("SELECT issue_id FROM issues_search WHERE issues_search MATCH ?")
+        .bind('"認証の"')
+        .all()
+    ).results[0].issue_id,
+    "old",
+  );
+  assert.equal((await db.prepare("SELECT client_id FROM issues_history").first()).client_id, null);
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM issues_search").first()).n, 1);
+  assert.equal(
+    (
+      await db
+        .prepare("SELECT COUNT(*) n FROM platform_schema_versions WHERE owner='issues'")
+        .first()
+    ).n,
+    2,
+  );
+});
+
+test("unassignment, duplicate comment IDs, terminal archive and current write isolation", async () => {
+  const f = await fixture();
+  await f.api.createIssue(f.human, input("x"));
+  await f.api.createIssue(f.other, { ...input("x"), title: "other tenant" });
+  await f.api.assignIssue(f.human, { ...mutations()[2][1], assigneeId: "bot" });
+  await f.api.assignIssue(f.human, {
+    ...mutations()[2][1],
+    operationId: "unassign",
+    expectedVersion: 2,
+    assigneeId: null,
+  });
+  assert.equal((await f.api.getIssue(f.human, { issueId: "x" })).assigneeId, null);
+  assert.equal((await f.api.getIssue(f.other, { issueId: "x" })).version, 1);
+  assert.equal((await f.api.getIssue(f.other, { issueId: "x" })).title, "other tenant");
+  await f.api.addComment(f.human, { ...mutations()[3][1], expectedVersion: 3 });
+  const before = await counts(f);
+  await assert.rejects(
+    f.api.addComment(f.human, {
+      ...mutations()[3][1],
+      operationId: "duplicate-comment",
+      expectedVersion: 4,
+    }),
+    code("conflict"),
+  );
+  assert.deepEqual(await counts(f), before);
+  await f.api.archiveIssue(f.human, { issueId: "x", operationId: "archive", expectedVersion: 4 });
+  for (const selector of [
+    { issueId: "x" },
+    { projectId: "p1", number: 1 },
+    { projectId: "p1", reference: "ONE-1" },
+  ]) {
+    await assert.rejects(f.api.getIssue(f.human, selector), code("not_found"));
+  }
+  await assert.rejects(f.api.getHistory(f.human, "x"), code("not_found"));
+  for (const [method, data] of mutations("x", 5))
+    await assert.rejects(
+      f.api[method](f.human, { ...data, operationId: `after-${method}` }),
+      code("not_found"),
+    );
+  assert.equal((await f.api.readOperation(f.human, "archive")).version, 5);
+  assert.equal((await counts(f)).history, 5);
 });

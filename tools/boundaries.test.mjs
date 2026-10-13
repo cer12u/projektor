@@ -299,6 +299,10 @@ const cases = [
   ["multi statement SQL", "sql-static", (r) => query(r, "SELECT 1; SELECT 2")],
   ["DDL in query", "sql-ownership", (r) => query(r, "DROP TABLE fixture_a_items")],
   ["ATTACH", "sql-ownership", (r) => query(r, "ATTACH DATABASE ':memory:' AS foreign_db")],
+  ["explicit migration transaction", "sql-ownership", (r) => ddl(r, "BEGIN;")],
+  ["explicit data_version in migration", "sql-ownership", (r) => ddl(r, "PRAGMA data_version;")],
+  ["foreign FTS drop", "sql-ownership", (r) => ddl(r, "DROP TABLE issues_search;")],
+  ["runtime FTS drop", "sql-ownership", (r) => query(r, "DROP TABLE issues_search")],
   ["PRAGMA", "sql-ownership", (r) => query(r, "PRAGMA foreign_keys = OFF")],
   [
     "virtual module",

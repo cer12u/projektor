@@ -273,6 +273,7 @@ test("public provider contract: live scope provenance, roles, two tenants, no ma
   const { principal, scope } = await f.owner();
   const other = await f.owner("w2", "bob");
   await platform.membershipContract(f.api, principal, "w1");
+  await platform.accessConsumerContract(f.api, scope);
   await assert.rejects(f.api.requireMembership({}, "w1", "forged"), code("forbidden"));
   await assert.rejects(f.api.authorize({ ...scope, workspaceId: "w2" }), code("forbidden"));
   await assert.rejects(f.api.authorize(Object.create(scope)), code("forbidden"));

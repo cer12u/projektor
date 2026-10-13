@@ -110,3 +110,14 @@ executor rejection cases live in `tools/runtime.test.mjs`.
 | Capability | Raw binding alias, any, double cast, eval alias/indexed eval, overlapping KV/R2 prefixes, generated manifest/hash drift: raw capability/evaluation/prefix or stale build input |
 | Schema | Cross-owner FK, owner spoofing, missing tenant column, global unique key: resource/FK/tenant invariant; unregistered index: DDL authorizer rejects undeclared object |
 | Executor / prefix (runtime) | Foreign query ID, raw SQL as ID, platform/prototype owner, cross-wired/mutated owner, 101 binds, foreign/empty KV and R2 keys on get/put/delete: reject before operation; 100 binds and own-prefix operations pass |
+
+## Step 04a migration validator correction
+
+FTS5 DROP can reconnect its virtual table after schema changes and internally
+read `data_version`. The same narrowly scoped introspection permission used for
+FTS creation now also applies to an exact DROP of a registered owner virtual
+table. Explicit PRAGMA and other-owner/runtime DROP remain rejected. Validator
+connections use autocommit to prevent Python sqlite3 from injecting BEGIN while
+validating a data-rebuild migration; explicit transaction statements remain
+forbidden. The healthy Issues upgrade exercises DROP/rebuild, and negative
+fixtures cover explicit data_version/BEGIN and foreign/runtime FTS DROP.

@@ -29,6 +29,7 @@ export interface IssueHistory {
   readonly action: string;
   readonly actorId: string;
   readonly actorKind: "human" | "machine";
+  readonly clientId: string | null;
   readonly occurredAt: number;
   readonly detail: string;
 }
@@ -41,7 +42,11 @@ export interface IssueEvent {
   readonly aggregateVersion: number;
   readonly type: "IssueCreated" | "IssueChanged" | "IssueArchived";
   readonly occurredAt: number;
-  readonly payload: { readonly actorId: string; readonly actorKind: "human" | "machine" };
+  readonly payload: {
+    readonly actorId: string;
+    readonly actorKind: "human" | "machine";
+    readonly clientId: string | null;
+  };
   readonly cursor: number;
 }
 declare const readerBrand: unique symbol;
