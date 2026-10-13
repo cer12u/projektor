@@ -117,6 +117,31 @@
       }
     },
     {
+      "id": "projects",
+      "root": "modules/projects",
+      "public": "modules/projects/public.ts",
+      "factory": "modules/projects/internal/factory.ts",
+      "kind": "module",
+      "dependencies": ["platform", "access"],
+      "external": [],
+      "storage": {
+        "prefix": "projects_",
+        "tables": [
+          "projects_projects",
+          "projects_grants",
+          "projects_receipts",
+          "projects_events",
+          "projects_guards"
+        ],
+        "objects": ["projects_key_unique"],
+        "globalTables": [],
+        "catalog": "modules/projects/storage/queries.ts",
+        "migrations": "modules/projects/storage/migrations",
+        "kvPrefix": null,
+        "r2Prefix": null
+      }
+    },
+    {
       "id": "tools",
       "root": "tools",
       "public": null,
@@ -128,7 +153,8 @@
         "platform",
         "fixture_a",
         "fixture_b",
-        "access"
+        "access",
+        "projects"
       ],
       "external": ["node:*", "typescript", "esbuild", "miniflare"]
     }

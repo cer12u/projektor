@@ -6,6 +6,8 @@ export { createAccess } from "../modules/access/internal/factory";
 export * as oauthRules from "../modules/access/internal/oauth-rules";
 export * as accessRules from "../modules/access/internal/rules";
 export { membershipContract } from "../modules/access/tests/contract";
+export { createProjects } from "../modules/projects/internal/factory";
+export { accessConsumerContract, fakeAccess } from "../modules/projects/tests/access-fake";
 export { createModuleStore, createScopedBucket, createScopedKV } from "../platform/adapters";
 export { migrate } from "../platform/migrate";
 export { randomIds, systemClock } from "../platform/primitives";
