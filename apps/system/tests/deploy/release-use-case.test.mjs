@@ -137,3 +137,9 @@ test('active-version changes during baseline inspection stop before the mutation
   await assert.rejects(h.useCase.upload(oldId),/CURRENT_DEPLOYMENT_DRIFT/);
   assert.equal(h.calls.includes('uploadStaticVersion'),false);assert.equal(await h.journal.read(),null);
 });
+
+test('changed owner trust and missing retained JWT binding stop before mutation',async t=>{
+ const h=await harness(t,{inspectPrerequisites:async(t,id)=>({target,observedAt:new Date().toISOString(),currentVersion:id,database:{id:'approved-db',migrationNames:prerequisitePolicy.migrationNames},gate:prerequisitePolicy.gate,security:{...prerequisitePolicy.security,ownerBootstrapHash:'different'},service:{projection:'default_environment.script',origin:'wrangler',tags:[],migrationTag:'v2'}})});
+ prerequisitePolicy.security.ownerBootstrapHash='approved';try{await assert.rejects(h.useCase.upload(oldId),/SECURITY_PREREQUISITE_DRIFT/);assert(!h.calls.includes('upload'));}finally{delete prerequisitePolicy.security.ownerBootstrapHash;}
+ const k=await harness(t,{inspectVersion:async(t,id)=>({...version(id),bindings:bindings.filter(b=>b.name!=='JWT_SECRET')})});await assert.rejects(k.useCase.upload(oldId),/PRESERVED_SECRET_BINDING_MISSING/);assert(!k.calls.includes('upload'));
+});

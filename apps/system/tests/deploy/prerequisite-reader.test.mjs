@@ -25,7 +25,7 @@ function body(path){
   if(path.startsWith('/workers/domains?'))return [{id:'domain',hostname:'fixture.example.test',service:WORKER,environment:'production',zone_id:'zone',zone_name:'example.test',cert_id:'uncompared-cert'}];
   if(path.startsWith('/access/apps?'))return [{id:appId,domain:'fixture.example.test',type:'self_hosted',session_duration:'24h',aud:'audience-metadata',allowed_idps:['idp'],auto_redirect_to_identity:false}];
   if(path.startsWith('/access/apps/'+appId+'/policies?'))return [{id:'policy',decision:'allow',include:[{email:{email:'synthetic@example.test'}}],exclude:[],require:[]}];
-  if(path==='/d1/database/'+DATABASE+'/query')return [result(migrations.map(name=>({name}))),result([{mode:'stopped',epoch:4}]),result([{quick_check:'ok'}]),result([]),result(schema)];
+  if(path==='/d1/database/'+DATABASE+'/query')return [result(migrations.map(name=>({name}))),result([{mode:'stopped',epoch:4}]),result([{quick_check:'ok'}]),result([]),result(schema),result([{ownerId:"synthetic-owner",issuer:"https://fixture.cloudflareaccess.com",audience:"a".repeat(64),subject:"66666666-6666-4666-8666-666666666666",closesAt:1700000000}])];
   throw Error('UNEXPECTED_TEST_ROUTE');
 }
 function response(url,data,status=200,extra={}){const r=new Response(JSON.stringify({success:status===200,result:data,...extra}),{status,headers:{'content-type':'application/json'}});Object.defineProperty(r,'url',{value:url});return r;}
@@ -100,4 +100,21 @@ test('a reader schema rejection prevents the use case mutation and journal inten
   const port={describe:()=>({runtimeAvailable:true,operations:Object.fromEntries(requiredOperations.map(k=>[k,'supported']))}),ready:async()=>{},inspectDeployment:async()=>({target,observedAt:new Date().toISOString(),deploymentId:'22222222-2222-4222-8222-222222222222',versions:[{versionId:version,percentage:100}]}),inspectPrerequisites:h.reader.inspect,inspectVersion:async()=>{throw Error('UNEXPECTED_VERSION_READ');},uploadStaticVersion:async()=>{mutations++;},promoteVersion:async()=>{mutations++;}};
   const useCase=createReleaseUseCase({port,journal:{exclusive:fn=>fn(),read:async()=>null,append:async()=>{intents++;}},release:{...target,artifactTreeSha256:'a'.repeat(64)}});
   await assert.rejects(useCase.upload(version),/REQUIRED_SCHEMA_DEFINITIONS_CHANGED/);assert.equal(mutations,0);assert.equal(intents,0);
+});
+
+
+test('missing owner trust fails and changed issuer or audience cannot preserve its fingerprint',async()=>{
+ const base=await harness().reader.inspect(target,version);
+ for(const change of [null,{issuer:'https://other.cloudflareaccess.com'},{audience:'b'.repeat(64)},{subject:'77777777-7777-4777-8777-777777777777'}]){
+  const h=harness(url=>{if(!url.endsWith('/query'))return;const data=body(url.slice(root.length));data[5]=result(change?[{...data[5].results[0],...change}]:[]);return response(url,data);});
+  if(change){const p=await h.reader.inspect(target,version);assert.notEqual(p.security.ownerBootstrapHash,base.security.ownerBootstrapHash);}else await assert.rejects(h.reader.inspect(target,version),/OWNER_TRUST_METADATA_MISSING/);
+ }
+});
+
+
+test('legacy service null tags follow exact pinned Wrangler normalization; malformed tags still fail',async()=>{
+ for(const tags of [null,undefined,[],['provider-tag'],'invalid']){
+  const h=harness(url=>{if(!url.endsWith('/services/'+WORKER))return;const data=body(url.slice(root.length));data.default_environment.script.tags=tags;return response(url,data);});
+  if(tags==='invalid')await assert.rejects(h.reader.inspect(target,version));else{const p=await h.reader.inspect(target,version);assert.deepEqual(p.service.tags,tags??[]);}
+ }
 });

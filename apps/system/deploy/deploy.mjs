@@ -15,7 +15,7 @@ async function main(){
   const expectedArgs=['probe','upload','deploy'].includes(action)?1:0;
   if(rest.length!==expectedArgs)throw Error('UNEXPECTED_ARGUMENTS');
   if(action==='verify'){console.log(JSON.stringify({verified:true,verificationScope:'Frozen sources and artifacts; installed toolchain is checked separately by the adapter',...release}));return;}
-  const port=createWranglerAdapter({candidate,credentials:createCredentialContext(process.env,configuration.target),configuration,release});
+  const port=createWranglerAdapter({candidate,credentials:createCredentialContext(process.env,configuration.target,candidate),configuration,release});
   const journal=createJournal(configuration.journalRoot,release);
   const useCase=createReleaseUseCase({port,journal,release});
   const method={deploy:'promote'}[action]||action;

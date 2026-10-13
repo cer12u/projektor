@@ -16,7 +16,7 @@ export function validateDeploymentTarget(value){
  return value;
 }
 export function validateApprovedState(value){
- const names=['accessPoliciesHash','domainsHash','workerSettingsHash'];
+ const names=['accessPoliciesHash','domainsHash','workerSettingsHash','ownerBootstrapHash'];
  if(!object(value)||!keys(value.security,names)||names.some(k=>!/^[a-f0-9]{64}$/.test(value.security[k]||'')))fail('PRIVATE_SECURITY_BASELINE_REQUIRED');
  return value;
 }

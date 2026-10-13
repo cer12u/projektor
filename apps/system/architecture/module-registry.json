@@ -9284,6 +9284,8 @@
       "module": "deployment",
       "kind": "test",
       "exports": [
+        "assertGitHubCheckout",
+        "createCredentialContext",
         "guardEnvironment"
       ],
       "consumers": [

@@ -121,6 +121,8 @@ jobs:
           node-version: '24.19.0'
           cache: npm
           cache-dependency-path: apps/system/package-lock.json
+      - name: Install the independently pinned npm version
+        run: npm install --global npm@11.9.0 --ignore-scripts --no-audit --no-fund
       - name: Verify measured toolchain
         run: node --version && test "$(npm --version)" = '11.9.0'
       - name: Install locked runtime and build tools
@@ -131,4 +133,4 @@ jobs:
         run: npm run docs:generate && git diff --exit-code -- docs/openapi.json
       - name: Check root release selects only this app
         working-directory: .
-        run: node --test scripts/system-integration.test.mjs
+        run: node --test scripts/system-integration.test.mjs scripts/github-deployment-host.test.mjs

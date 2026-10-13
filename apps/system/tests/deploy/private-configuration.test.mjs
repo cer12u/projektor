@@ -9,7 +9,7 @@ import {spawnSync} from 'node:child_process';
 import {loadDeploymentConfig,validateDeploymentTarget,assertPrivateConfigurationUnchanged} from '../../deploy/deployment-config.mjs';
 import {officialCli,safeFailure} from '../../deploy/official-cli.mjs';
 import {verifyToolchain} from '../../deploy/wrangler-toolchain.mjs';
-import {guardEnvironment} from '../../deploy/credential-context.mjs';
+import {guardEnvironment,assertGitHubCheckout,createCredentialContext} from '../../deploy/credential-context.mjs';
 import {verifyProductionConfig} from '../../deploy/guard.mjs';
 import {ACCOUNT,WORKER,DATABASE,target,candidate,configuration} from './synthetic-target.mjs';
 const value={format:1,...target,databaseId:DATABASE,hostname:configuration.hostname,gate:configuration.gate};
@@ -44,4 +44,20 @@ test('pinned official CLI still starts with an explicit synthetic target and no 
  await verifyToolchain(candidate);
  const result=await officialCli(candidate,['--version'],{PATH:process.env.PATH,HTTPS_PROXY:'http://127.0.0.1:9'},target);
  assert.equal(result.effectiveExitCode,0);assert.equal(result.credentialFileCreated,false);assert.match(result.stdout,/4\.149\.0/);assert.equal(safeFailure(result).rawOutputWithheld,true);
+});
+
+
+test('GitHub mode requires explicit host and exact commit; default mode still requires proxy',()=>{
+ const ci={PROJEKTOR_DEPLOYMENT_MODE:'github-actions',GITHUB_ACTIONS:'true',GITHUB_SHA:'a'.repeat(40),PROJEKTOR_EXPECTED_COMMIT:'a'.repeat(40),CLOUDFLARE_API_TOKEN:'synthetic'};
+ assert.doesNotThrow(()=>guardEnvironment(ci,{target}));
+ for(const change of [{GITHUB_ACTIONS:''},{GITHUB_SHA:'b'.repeat(40)},{PROJEKTOR_EXPECTED_COMMIT:''},{PROJEKTOR_DEPLOYMENT_MODE:'other'},{CLOUDFLARE_API_TOKEN:''},{CLOUDFLARE_API_BASE_URL:'https://wrong.test'},{NODE_TLS_REJECT_UNAUTHORIZED:'0'}])assert.throws(()=>guardEnvironment({...ci,...change},{target}));
+ assert.throws(()=>guardEnvironment({...ci,PROJEKTOR_DEPLOYMENT_MODE:'network-secret'},{target}),/PLATFORM_HTTPS_PROXY_MISSING/);
+});
+test('GitHub context verifies local checkout before admitting token execution',()=>{
+ const head=spawnSync('git',['-C',candidate,'rev-parse','HEAD'],{encoding:'utf8'}).stdout.trim();assert.match(head,/^[a-f0-9]{40}$/);
+ const ci={PATH:process.env.PATH,PROJEKTOR_DEPLOYMENT_MODE:'github-actions',GITHUB_ACTIONS:'true',GITHUB_SHA:head,PROJEKTOR_EXPECTED_COMMIT:head,CLOUDFLARE_API_TOKEN:'synthetic'};
+ assert.doesNotThrow(()=>assertGitHubCheckout(ci,candidate));
+ let invoked=false;const wrong={...ci,GITHUB_SHA:'f'.repeat(40),PROJEKTOR_EXPECTED_COMMIT:'f'.repeat(40)};
+ assert.throws(()=>createCredentialContext(wrong,target,candidate),/GITHUB_CHECKOUT_MISMATCH/);assert.equal(invoked,false);
+ assert.doesNotThrow(()=>createCredentialContext(ci,target,candidate).check());
 });

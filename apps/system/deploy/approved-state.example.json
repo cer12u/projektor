@@ -2,7 +2,8 @@
   "security": {
     "accessPoliciesHash": "REPLACE_WITH_REVIEWED_SHA256",
     "domainsHash": "REPLACE_WITH_REVIEWED_SHA256",
-    "workerSettingsHash": "REPLACE_WITH_REVIEWED_SHA256"
+    "workerSettingsHash": "REPLACE_WITH_REVIEWED_SHA256",
+    "ownerBootstrapHash": "REPLACE_WITH_REVIEWED_SHA256"
   },
   "limitations": "Expected comparison state only; fresh permitted API observations remain mandatory. No credentials or business data belong here."
 }

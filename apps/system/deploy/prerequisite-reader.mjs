@@ -12,7 +12,7 @@ const ORIGIN='https://api.cloudflare.com';
 const SETTINGS=['placement','usage_model','tags','tail_consumers','logpush','observability'];
 const DOMAIN=['id','hostname','service','environment','zone_id','zone_name'];
 const APP=['id','domain','type','session_duration','aud','allowed_idps','auto_redirect_to_identity'];
-const SQL="SELECT name FROM d1_migrations ORDER BY id; SELECT mode,epoch FROM write_gate WHERE id=1; PRAGMA quick_check; PRAGMA foreign_key_check; SELECT type,name,sql FROM sqlite_schema WHERE name IN ('owner_setup_contexts','owner_setup_operation','owner_setup_context_binding_immutable','owner_setup_context_no_extend','recipient_setup_contexts','recipient_setup_operation','recipient_setup_binding_immutable','recipient_setup_no_extend') ORDER BY name;";
+const SQL="SELECT name FROM d1_migrations ORDER BY id; SELECT mode,epoch FROM write_gate WHERE id=1; PRAGMA quick_check; PRAGMA foreign_key_check; SELECT type,name,sql FROM sqlite_schema WHERE name IN ('owner_setup_contexts','owner_setup_operation','owner_setup_context_binding_immutable','owner_setup_context_no_extend','recipient_setup_contexts','recipient_setup_operation','recipient_setup_binding_immutable','recipient_setup_no_extend') ORDER BY name; SELECT json_extract(value,'$.ownerId') AS ownerId,json_extract(value,'$.issuer') AS issuer,json_extract(value,'$.audience') AS audience,json_extract(value,'$.subject') AS subject,json_extract(value,'$.closesAt') AS closesAt FROM auth_settings WHERE key='owner_web_bootstrap';";
 const OBJECTS=[{type:'trigger',name:'owner_setup_context_binding_immutable'},{type:'trigger',name:'owner_setup_context_no_extend'},{type:'table',name:'owner_setup_contexts'},{type:'index',name:'owner_setup_operation'},{type:'trigger',name:'recipient_setup_binding_immutable'},{type:'table',name:'recipient_setup_contexts'},{type:'trigger',name:'recipient_setup_no_extend'},{type:'index',name:'recipient_setup_operation'}];
 const fail=(code,kind='protocol')=>{const e=Error(code);e.code=code;e.kind=kind;throw e;};
 const object=v=>v!==null&&typeof v==='object'&&!Array.isArray(v);
@@ -41,20 +41,22 @@ function deployment(result,version){
 function service(result,worker){
   requireValue(result?.id===worker&&result.default_environment?.environment==='production');
   const s=result.default_environment.script;
-  requireValue(object(s)&&typeof s.last_deployed_from==='string'&&Array.isArray(s.tags)&&s.tags.every(v=>typeof v==='string')&&typeof s.migration_tag==='string'&&typeof s.tag==='string');
-  return {projection:'default_environment.script',origin:s.last_deployed_from,tags:s.tags,migrationTag:s.migration_tag,scriptTag:s.tag};
+  const tags=s?.tags??[]; // Exact pinned Wrangler4.149 preUpload normalization (cli.js180425/180447).
+  requireValue(object(s)&&typeof s.last_deployed_from==='string'&&Array.isArray(tags)&&tags.every(v=>typeof v==='string')&&typeof s.migration_tag==='string'&&typeof s.tag==='string');
+  return {projection:'default_environment.script',origin:s.last_deployed_from,tags,migrationTag:s.migration_tag,scriptTag:s.tag};
 }
 function database(result,expectedSchema,databaseId,migrationNames){
-  requireValue(Array.isArray(result)&&result.length===5);
+  requireValue(Array.isArray(result)&&result.length===6);
   for(const r of result)requireValue(r.success===true&&Array.isArray(r.results)&&r.meta?.changed_db===false&&r.meta?.rows_written===0,'D1_READ_NOT_CERTIFIED');
-  const [ledger,gate,check,fks,schema]=result.map(r=>r.results);
+  const [ledger,gate,check,fks,schema,owner]=result.map(r=>r.results);
   requireValue(ledger.length===migrationNames.length&&ledger.every((r,i)=>r.name===migrationNames[i]));
   requireValue(gate.length===1&&['stopped','open','importing'].includes(gate[0].mode)&&Number.isSafeInteger(gate[0].epoch));
   requireValue(check.length===1&&check[0].quick_check==='ok'&&fks.length===0,'DATABASE_INTEGRITY_FAILED');
   requireValue(schema.every(r=>typeof r.sql==='string'),'REQUIRED_SCHEMA_DEFINITIONS_MISSING');
   const definitions=schema.map(r=>({type:r.type,name:r.name,sql:r.sql.trim().replace(/\r\n/g,'\n')}));
   requireValue(projectionHash(definitions)===projectionHash(expectedSchema),'REQUIRED_SCHEMA_DEFINITIONS_CHANGED');
-  return {database:{id:databaseId,migrationNames:ledger.map(r=>r.name)},gate:{mode:gate[0].mode,epoch:gate[0].epoch}};
+  requireValue(owner.length===1&&/^[A-Za-z0-9_-]{1,128}$/.test(owner[0].ownerId||'')&&/^https:\/\/[a-z0-9-]+\.cloudflareaccess\.com$/.test(owner[0].issuer||'')&&/^[a-f0-9]{64}$/.test(owner[0].audience||'')&&UUID.test(owner[0].subject||'')&&Number.isSafeInteger(owner[0].closesAt),'OWNER_TRUST_METADATA_MISSING');
+  return {ownerBootstrapHash:projectionHash(owner[0]),database:{id:databaseId,migrationNames:ledger.map(r=>r.name)},gate:{mode:gate[0].mode,epoch:gate[0].epoch}};
 }
 
 // Only the closed read set below is reachable. There is no generic caller URL,
@@ -143,7 +145,7 @@ export function createPrerequisiteReader({candidate,credentials,configuration,fe
         const db=database((await request('/d1/database/'+databaseId+'/query',{body:{sql:SQL}})).result,expectedSchema,databaseId,schemaPolicy.migrations.map(m=>m.name));
         const after=deployment((await request('/workers/scripts/'+WORKER+'/deployments')).result,currentVersion);
         requireValue(projectionHash(active)===projectionHash(after),'PREREQUISITE_SNAPSHOT_DRIFT');
-        return {...db,service:s,security:{accessPoliciesHash:projectionHash(access),domainsHash:projectionHash(domains),workerSettingsHash:projectionHash(settings)},active};
+        return {...db,service:s,security:{ownerBootstrapHash:db.ownerBootstrapHash,accessPoliciesHash:projectionHash(access),domainsHash:projectionHash(domains),workerSettingsHash:projectionHash(settings)},active};
       }
       const before=await scan(),after=await scan();
       requireValue(projectionHash(before)===projectionHash(after),'PREREQUISITE_SNAPSHOT_DRIFT');

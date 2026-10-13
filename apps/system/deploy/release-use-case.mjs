@@ -44,6 +44,7 @@ export function createReleaseUseCase({port,journal,release}){
   }
   function baselineMatches(v){
     runtimeMatches(v);
+    if(v.bindings.find(b=>b.name==='JWT_SECRET')?.type!=='secret_text')fail('PRESERVED_SECRET_BINDING_MISSING');
     for(const b of release.policy.bindings.filter(b=>['DB','ASSETS','AUTH_ORIGIN'].includes(b.name)))if(json(v.bindings.find(x=>x.name===b.name))!==json(b))fail('BASELINE_BINDING_DRIFT');
   }
   function uploadedMatches(v,baseline){

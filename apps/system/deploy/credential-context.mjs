@@ -1,10 +1,14 @@
 // @module deployment
 // @role credentials
+import {spawnSync} from 'node:child_process';
 import {assertTarget} from './cloudflare-port.mjs';
 const fail = code => { throw new Error(code); };
 
 export function guardEnvironment(env,{requireToken=true,target}={}) {
   assertTarget(target);
+  const mode=env.PROJEKTOR_DEPLOYMENT_MODE||'network-secret';
+  if(!['network-secret','github-actions'].includes(mode))fail('UNKNOWN_CREDENTIAL_MODE');
+  if(mode==='github-actions'&&(env.GITHUB_ACTIONS!=='true'||!/^[a-f0-9]{40}$/.test(env.PROJEKTOR_EXPECTED_COMMIT||'')||env.GITHUB_SHA!==env.PROJEKTOR_EXPECTED_COMMIT))fail('GITHUB_COMMIT_CONTEXT_REQUIRED');
   if (requireToken && !env.CLOUDFLARE_API_TOKEN) fail('NETWORK_SECRET_MISSING');
   for (const key of ['CLOUDFLARE_API_BASE_URL','CF_API_BASE_URL','CLOUDFLARE_BASE_URL',
     'CLOUDFLARE_API_KEY','CF_API_KEY','CLOUDFLARE_EMAIL','CF_EMAIL','CF_API_TOKEN',
@@ -21,8 +25,8 @@ export function guardEnvironment(env,{requireToken=true,target}={}) {
   if (env.NODE_OPTIONS && !/^\s*(?:(?:--use-system-ca|--use-openssl-ca|--use-bundled-ca)\s*)+$/.test(env.NODE_OPTIONS)) fail('UNREVIEWED_NODE_OPTIONS');
   const httpProxy=env.http_proxy ?? env.HTTP_PROXY;
   const httpsProxy=(env.https_proxy ?? env.HTTPS_PROXY) || httpProxy;
-  if (!httpsProxy) fail('PLATFORM_HTTPS_PROXY_MISSING');
-  try { if (!['http:','https:'].includes(new URL(httpsProxy).protocol)) fail('INVALID_PROXY_PROTOCOL'); }
+  if (!httpsProxy && mode==='network-secret') fail('PLATFORM_HTTPS_PROXY_MISSING');
+  if (httpsProxy) try { if (!['http:','https:'].includes(new URL(httpsProxy).protocol)) fail('INVALID_PROXY_PROTOCOL'); }
   catch { fail('INVALID_PLATFORM_PROXY'); }
   // Do not change the platform proxy or CA trust. Reject a bypass of the secret destination.
   for (const key of ['NO_PROXY','no_proxy']) {
@@ -32,16 +36,25 @@ export function guardEnvironment(env,{requireToken=true,target}={}) {
       const h=(parsed?parsed[1]:raw).replace(/^\*?\./,'').toLowerCase();
       const port=parsed?Number.parseInt(parsed[2],10):0;
       if (port && port!==443) continue;
-      if (h === '*' || h === 'api.cloudflare.com' || 'api.cloudflare.com'.endsWith('.'+h)) fail('SECRET_DESTINATION_PROXY_BYPASS');
+      if (mode==='network-secret' && (h === '*' || h === 'api.cloudflare.com' || 'api.cloudflare.com'.endsWith('.'+h))) fail('SECRET_DESTINATION_PROXY_BYPASS');
     }
   }
 }
 
 // Only the adapter receives this scoped execution environment. It never reaches
 // the use case, the journal, output, or a credential store. No login/refresh fallback.
-export function createCredentialContext(env,target) {
+export function assertGitHubCheckout(env,candidate) {
+  if(env.PROJEKTOR_DEPLOYMENT_MODE!=='github-actions')return;
+  if(env.GITHUB_ACTIONS!=='true'||!/^[a-f0-9]{40}$/.test(env.PROJEKTOR_EXPECTED_COMMIT||'')||env.GITHUB_SHA!==env.PROJEKTOR_EXPECTED_COMMIT)fail('GITHUB_COMMIT_CONTEXT_REQUIRED');
+  const result=spawnSync('git',['-C',candidate,'rev-parse','HEAD'],{encoding:'utf8',env:{PATH:env.PATH},timeout:5000});
+  if(result.status!==0||result.stdout.trim()!==env.PROJEKTOR_EXPECTED_COMMIT)fail('GITHUB_CHECKOUT_MISMATCH');
+}
+
+export function createCredentialContext(env,target,candidate) {
+  assertGitHubCheckout(env,candidate);
+  const check=()=>{assertGitHubCheckout(env,candidate);guardEnvironment(env,{target});};
   return Object.freeze({
-    check() { guardEnvironment(env,{target}); },
-    async run(operation) { guardEnvironment(env,{target}); return operation(env); }
+    check,
+    async run(operation) { check(); return operation(env); }
   });
 }
