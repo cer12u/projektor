@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "include": [
+    "src",
+    "worker-configuration.d.ts",
+    "src/agent/public.ts",
+    "src/agent/execution-client.ts",
+    "src/agent/operations.ts",
+    "src/agent/http.ts",
+    "src/agent/routes.ts",
+    "src/adapters/credentials/cloudflare-admission.ts",
+    "src/adapters/credentials/file-providers.ts"
+  ]
+}
