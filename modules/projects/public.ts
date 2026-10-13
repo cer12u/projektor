@@ -89,6 +89,12 @@ export interface ProjectsApi {
     projectId: string,
     permission?: ProjectPermission,
   ): Promise<Project>;
+  /** Checks a proposed assignee's live membership and project visibility. */
+  authorizeProjectPrincipal(
+    scope: RequestScope,
+    projectId: string,
+    principalId: string,
+  ): Promise<void>;
   readOperation(scope: RequestScope, operationId: string): Promise<ProjectResult | null>;
   readEvents(
     reader: ProjectEventReader,

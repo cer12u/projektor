@@ -46,13 +46,15 @@ def quote(name):
     return '"' + name.replace('"', '""') + '"'
 
 
-def guard(owner, storage, migration=False):
+def guard(owner, storage, migration=False, fts_creation=False):
     allowed = set(storage["tables"]) | set(storage["objects"])
     violations = []
 
     def auth(action, first, second, database, source):
         reason = None
-        if action in TEMP or action in {sqlite3.SQLITE_ATTACH, sqlite3.SQLITE_DETACH, sqlite3.SQLITE_PRAGMA, sqlite3.SQLITE_TRANSACTION, sqlite3.SQLITE_SAVEPOINT}:
+        if action == sqlite3.SQLITE_PRAGMA and fts_creation and first == "data_version":
+            pass
+        elif action in TEMP or action in {sqlite3.SQLITE_ATTACH, sqlite3.SQLITE_DETACH, sqlite3.SQLITE_PRAGMA, sqlite3.SQLITE_TRANSACTION, sqlite3.SQLITE_SAVEPOINT}:
             reason = "prohibited SQL operation"
         elif action == sqlite3.SQLITE_FUNCTION and second in {"load_extension", "readfile", "writefile"}:
             reason = "prohibited SQL function"
@@ -81,7 +83,8 @@ def guard(owner, storage, migration=False):
 
 
 def execute_checked(db, owner, storage, sql, migration=False):
-    auth, violations = guard(owner, storage, migration)
+    fts_creation = migration and bool(re.match(r"\s*CREATE\s+VIRTUAL\s+TABLE\s+", sql, re.I))
+    auth, violations = guard(owner, storage, migration, fts_creation)
     db.set_authorizer(auth)
     try:
         if migration:
@@ -126,6 +129,11 @@ def probe(db, owner, storage):
 def validate(data):
     ownership = {}
     for owner, storage in data.items():
+        virtual = set(storage.get("virtualTables", []))
+        shadows = {f"{name}_{suffix}" for name in virtual
+                   for suffix in ("data", "idx", "content", "docsize", "config")}
+        if not virtual.issubset(storage["tables"]) or not shadows.issubset(storage["tables"]):
+            fail("schema", f"{owner}: FTS5 virtual and shadow tables must be registered")
         for name in storage["tables"] + storage["objects"]:
             if name in ownership:
                 fail("schema", f"duplicate owner for {name}")
@@ -150,6 +158,13 @@ def validate(data):
         declared = set(storage["tables"] + storage["objects"])
         if actual != declared:
             fail("schema", f"{owner}: manifest/schema drift: {sorted(actual ^ declared)}")
+        virtual = set(storage.get("virtualTables", []))
+        shadows = {f"{name}_{suffix}" for name in virtual
+                   for suffix in ("data", "idx", "content", "docsize", "config")}
+        for name in virtual:
+            sql = isolated.execute("SELECT sql FROM sqlite_schema WHERE name=?", (name,)).fetchone()
+            if not sql or not re.match(r"CREATE\s+VIRTUAL\s+TABLE\s+", sql[0], re.I):
+                fail("schema", f"{owner}: {name} is not a virtual table")
         for kind, name, table in rows:
             if ownership.get(table) != owner:
                 fail("schema", f"{owner}: {name} targets foreign {table}")
@@ -157,6 +172,10 @@ def validate(data):
                 continue
             if name not in storage["tables"]:
                 fail("schema", f"{owner}: table {name} must be registered as table")
+            if name in virtual or name in shadows:
+                # FTS5 shadow schemas are SQLite internals. Only the owning
+                # virtual table is queried by runtime catalogs.
+                continue
             for fk in isolated.execute(f"PRAGMA foreign_key_list({quote(name)})"):
                 if ownership.get(fk[2]) != owner:
                     fail("schema", f"cross-owner FK: {name} -> {fk[2]}")

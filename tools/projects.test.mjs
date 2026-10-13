@@ -204,6 +204,8 @@ test("two tenants, keyset visibility, grants for machines and OAuth clients, rev
     operationId: "oauth-grant",
   });
   assert.equal((await f.api.authorizeProject(machine, "p1", "write")).role, "editor");
+  await f.api.authorizeProjectPrincipal(f.owner, "p1", "bot");
+  await assert.rejects(f.api.authorizeProjectPrincipal(f.owner, "p2", "bot"), code("not_found"));
   assert.equal((await f.api.authorizeProject(oauth, "p1", "manage")).role, "manager");
   await assert.rejects(f.api.authorizeProject(machine, "p1", "manage"), code("forbidden"));
   await assert.rejects(f.api.getProject(machine, "p2"), code("not_found"));

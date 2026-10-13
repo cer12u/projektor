@@ -142,6 +142,40 @@
       }
     },
     {
+      "id": "issues",
+      "root": "modules/issues",
+      "public": "modules/issues/public.ts",
+      "factory": "modules/issues/internal/factory.ts",
+      "kind": "module",
+      "dependencies": ["platform", "projects", "access"],
+      "external": [],
+      "storage": {
+        "prefix": "issues_",
+        "tables": [
+          "issues_issues",
+          "issues_counters",
+          "issues_comments",
+          "issues_history",
+          "issues_receipts",
+          "issues_events",
+          "issues_guards",
+          "issues_search",
+          "issues_search_data",
+          "issues_search_idx",
+          "issues_search_content",
+          "issues_search_docsize",
+          "issues_search_config"
+        ],
+        "objects": ["issues_project_number"],
+        "virtualTables": ["issues_search"],
+        "globalTables": [],
+        "catalog": "modules/issues/storage/queries.ts",
+        "migrations": "modules/issues/storage/migrations",
+        "kvPrefix": null,
+        "r2Prefix": null
+      }
+    },
+    {
       "id": "tools",
       "root": "tools",
       "public": null,
@@ -154,7 +188,8 @@
         "fixture_a",
         "fixture_b",
         "access",
-        "projects"
+        "projects",
+        "issues"
       ],
       "external": ["node:*", "typescript", "esbuild", "miniflare"]
     }
