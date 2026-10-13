@@ -1,0 +1,93 @@
+// @module verification
+// @role deployment-upgrade
+// Actual migration bytes and representative retained rows on local SQLite; no production/D1-service claim.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {DatabaseSync} from 'node:sqlite';
+import {readFile,readdir,mkdir,writeFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import {fileURLToPath} from 'node:url';
+const hash=x=>createHash('sha256').update(x).digest('hex');
+const quote=x=>'"'+x.replaceAll('"','""')+'"';
+const directory=new URL('../../migrations/',import.meta.url);
+test('0017 through0019 retains representative existing identities, histories, receipts, leases and prepared intents',async()=>{
+ const startedAt=new Date().toISOString(),db=new DatabaseSync(':memory:');
+ try{
+  const names=(await readdir(directory)).filter(n=>n.endsWith('.sql')).sort();assert.equal(names.length,19);
+  db.exec('CREATE TABLE d1_migrations(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT UNIQUE,applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)');
+  const migrationHashes={};
+  for(const name of names.slice(0,17)){const bytes=await readFile(new URL(name,directory));migrationHashes[name]=hash(bytes);db.exec(bytes.toString());db.prepare('INSERT INTO d1_migrations(name) VALUES(?)').run(name);}
+  db.exec(`INSERT INTO principals(id,kind,display_name,login_id,active,auth_version) VALUES('H','human','Synthetic Human','synthetic-human',1,3),('A','agent','Synthetic Agent',NULL,1,1);
+   INSERT INTO passwords VALUES('H','synthetic-noncredential-hash');
+   INSERT INTO sessions(token_hash,principal_id,auth_version,api_credential_id,csrf_token,created_at,last_seen_at,absolute_expires_at,revoked_at) VALUES('synthetic-session-hash','H',3,NULL,'synthetic-csrf',1000,1100,9000000,NULL);
+   INSERT INTO api_credentials VALUES('KEY','A','synthetic-api-hash',9000000,NULL);
+   INSERT INTO memberships VALUES('A','P','view'),('A','P','edit'),('A','P','execute'),('H','P','view');
+   INSERT INTO api_grants VALUES('KEY','P','view'),('KEY','P','edit'),('KEY','P','execute');
+   INSERT INTO workspaces VALUES('W','Synthetic workspace','{}');
+   INSERT INTO projects VALUES('P','W','P','p','Synthetic project','','{}');
+   INSERT INTO issues(id,project_id,body,title,revision,created_at,updated_at,assignee_id,state,workspace_id,number) VALUES('I_keep','P','current body','Retained issue',2,'2026-10-01T00:00:00Z','2026-10-02T00:00:00Z','A','In Progress','W',7);
+   INSERT INTO content_documents(id,kind,scope_id,body,title,revision,created_at,updated_at,project_id,workspace_id) VALUES('W_keep','wiki','P','retained wiki','Wiki',1,'2026-10-01T00:00:00Z','2026-10-01T00:00:00Z','P','W');`);
+  const receipt=(id,kind,target,snapshot)=>db.prepare("INSERT INTO operation_results(principal_id,operation_id,operation_kind,target_id,project_id,input_hash,required_permissions,state,snapshot,created_at,confirmed_at,authority_kind) VALUES('A',?,?,?,'P',?,'[\"view\",\"edit\"]','confirmed',?,1000,1001,'project')").run(id,kind,target,hash(id),JSON.stringify(snapshot));
+  receipt('create','issue.create','I_keep',{id:'I_keep',revision:1,body:'old body'});receipt('edit','issue.edit','I_keep',{id:'I_keep',revision:2,body:'current body'});receipt('wiki','wiki.create','W_keep',{id:'W_keep',body:'retained wiki',revision:1});
+  db.exec(`INSERT INTO issue_history(issue_id,project_id,revision,operation_id,actor_id,actor_name,change_kind,before_body,after_body,created_at) VALUES('I_keep','P',1,'create','A','Original actor','issue.create',NULL,'old body','2026-10-01T00:00:00Z'),('I_keep','P',2,'edit','A','Original actor','issue.edit','old body','current body','2026-10-02T00:00:00Z');
+   INSERT INTO content_history(content_kind,content_id,scope_id,revision,operation_id,actor_id,actor_name,change_kind,before_body,after_body,created_at) VALUES('wiki','W_keep','P',1,'wiki','A','Original actor','wiki.create',NULL,'retained wiki','2026-10-01T00:00:00Z');`);
+  receipt('acquire','execution.acquire','I_keep',{attemptId:'A_keep',leaseVersion:4,state:'running'});
+  db.exec(`INSERT INTO issue_execution_attempts VALUES('A_keep','I_keep','P','A','acquire',1000,1100,1400,4,'running',NULL,NULL);
+   INSERT INTO issue_execution_heads VALUES('I_keep','A_keep');
+   INSERT INTO issue_execution_events VALUES('A','acquire','A_keep','execution.acquire',1000,'{"attemptId":"A_keep","leaseVersion":4}');`);
+  receipt('progress','execution-report.progress','I_keep',{attemptId:'A_keep',message:'retained progress'});
+  db.exec(`INSERT INTO issue_execution_reports(principal_id,operation_id,issue_id,project_id,attempt_id,report_kind,message,references_json,recorded_at) VALUES('A','progress','I_keep','P','A_keep','progress','retained progress','[]',1100);
+   INSERT INTO issue_execution_report_events(principal_id,operation_id,issue_id,attempt_id,event_kind,recorded_at,snapshot) VALUES('A','progress','I_keep','A_keep','execution-report.progress',1100,'{"message":"retained progress"}');`);
+  db.prepare("INSERT INTO operation_intents(principal_id,operation_id,format_version,operation_kind,target_id,project_id,route_json,input_json,input_hash,required_permissions,prepared_at) VALUES('A','prepared',1,'issue.edit','I_keep','P',?,?,?,'[\"edit\",\"view\"]',1200)").run(JSON.stringify({kind:'issue',projectId:'P',id:'I_keep'}),JSON.stringify({operationId:'prepared',revision:2,body:'unsent body'}),hash(JSON.stringify({body:'unsent body',revision:2})));
+  for(const id of ['RIGHT','RIGHT2','RIGHT3'])db.prepare("INSERT INTO password_setup_rights(id,principal_id,token_hash,purpose,target_auth_version,issued_at,expires_at) VALUES(?,'H',?,'initial',3,1000,2000)").run(id,hash(id));
+  db.exec("UPDATE write_gate SET mode='stopped',epoch=4");
+  assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(),[]);
+  const tables=db.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name<>'d1_migrations' ORDER BY name").all().map(r=>r.name);
+  const snapshot=()=>Object.fromEntries(tables.map(name=>[name,db.prepare('SELECT * FROM '+quote(name)).all().map(r=>JSON.stringify(r)).sort()]));
+  const before=snapshot(),baselineLedger=db.prepare('SELECT * FROM d1_migrations ORDER BY id').all();
+  const existingObjects=db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY name").all();
+  const migration=await readFile(new URL(names[17],directory));migrationHashes[names[17]]=hash(migration);
+  // A failed ledger insertion must roll back the additive DDL in the same local transaction.
+  db.exec('BEGIN IMMEDIATE');db.exec(migration.toString());assert.throws(()=>db.prepare('INSERT INTO d1_migrations(name) VALUES(?)').run(names[0]),/UNIQUE/);db.exec('ROLLBACK');
+  assert.equal(db.prepare("SELECT count(*) n FROM sqlite_schema WHERE name='owner_setup_contexts'").get().n,0);assert.deepEqual(snapshot(),before);
+  db.exec('BEGIN IMMEDIATE');db.exec(migration.toString());db.prepare('INSERT INTO d1_migrations(name) VALUES(?)').run(names[17]);db.exec('COMMIT');
+  assert.equal(db.prepare('SELECT count(*) n FROM owner_setup_contexts').get().n,0);
+  const context=hash('synthetic-context'),csrf=hash('synthetic-context-csrf');
+  db.prepare('INSERT INTO owner_setup_contexts(context_hash,csrf_hash,created_at,expires_at) VALUES(?,?,1000,1500)').run(context,csrf);
+  db.prepare("UPDATE owner_setup_contexts SET owner_id='H',operation_id='owner-op',right_id='RIGHT',issuer='https://synthetic.invalid',audience='synthetic',subject='synthetic-owner' WHERE context_hash=?").run(context);
+  const retainedOwner=db.prepare('SELECT * FROM owner_setup_contexts ORDER BY context_hash').all();
+  const recipientMigration=await readFile(new URL(names[18],directory));migrationHashes[names[18]]=hash(recipientMigration);
+  db.exec('BEGIN IMMEDIATE');db.exec(recipientMigration.toString());assert.throws(()=>db.prepare('INSERT INTO d1_migrations(name) VALUES(?)').run(names[17]),/UNIQUE/);db.exec('ROLLBACK');
+  assert.equal(db.prepare("SELECT count(*) n FROM sqlite_schema WHERE name='recipient_setup_contexts'").get().n,0);assert.deepEqual(db.prepare('SELECT * FROM owner_setup_contexts ORDER BY context_hash').all(),retainedOwner);
+  db.exec('BEGIN IMMEDIATE');db.exec(recipientMigration.toString());db.prepare('INSERT INTO d1_migrations(name) VALUES(?)').run(names[18]);db.exec('COMMIT');
+  assert.deepEqual(db.prepare('SELECT * FROM owner_setup_contexts ORDER BY context_hash').all(),retainedOwner,'0019 retains the existing bound owner recovery context');
+  assert.equal(db.prepare('SELECT count(*) n FROM recipient_setup_contexts').get().n,0);
+  assert.deepEqual(snapshot(),before,'every preexisting application row, identifier and value is retained');
+  assert.deepEqual(db.prepare('SELECT * FROM d1_migrations ORDER BY id LIMIT 17').all(),baselineLedger);
+  assert.deepEqual(db.prepare('SELECT name FROM d1_migrations ORDER BY id').all().map(r=>r.name),names);
+  const afterObjects=db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY name").all();
+  assert.deepEqual(afterObjects.filter(r=>existingObjects.some(x=>x.name===r.name)),existingObjects);
+  for(const statement of ["UPDATE owner_setup_contexts SET expires_at=1600","UPDATE owner_setup_contexts SET operation_id='other'","UPDATE owner_setup_contexts SET owner_id='A'"])assert.throws(()=>db.exec(statement),/immutable|fixed/);
+  assert.throws(()=>db.prepare("INSERT INTO owner_setup_contexts(context_hash,csrf_hash,created_at,expires_at,owner_id,operation_id,right_id,issuer,audience,subject) VALUES(?,?,1000,1500,'H','owner-op','RIGHT2','issuer','audience','subject')").run(hash('other-context'),csrf),/UNIQUE/);
+  assert.throws(()=>db.prepare("INSERT INTO owner_setup_contexts(context_hash,csrf_hash,created_at,expires_at,owner_id) VALUES(?,?,1000,1500,'H')").run(hash('partial-context'),csrf),/CHECK/);
+  assert.throws(()=>db.prepare('INSERT INTO owner_setup_contexts(context_hash,csrf_hash,created_at,expires_at) VALUES(?,?,1000,1000)').run(hash('expired-context'),csrf),/CHECK/);
+  db.exec("UPDATE owner_setup_contexts SET csrf_hash='"+hash('new-csrf')+"',revoked_at=1300");
+  const recipient=hash('synthetic-recipient'),requestId='R'.repeat(43);
+  db.prepare('INSERT INTO recipient_setup_contexts(context_hash,request_id,csrf_hash,created_at,expires_at) VALUES(?,?,?,1000,1500)').run(recipient,requestId,csrf);
+  db.prepare("UPDATE recipient_setup_contexts SET issuer_id='H',issuer_display_name='Synthetic Human',operation_id='recipient-op',principal_id='H',right_id='RIGHT2',purpose='initial',target_auth_version=3 WHERE context_hash=?").run(recipient);
+  for(const statement of ["UPDATE recipient_setup_contexts SET expires_at=1600","UPDATE recipient_setup_contexts SET operation_id='other'","UPDATE recipient_setup_contexts SET principal_id='A'","UPDATE recipient_setup_contexts SET request_id='"+'X'.repeat(43)+"'","UPDATE recipient_setup_contexts SET created_at=900"])assert.throws(()=>db.exec(statement),/immutable|fixed/);
+  assert.throws(()=>db.prepare("INSERT INTO recipient_setup_contexts(context_hash,request_id,csrf_hash,created_at,expires_at,issuer_id,issuer_display_name,operation_id,principal_id,right_id,purpose,target_auth_version) VALUES(?,?,?,1000,1500,'H','Synthetic Human','recipient-op','H','RIGHT3','initial',3)").run(hash('other-recipient'),'Q'.repeat(43),csrf),/UNIQUE/);
+  assert.throws(()=>db.prepare("INSERT INTO recipient_setup_contexts(context_hash,request_id,csrf_hash,created_at,expires_at,issuer_id) VALUES(?,?,?,1000,1500,'H')").run(hash('partial-recipient'),'S'.repeat(43),csrf),/CHECK/);
+  db.exec('UPDATE recipient_setup_contexts SET revoked_at=1300');assert.throws(()=>db.exec('UPDATE recipient_setup_contexts SET revoked_at=NULL'),/fixed/);
+  db.prepare('INSERT INTO recipient_setup_contexts(context_hash,request_id,replaces_context_hash,csrf_hash,created_at,expires_at) VALUES(?,?,?,?,1300,1600)').run(hash('replacement'),'T'.repeat(43),recipient,csrf);
+  assert.throws(()=>db.prepare('INSERT INTO recipient_setup_contexts(context_hash,request_id,replaces_context_hash,csrf_hash,created_at,expires_at) VALUES(?,?,?,?,1300,1600)').run(hash('duplicate-replacement'),'U'.repeat(43),recipient,csrf),/UNIQUE/);
+  assert.throws(()=>db.prepare('UPDATE recipient_setup_contexts SET replaces_context_hash=? WHERE context_hash=?').run(hash('different-predecessor'),hash('replacement')),/immutable/);
+  assert.deepEqual(snapshot(),before,'new context binding/CSRF/revocation does not rewrite old records');
+  assert.throws(()=>db.exec("UPDATE issue_history SET actor_name='replacement'"),/immutable/);
+  assert.throws(()=>db.exec("UPDATE operation_intents SET input_json='{}'"),/immutable/);
+  assert.throws(()=>db.exec("UPDATE operation_results SET snapshot='{}'"),/immutable/);
+  assert.equal(db.prepare('PRAGMA quick_check').get().quick_check,'ok');assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(),[]);
+  const result={passed:true,startedAt,finishedAt:new Date().toISOString(),runtime:'Node SQLite, exact migration bytes; not hosted D1',migrationHashes,baselineMigrations:17,finalMigrations:19,existingTablesCompared:tables.length,beforeRowsSha256:hash(JSON.stringify(before)),afterRowsSha256:hash(JSON.stringify(snapshot())),counts:Object.fromEntries(tables.map(name=>[name,before[name].length])),ledgerBaselineUnchanged:true,existingSchemaObjectsUnchanged:true,newTablesInitiallyEmpty:true,ownerContextsPreservedAcross19:true,newConstraintsChecked:true,atomicLedgerFailureRolledBack:true,quickCheck:'ok',foreignKeyViolations:0,productionReadOrWrite:false,productionCompleteness:'not established'};
+  const output=fileURLToPath(new URL('../../.local/deployment-verification/',import.meta.url));await mkdir(output,{recursive:true});await writeFile(output+'migration-upgrade.json',JSON.stringify(result,null,2)+'\n');
+ }finally{db.close();}
+});
