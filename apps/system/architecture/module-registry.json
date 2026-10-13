@@ -1803,7 +1803,8 @@
         "browser-session",
         "platform.browser",
         "work",
-        "identity"
+        "identity",
+        "execution"
       ],
       "allowedPackages": [
         "react"
@@ -4187,6 +4188,24 @@
       "kind": "authored"
     },
     {
+      "path": "src/web/workbench/issue-execution-controller.ts",
+      "module": "workbench",
+      "role": "controller",
+      "kind": "authored"
+    },
+    {
+      "path": "src/web/workbench/issue-execution-view.tsx",
+      "module": "workbench",
+      "role": "view",
+      "kind": "authored"
+    },
+    {
+      "path": "src/web/workbench/issue-execution.tsx",
+      "module": "workbench",
+      "role": "composition",
+      "kind": "authored"
+    },
+    {
       "path": "src/web/workbench/issue-list-query.ts",
       "module": "workbench",
       "role": "contracts",
@@ -4623,6 +4642,44 @@
             }
           ],
           "reason": "Actual bundled editor/storage safety checks and an explicit known-unsafe negative control; only these two named test SPI exports are imported."
+        }
+      ]
+    },
+    {
+      "path": "tests/client/web/check-execution-panel.mjs",
+      "module": "verification",
+      "role": "browser-regression",
+      "kind": "authored",
+      "dynamicDependencies": [
+        {
+          "expression": "'data:text/javascript;base64,'+Buffer.from(b.outputFiles[0].text).toString('base64')",
+          "specifiers": [
+            {
+              "specifier": "../../../src/web/workbench/issue-execution-controller.ts",
+              "names": [
+                "useIssueExecutionController"
+              ]
+            },
+            {
+              "specifier": "../../../src/web/workbench/issue-execution-view.tsx",
+              "names": [
+                "IssueExecutionView"
+              ]
+            },
+            {
+              "specifier": "../../../src/web/workbench/issue-api.ts",
+              "names": [
+                "IssueApi"
+              ]
+            },
+            {
+              "specifier": "../../../src/web/session/identity-observation.ts",
+              "names": [
+                "recordIdentity"
+              ]
+            }
+          ],
+          "reason": "Exact controller, rendering and authority symbols bundled for the execution-panel regression; no generated-source exemption."
         }
       ]
     },
@@ -7118,6 +7175,15 @@
           "paths": [
             "tests/client/web/session-transport.mjs"
           ]
+        },
+        {
+          "module": "verification",
+          "roles": [
+            "browser-regression"
+          ],
+          "paths": [
+            "tests/client/web/check-execution-panel.mjs"
+          ]
         }
       ]
     },
@@ -7138,6 +7204,15 @@
           "paths": [
             "tests/client/web/check-authority-loss.mjs",
             "tests/client/web/check-client-regressions.mjs"
+          ]
+        },
+        {
+          "module": "verification",
+          "roles": [
+            "browser-regression"
+          ],
+          "paths": [
+            "tests/client/web/check-execution-panel.mjs"
           ]
         }
       ]
@@ -7872,6 +7947,14 @@
           "module": "persistence",
           "paths": [
             "src/modules/prepared-operations.ts"
+          ]
+        },
+        {
+          "module": "workbench",
+          "paths": [
+            "src/web/workbench/issue-api.ts",
+            "src/web/workbench/issue-execution-controller.ts",
+            "src/web/workbench/issue-execution-view.tsx"
           ]
         }
       ]
@@ -9810,6 +9893,44 @@
           ],
           "paths": [
             "tests/client/web/check-setup-entry-routing.mjs"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "src/web/workbench/issue-execution-controller.ts",
+      "module": "workbench",
+      "kind": "test",
+      "exports": [
+        "useIssueExecutionController"
+      ],
+      "consumers": [
+        {
+          "module": "verification",
+          "roles": [
+            "browser-regression"
+          ],
+          "paths": [
+            "tests/client/web/check-execution-panel.mjs"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "src/web/workbench/issue-execution-view.tsx",
+      "module": "workbench",
+      "kind": "test",
+      "exports": [
+        "IssueExecutionView"
+      ],
+      "consumers": [
+        {
+          "module": "verification",
+          "roles": [
+            "browser-regression"
+          ],
+          "paths": [
+            "tests/client/web/check-execution-panel.mjs"
           ]
         }
       ]
