@@ -1,0 +1,6846 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Projektor authentication and Issue API",
+    "version": "0.5.0",
+    "description": "New implementation, local current-data compatibility. Attempt/lease remains unimplemented and pending Issue33; no production cutover."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "paths": {
+    "/api/health": {
+      "get": {
+        "operationId": "health",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "phase": {
+                      "const": "P1a"
+                    },
+                    "database": {
+                      "const": "ok"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable / authentication busy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/auth/context": {
+      "get": {
+        "operationId": "loginContext",
+        "security": [],
+        "description": "10 minute, one-use challenge. Secure HttpOnly SameSite=Lax __Host-projektor_login Cookie. No self-registration.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "csrfToken"
+                  ],
+                  "properties": {
+                    "csrfToken": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden / CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable / authentication busy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "operationId": "passwordLogin",
+        "security": [
+          {
+            "loginChallengeCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Must exactly equal configured AUTH_ORIGIN."
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "description": "Origin + prelogin CSRF required. On success sets __Host-projektor_session; idle30d, absolute90d. Clears challenge Cookie. Body limit4096 bytes. Does not accept actor or Bearer.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "authenticated": {
+                      "const": true
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input / ambiguous authentication",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated / invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden / CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Body too large",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "JSON required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Login limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable / authentication busy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "operationId": "currentIdentity",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "description": "Authorization determines actor. Cookie and Bearer together are rejected. No-store, JSON401 without redirect.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Identity"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input / ambiguous authentication",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated / invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable / authentication busy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/projects/{projectId}/access": {
+      "get": {
+        "operationId": "projectAccess",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Z0-9_-]{1,64}$"
+            }
+          }
+        ],
+        "description": "Requires effective view. Effective API rights are principal membership intersected with credential grants. Unavailable and nonexistent projects both403.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "principal",
+                    "project"
+                  ],
+                  "properties": {
+                    "principal": {
+                      "$ref": "#/components/schemas/Principal"
+                    },
+                    "project": {
+                      "$ref": "#/components/schemas/Project"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input / ambiguous authentication",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated / invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden / CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable / authentication busy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "operationId": "logout",
+        "security": [
+          {
+            "sessionCookie": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Must exactly equal configured AUTH_ORIGIN."
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "description": "Revokes session in D1 and clears Cookie. Bearer alone is not accepted.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "authenticated": {
+                      "const": false
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input / ambiguous authentication",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated / invalid credentials",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Forbidden / CSRF rejected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporarily unavailable / authentication busy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/issues": {
+      "post": {
+        "operationId": "createIssue",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "description": "Current view + edit and credential scope required within common D1 batch. Cookie changes require exact configured Origin and X-CSRF-Token; Bearer + Cookie rejected. Same principal/operationId/input returns first snapshot. Server assigns actor and authority; client extras rejected. JSON/no-store/no redirects.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateIssueInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Field validation / mixed authentication",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Current credentials invalid; no Issue body/snapshot/current",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current project permission/visibility refused, including missing/wrong-project targets; no body/snapshot/current",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision conflict with currently permitted Issue, or operation ID input mismatch",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request exceeds 32768 bytes",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "application/json required",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Atomic mutation failed; no partial success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database or operation unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "operationId": "listMyIssues",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "schema": {
+              "enum": [
+                "",
+                "Backlog",
+                "Todo",
+                "In Progress",
+                "In Review",
+                "Done",
+                "Canceled"
+              ]
+            }
+          },
+          {
+            "in": "query",
+            "name": "mine",
+            "schema": {
+              "enum": [
+                "0",
+                "1"
+              ],
+              "default": "1"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "schema": {
+              "const": "priority"
+            }
+          },
+          {
+            "in": "query",
+            "name": "page",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "in": "query",
+            "name": "pageSize",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ],
+        "description": "Current project view. mine=1 binds assignee to authenticated principal. Priority DESC, null last, createdAt ASC, ID ASC. Deterministic offset pages; 0 matches is normal. No shared API cache.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueList"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Field validation / mixed authentication",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Current credentials invalid; no Issue body/snapshot/current",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current project permission/visibility refused, including missing/wrong-project targets; no body/snapshot/current",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database or operation unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/issues/{issueId}": {
+      "get": {
+        "operationId": "getIssue",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          }
+        ],
+        "description": "Current credential + project visibility checked with body retrieval. Issue/history require view; operation result requires view + edit. JSON/no-store/no redirects.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueReadResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Field validation / mixed authentication",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Current credentials invalid; no Issue body/snapshot/current",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current project permission/visibility refused, including missing/wrong-project targets; no body/snapshot/current",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database or operation unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "operationId": "editIssue",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "description": "Current view plus per-field edit(body/priority/schedule), assign(assignee), transition(state), including API/session scope ceiling. Same Issue revision and common batch. Done records UTC resolution; leaving Done clears current value and preserves events. Cookie Origin/CSRF unchanged.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditIssueInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Field validation / mixed authentication",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Current credentials invalid; no Issue body/snapshot/current",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current project permission/visibility refused, including missing/wrong-project targets; no body/snapshot/current",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Revision conflict with currently permitted Issue, or operation ID input mismatch",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Request exceeds 32768 bytes",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "application/json required",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Atomic mutation failed; no partial success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database or operation unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/issues/{issueId}/history": {
+      "get": {
+        "operationId": "getIssueHistory",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "afterRevision",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "default": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ],
+        "description": "Current credential + project visibility checked with body retrieval. Issue/history require view; operation result requires view + edit. JSON/no-store/no redirects.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueHistoryPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Field validation / mixed authentication",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Current credentials invalid; no Issue body/snapshot/current",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current project permission/visibility refused, including missing/wrong-project targets; no body/snapshot/current",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database or operation unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/issue-operations/{operationId}": {
+      "get": {
+        "operationId": "getIssueOperation",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "operationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          }
+        ],
+        "description": "Current view plus currently valid permissions recorded on this principal operation; body edits require edit, assignments assign, transitions transition. Same registry/auth/scope checks.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueOperationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Field validation / mixed authentication",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Current credentials invalid; no Issue body/snapshot/current",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current project permission/visibility refused, including missing/wrong-project targets; no body/snapshot/current",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database or operation unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/management/principals/{principalId}/password-setup": {
+      "get": {
+        "summary": "P1b-01 scoped password setup; see password-setup-contract.md",
+        "parameters": [
+          {
+            "name": "principalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scoped setup metadata; issuance secret only on new commit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "snapshot"
+                  ],
+                  "properties": {
+                    "snapshot": {
+                      "type": "object",
+                      "required": [
+                        "principalId",
+                        "revision",
+                        "authVersion",
+                        "rightId",
+                        "purpose",
+                        "expiresAt",
+                        "consumedAt",
+                        "revokedAt"
+                      ],
+                      "properties": {
+                        "principalId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740990
+                        },
+                        "authVersion": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740990
+                        },
+                        "rightId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "purpose": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "enum": [
+                            "initial",
+                            "reset",
+                            null
+                          ]
+                        },
+                        "expiresAt": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "consumedAt": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "revokedAt": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or unknown input"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden or setup right unavailable"
+          },
+          "409": {
+            "description": "Management precondition conflict"
+          },
+          "503": {
+            "description": "Temporary failure or KDF busy"
+          }
+        },
+        "description": "Same-origin password setup contract: docs/password-setup-contract.md. No-store JSON; no redirects, public registration or session/Bearer conversion. Invalid/expired/revoked setup rights use uniform 403.",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ]
+      }
+    },
+    "/api/management/principals/{principalId}/password-setup/issue": {
+      "post": {
+        "summary": "P1b-01 scoped password setup; see password-setup-contract.md",
+        "parameters": [
+          {
+            "name": "principalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": false,
+            "description": "Required for session authentication",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scoped setup metadata; issuance secret only on new commit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "operationId",
+                    "snapshot",
+                    "source"
+                  ],
+                  "properties": {
+                    "operationId": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                    },
+                    "snapshot": {
+                      "type": "object",
+                      "required": [
+                        "principalId",
+                        "revision",
+                        "authVersion",
+                        "rightId",
+                        "purpose",
+                        "expiresAt",
+                        "consumedAt",
+                        "revokedAt"
+                      ],
+                      "properties": {
+                        "principalId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740990
+                        },
+                        "authVersion": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740990
+                        },
+                        "rightId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "purpose": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "enum": [
+                            "initial",
+                            "reset",
+                            null
+                          ]
+                        },
+                        "expiresAt": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "consumedAt": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "revokedAt": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        }
+                      }
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "committed",
+                        "recovered"
+                      ]
+                    },
+                    "setupRight": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_-]{43}$",
+                      "description": "Returned only on newly committed issuance; absent from recovered receipt."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or unknown input"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden or setup right unavailable"
+          },
+          "409": {
+            "description": "Management precondition conflict"
+          },
+          "503": {
+            "description": "Temporary failure or KDF busy"
+          }
+        },
+        "description": "Same-origin password setup contract: docs/password-setup-contract.md. No-store JSON; no redirects, public registration or session/Bearer conversion. Invalid/expired/revoked setup rights use uniform 403.",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "operationId",
+                  "revision",
+                  "purpose"
+                ],
+                "properties": {
+                  "operationId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740990
+                  },
+                  "purpose": {
+                    "type": "string",
+                    "enum": [
+                      "initial",
+                      "reset"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/management/principals/{principalId}/password-setup/revoke": {
+      "post": {
+        "summary": "P1b-01 scoped password setup; see password-setup-contract.md",
+        "parameters": [
+          {
+            "name": "principalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": false,
+            "description": "Required for session authentication",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scoped setup metadata; issuance secret only on new commit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "operationId",
+                    "snapshot",
+                    "source"
+                  ],
+                  "properties": {
+                    "operationId": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                    },
+                    "snapshot": {
+                      "type": "object",
+                      "required": [
+                        "principalId",
+                        "revision",
+                        "authVersion",
+                        "rightId",
+                        "purpose",
+                        "expiresAt",
+                        "consumedAt",
+                        "revokedAt"
+                      ],
+                      "properties": {
+                        "principalId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740990
+                        },
+                        "authVersion": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740990
+                        },
+                        "rightId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "purpose": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "enum": [
+                            "initial",
+                            "reset",
+                            null
+                          ]
+                        },
+                        "expiresAt": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "consumedAt": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "revokedAt": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        }
+                      }
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "committed",
+                        "recovered"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or unknown input"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden or setup right unavailable"
+          },
+          "409": {
+            "description": "Management precondition conflict"
+          },
+          "503": {
+            "description": "Temporary failure or KDF busy"
+          }
+        },
+        "description": "Same-origin password setup contract: docs/password-setup-contract.md. No-store JSON; no redirects, public registration or session/Bearer conversion. Invalid/expired/revoked setup rights use uniform 403.",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "operationId",
+                  "revision"
+                ],
+                "properties": {
+                  "operationId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740990
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/management/password-setup/operations/{operationId}": {
+      "get": {
+        "summary": "P1b-01 scoped password setup; see password-setup-contract.md",
+        "parameters": [
+          {
+            "name": "operationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scoped setup metadata; issuance secret only on new commit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "operationId",
+                    "snapshot"
+                  ],
+                  "properties": {
+                    "operationId": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                    },
+                    "snapshot": {
+                      "type": "object",
+                      "required": [
+                        "principalId",
+                        "revision",
+                        "authVersion",
+                        "rightId",
+                        "purpose",
+                        "expiresAt",
+                        "consumedAt",
+                        "revokedAt"
+                      ],
+                      "properties": {
+                        "principalId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                        },
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740990
+                        },
+                        "authVersion": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740990
+                        },
+                        "rightId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "purpose": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "enum": [
+                            "initial",
+                            "reset",
+                            null
+                          ]
+                        },
+                        "expiresAt": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "consumedAt": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        },
+                        "revokedAt": {
+                          "type": [
+                            "integer",
+                            "null"
+                          ]
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or unknown input"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden or setup right unavailable"
+          },
+          "409": {
+            "description": "Management precondition conflict"
+          },
+          "503": {
+            "description": "Temporary failure or KDF busy"
+          }
+        },
+        "description": "Same-origin password setup contract: docs/password-setup-contract.md. No-store JSON; no redirects, public registration or session/Bearer conversion. Invalid/expired/revoked setup rights use uniform 403.",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ]
+      }
+    },
+    "/api/auth/password-setup/context": {
+      "post": {
+        "summary": "P1b-01 scoped password setup; see password-setup-contract.md",
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Login challenge CSRF, not setup authorization",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scoped setup metadata; issuance secret only on new commit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "principalId",
+                    "loginId",
+                    "displayName",
+                    "purpose",
+                    "expiresAt"
+                  ],
+                  "properties": {
+                    "principalId": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                    },
+                    "loginId": {
+                      "type": "string"
+                    },
+                    "displayName": {
+                      "type": "string"
+                    },
+                    "purpose": {
+                      "enum": [
+                        "initial",
+                        "reset"
+                      ]
+                    },
+                    "expiresAt": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or unknown input"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden or setup right unavailable"
+          },
+          "409": {
+            "description": "Management precondition conflict"
+          },
+          "503": {
+            "description": "Temporary failure or KDF busy"
+          }
+        },
+        "description": "Same-origin password setup contract: docs/password-setup-contract.md. No-store JSON; no redirects, public registration or session/Bearer conversion. Invalid/expired/revoked setup rights use uniform 403.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "setupRight"
+                ],
+                "properties": {
+                  "setupRight": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                    "writeOnly": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/password-setup/complete": {
+      "post": {
+        "summary": "P1b-01 scoped password setup; see password-setup-contract.md",
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Login challenge CSRF, not setup authorization",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scoped setup metadata; issuance secret only on new commit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "operationId",
+                    "snapshot",
+                    "source"
+                  ],
+                  "properties": {
+                    "operationId": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                    },
+                    "snapshot": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "principalId",
+                        "authVersion",
+                        "configured"
+                      ],
+                      "properties": {
+                        "principalId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                        },
+                        "authVersion": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740990
+                        },
+                        "configured": {
+                          "const": true
+                        }
+                      }
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "committed",
+                        "recovered"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or unknown input"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden or setup right unavailable"
+          },
+          "409": {
+            "description": "Management precondition conflict"
+          },
+          "503": {
+            "description": "Temporary failure or KDF busy"
+          }
+        },
+        "description": "Same-origin password setup contract: docs/password-setup-contract.md. No-store JSON; no redirects, public registration or session/Bearer conversion. Invalid/expired/revoked setup rights use uniform 403.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "setupRight",
+                  "operationId",
+                  "password"
+                ],
+                "properties": {
+                  "setupRight": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                    "writeOnly": true
+                  },
+                  "operationId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 12,
+                    "x-max-utf8-bytes": 1024,
+                    "writeOnly": true
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/password-setup/result": {
+      "post": {
+        "summary": "P1b-01 scoped password setup; see password-setup-contract.md",
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "description": "Login challenge CSRF, not setup authorization",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scoped setup metadata; issuance secret only on new commit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "operationId",
+                    "snapshot"
+                  ],
+                  "properties": {
+                    "operationId": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                    },
+                    "snapshot": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "principalId",
+                        "authVersion",
+                        "configured"
+                      ],
+                      "properties": {
+                        "principalId": {
+                          "type": "string",
+                          "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                        },
+                        "authVersion": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740990
+                        },
+                        "configured": {
+                          "const": true
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid or unknown input"
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden or setup right unavailable"
+          },
+          "409": {
+            "description": "Management precondition conflict"
+          },
+          "503": {
+            "description": "Temporary failure or KDF busy"
+          }
+        },
+        "description": "Same-origin password setup contract: docs/password-setup-contract.md. No-store JSON; no redirects, public registration or session/Bearer conversion. Invalid/expired/revoked setup rights use uniform 403.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "setupRight",
+                  "operationId"
+                ],
+                "properties": {
+                  "setupRight": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{43}$",
+                    "writeOnly": true
+                  },
+                  "operationId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/browser-session/context": {
+      "post": {
+        "operationId": "browserSessionContext",
+        "security": [],
+        "description": "Same origin, login challenge Cookie and X-CSRF-Token. Binds browser-generated nonce to a dedicated Secure HttpOnly Cookie for 120 seconds.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "nonce": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{43}$"
+                  }
+                },
+                "required": [
+                  "nonce"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "expiresAt": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "expiresAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected or temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Rejected or temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Rejected or temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Rejected or temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Rejected or temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Rejected or temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Rejected or temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/browser-session/tickets": {
+      "post": {
+        "operationId": "browserSessionTickets",
+        "security": [
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "description": "Authenticated agent API credential only. 60 second, one-use ticket bound to nonce and original credential; no scope enlargement or credential transfer to browser.",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "nonce": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{43}$"
+                  }
+                },
+                "required": [
+                  "nonce"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ticket": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_-]{43}$"
+                    },
+                    "expiresAt": {
+                      "type": "integer"
+                    },
+                    "principalId": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "ticket",
+                    "expiresAt",
+                    "principalId"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected or temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Rejected or temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Rejected or temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Rejected or temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Rejected or temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Rejected or temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Rejected or temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/browser-session/redeem": {
+      "post": {
+        "operationId": "browserSessionRedeem",
+        "security": [],
+        "description": "Same-origin POST, dedicated browser proof Cookie and X-CSRF-Token. Atomic ticket/nonce consumption and HttpOnly session issuance. Current credential validity and issuance scope ceiling apply. No automatic resend.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-CSRF-Token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "nonce": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{43}$"
+                  },
+                  "ticket": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{43}$"
+                  }
+                },
+                "required": [
+                  "nonce",
+                  "ticket"
+                ],
+                "additionalProperties": false
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "authenticated": {
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "authenticated"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected or temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Rejected or temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Rejected or temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Rejected or temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Rejected or temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "Rejected or temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Rejected or temporarily unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/assignees": {
+      "get": {
+        "operationId": "listAssignablePrincipals",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          }
+        ],
+        "description": "Current view; active human/API principals with explicit project view membership. Display/assignment candidates grant no authority.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "principals": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                          },
+                          "kind": {
+                            "enum": [
+                              "human",
+                              "agent"
+                            ]
+                          },
+                          "displayName": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "kind",
+                          "displayName"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "principals"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Field validation / mixed authentication",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Current credentials invalid; no Issue body/snapshot/current",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current project permission/visibility refused, including missing/wrong-project targets; no body/snapshot/current",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Method not allowed",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database or operation unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IssueError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project}/wikis": {
+      "get": {
+        "operationId": "wikiList",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 999999,
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentList"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      },
+      "post": {
+        "operationId": "wikiCreate",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateContentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentMutationResult"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      }
+    },
+    "/api/projects/{project}/wikis/{content}": {
+      "get": {
+        "operationId": "wikiRead",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "content",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "document": {
+                      "$ref": "#/components/schemas/BodyDocument"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "wikiEdit",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "content",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "operationId",
+                  "body",
+                  "revision"
+                ],
+                "properties": {
+                  "operationId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                  },
+                  "body": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8192,
+                    "description": "Nonblank valid Unicode without NUL, unchanged text. UTF-8 <=8192 bytes AND encoded JSON string <=12288 bytes."
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740990
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentMutationResult"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      }
+    },
+    "/api/projects/{project}/wikis/{content}/history": {
+      "get": {
+        "operationId": "wikiHistory",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "content",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "afterRevision",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentHistoryPage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      }
+    },
+    "/api/projects/{project}/wiki-operations/{operation}": {
+      "get": {
+        "operationId": "wikiOperation",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "operation",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentMutationResult"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      }
+    },
+    "/api/projects/{project}/issues/{parent}/comments": {
+      "get": {
+        "operationId": "issueCommentList",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "parent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 999999,
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentList"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      },
+      "post": {
+        "operationId": "issueCommentCreate",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "parent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateContentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentMutationResult"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      }
+    },
+    "/api/projects/{project}/issues/{parent}/comments/{content}": {
+      "get": {
+        "operationId": "issueCommentRead",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "parent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "content",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "document": {
+                      "$ref": "#/components/schemas/BodyDocument"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "issueCommentEdit",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "parent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "content",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "operationId",
+                  "body",
+                  "revision"
+                ],
+                "properties": {
+                  "operationId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                  },
+                  "body": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8192,
+                    "description": "Nonblank valid Unicode without NUL, unchanged text. UTF-8 <=8192 bytes AND encoded JSON string <=12288 bytes."
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740990
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentMutationResult"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      }
+    },
+    "/api/projects/{project}/issues/{parent}/comments/{content}/history": {
+      "get": {
+        "operationId": "issueCommentHistory",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "parent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "content",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "afterRevision",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentHistoryPage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      }
+    },
+    "/api/projects/{project}/issues/{parent}/comment-operations/{operation}": {
+      "get": {
+        "operationId": "issueCommentOperation",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "parent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "operation",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentMutationResult"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      }
+    },
+    "/api/projects/{project}/wikis/{parent}/comments": {
+      "get": {
+        "operationId": "wikiCommentList",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "parent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 999999,
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentList"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      },
+      "post": {
+        "operationId": "wikiCommentCreate",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "parent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateContentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentMutationResult"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      }
+    },
+    "/api/projects/{project}/wikis/{parent}/comments/{content}": {
+      "get": {
+        "operationId": "wikiCommentRead",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "parent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "content",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "document": {
+                      "$ref": "#/components/schemas/BodyDocument"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "wikiCommentEdit",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "parent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "content",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "operationId",
+                  "body",
+                  "revision"
+                ],
+                "properties": {
+                  "operationId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                  },
+                  "body": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8192,
+                    "description": "Nonblank valid Unicode without NUL, unchanged text. UTF-8 <=8192 bytes AND encoded JSON string <=12288 bytes."
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740990
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentMutationResult"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      }
+    },
+    "/api/projects/{project}/wikis/{parent}/comments/{content}/history": {
+      "get": {
+        "operationId": "wikiCommentHistory",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "parent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "content",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "afterRevision",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentHistoryPage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      }
+    },
+    "/api/projects/{project}/wikis/{parent}/comment-operations/{operation}": {
+      "get": {
+        "operationId": "wikiCommentOperation",
+        "parameters": [
+          {
+            "name": "project",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "parent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "operation",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentMutationResult"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      }
+    },
+    "/api/management/principals/{principalId}": {
+      "patch": {
+        "description": "Global administrator: display/active update",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed JSON/no-store"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Invalid current credential"
+          },
+          "403": {
+            "description": "Insufficient explicit permission"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "operationId": {
+                    "type": "string"
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "active": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "operationId",
+                  "revision"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "principalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/management/credentials/{credentialId}/revoke": {
+      "post": {
+        "description": "Global administrator: revoke credential",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed JSON/no-store"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Invalid current credential"
+          },
+          "403": {
+            "description": "Insufficient explicit permission"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "operationId": {
+                    "type": "string"
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                },
+                "required": [
+                  "operationId",
+                  "revision"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "credentialId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/projects/{projectId}/memberships/{principalId}": {
+      "put": {
+        "description": "Project manage: explicit membership",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed JSON/no-store"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Invalid current credential"
+          },
+          "403": {
+            "description": "Insufficient explicit permission"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "operationId": {
+                    "type": "string"
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "permissions": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "view",
+                        "edit",
+                        "assign",
+                        "transition",
+                        "execute",
+                        "manage"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "operationId",
+                  "revision",
+                  "permissions"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "principalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/projects/{projectId}/credential-scopes/{credentialId}": {
+      "put": {
+        "description": "Project manage: credential scope",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed JSON/no-store"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Invalid current credential"
+          },
+          "403": {
+            "description": "Insufficient explicit permission"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "operationId": {
+                    "type": "string"
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 1
+                  },
+                  "permissions": {
+                    "type": "array",
+                    "items": {
+                      "enum": [
+                        "view",
+                        "edit",
+                        "assign",
+                        "transition",
+                        "execute",
+                        "manage"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "operationId",
+                  "revision",
+                  "permissions"
+                ]
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "credentialId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/management/operations/{operationId}": {
+      "get": {
+        "description": "Current-authority confirmed management snapshot",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed JSON/no-store"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Invalid current credential"
+          },
+          "403": {
+            "description": "Insufficient explicit permission"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        },
+        "parameters": [
+          {
+            "name": "operationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/projects/{projectId}/principals/{principalId}/display": {
+      "get": {
+        "description": "Current-view historical principal display",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed JSON/no-store"
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Invalid current credential"
+          },
+          "403": {
+            "description": "Insufficient explicit permission"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        },
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "principalId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/workspaces/{workspace}/wikis": {
+      "get": {
+        "operationId": "wikiList_get__api_workspaces_workspace_wikis",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 999999,
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          },
+          {
+            "name": "workspace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentList"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      },
+      "post": {
+        "operationId": "wikiCreate_post__api_workspaces_workspace_wikis",
+        "parameters": [
+          {
+            "name": "workspace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateContentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentMutationResult"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      }
+    },
+    "/api/workspaces/{workspace}/wikis/{content}": {
+      "get": {
+        "operationId": "wikiRead_get__api_workspaces_workspace_wikis_content_",
+        "parameters": [
+          {
+            "name": "content",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "workspace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "document": {
+                      "$ref": "#/components/schemas/BodyDocument"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "wikiEdit_patch__api_workspaces_workspace_wikis_content_",
+        "parameters": [
+          {
+            "name": "content",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "workspace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "operationId",
+                  "body",
+                  "revision"
+                ],
+                "properties": {
+                  "operationId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                  },
+                  "body": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8192,
+                    "description": "Nonblank valid Unicode without NUL, unchanged text. UTF-8 <=8192 bytes AND encoded JSON string <=12288 bytes."
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740990
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentMutationResult"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      }
+    },
+    "/api/workspaces/{workspace}/wikis/{content}/history": {
+      "get": {
+        "operationId": "wikiHistory_get__api_workspaces_workspace_wikis_content_history",
+        "parameters": [
+          {
+            "name": "content",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "afterRevision",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            }
+          },
+          {
+            "name": "workspace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentHistoryPage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      }
+    },
+    "/api/workspaces/{workspace}/wiki-operations/{operation}": {
+      "get": {
+        "operationId": "wikiOperation_get__api_workspaces_workspace_wiki_operations_operation_",
+        "parameters": [
+          {
+            "name": "operation",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "workspace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentMutationResult"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      }
+    },
+    "/api/workspaces/{workspace}/wikis/{parent}/comments": {
+      "get": {
+        "operationId": "wikiCommentList_get__api_workspaces_workspace_wikis_parent_comments",
+        "parameters": [
+          {
+            "name": "parent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 999999,
+              "default": 1
+            }
+          },
+          {
+            "name": "pageSize",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          },
+          {
+            "name": "workspace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentList"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      },
+      "post": {
+        "operationId": "wikiCommentCreate_post__api_workspaces_workspace_wikis_parent_comments",
+        "parameters": [
+          {
+            "name": "parent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "workspace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateContentInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentMutationResult"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      }
+    },
+    "/api/workspaces/{workspace}/wikis/{parent}/comments/{content}": {
+      "get": {
+        "operationId": "wikiCommentRead_get__api_workspaces_workspace_wikis_parent_comments_content_",
+        "parameters": [
+          {
+            "name": "parent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "content",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "workspace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "document": {
+                      "$ref": "#/components/schemas/BodyDocument"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "wikiCommentEdit_patch__api_workspaces_workspace_wikis_parent_comments_content_",
+        "parameters": [
+          {
+            "name": "parent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "content",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "workspace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "operationId",
+                  "body",
+                  "revision"
+                ],
+                "properties": {
+                  "operationId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                  },
+                  "body": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 8192,
+                    "description": "Nonblank valid Unicode without NUL, unchanged text. UTF-8 <=8192 bytes AND encoded JSON string <=12288 bytes."
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740990
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentMutationResult"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      }
+    },
+    "/api/workspaces/{workspace}/wikis/{parent}/comments/{content}/history": {
+      "get": {
+        "operationId": "wikiCommentHistory_get__api_workspaces_workspace_wikis_parent_comments_content_history",
+        "parameters": [
+          {
+            "name": "parent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "content",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "afterRevision",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            }
+          },
+          {
+            "name": "workspace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentHistoryPage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      }
+    },
+    "/api/workspaces/{workspace}/wikis/{parent}/comment-operations/{operation}": {
+      "get": {
+        "operationId": "wikiCommentOperation_get__api_workspaces_workspace_wikis_parent_comment_operations_operation_",
+        "parameters": [
+          {
+            "name": "parent",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "operation",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "workspace",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContentMutationResult"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Current authority, no-store; conflicts do not overwrite",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        }
+      }
+    },
+    "/api/directory": {
+      "get": {
+        "description": "Current credential/grant/ceiling-filtered project and workspace directory, original definitions",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed JSON/no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "projects",
+                    "workspaces",
+                    "definitions"
+                  ],
+                  "properties": {
+                    "projects": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "workspaces": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "definitions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Invalid current credential"
+          },
+          "403": {
+            "description": "Insufficient explicit permission"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/resolve": {
+      "get": {
+        "description": "Legacy project/key/number/slug URL to stable authorized ID; ambiguous URL rejected",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed JSON/no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "url",
+                    "id",
+                    "scopeId",
+                    "content"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Invalid current credential"
+          },
+          "403": {
+            "description": "Insufficient explicit permission"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        },
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/projects/{projectId}/source/{sourceTable}/{sourceId}": {
+      "get": {
+        "description": "Immutable original record and original activity/Wiki revision/resolution history; no fictional new operation or revision",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed JSON/no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "record",
+                    "history",
+                    "page",
+                    "historyTotal"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Invalid current credential"
+          },
+          "403": {
+            "description": "Insufficient explicit permission"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        },
+        "parameters": [
+          {
+            "name": "sourceTable",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "issues",
+                "wiki_pages",
+                "issue_comments",
+                "projects"
+              ]
+            }
+          },
+          {
+            "name": "sourceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    },
+    "/api/workspaces/{workspaceId}/source/{sourceTable}/{sourceId}": {
+      "get": {
+        "description": "Immutable original record and original activity/Wiki revision/resolution history; no fictional new operation or revision",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed JSON/no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "record",
+                    "history",
+                    "page",
+                    "historyTotal"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input"
+          },
+          "401": {
+            "description": "Invalid current credential"
+          },
+          "403": {
+            "description": "Insufficient explicit permission"
+          },
+          "409": {
+            "description": "Conflict"
+          },
+          "503": {
+            "description": "Unavailable/importing/write stopped; Retry-After: 1"
+          }
+        },
+        "parameters": [
+          {
+            "name": "sourceTable",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "issues",
+                "wiki_pages",
+                "issue_comments",
+                "projects"
+              ]
+            }
+          },
+          {
+            "name": "sourceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1
+            }
+          },
+          {
+            "name": "workspaceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-projektor_session"
+      },
+      "loginChallengeCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-projektor_login"
+      },
+      "individualApiBearer": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Individual 256bit opaque credential; not JWT. Header only."
+      }
+    },
+    "schemas": {
+      "Principal": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "displayName"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "human",
+              "agent"
+            ]
+          },
+          "displayName": {
+            "type": "string"
+          }
+        }
+      },
+      "Project": {
+        "type": "object",
+        "required": [
+          "id",
+          "permissions"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "view",
+                "edit",
+                "assign",
+                "transition",
+                "execute",
+                "manage"
+              ]
+            }
+          }
+        }
+      },
+      "Identity": {
+        "type": "object",
+        "required": [
+          "principal",
+          "authentication",
+          "projects"
+        ],
+        "properties": {
+          "principal": {
+            "$ref": "#/components/schemas/Principal"
+          },
+          "authentication": {
+            "enum": [
+              "session",
+              "api"
+            ]
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Project"
+            }
+          },
+          "csrfToken": {
+            "type": "string",
+            "description": "Only Cookie authentication; fresh value retrieved after reload."
+          }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "LoginInput": {
+        "type": "object",
+        "required": [
+          "loginId",
+          "password"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "loginId": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "description": "At most 1024 UTF-8 bytes; not truncated or normalized."
+          }
+        }
+      },
+      "Issue": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^(?:I_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+          },
+          "projectId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192,
+            "description": "Nonblank valid Unicode without NUL, unchanged text. UTF-8 <=8192 bytes AND encoded JSON string <=12288 bytes."
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "priority": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 5
+          },
+          "assigneeId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,128}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "assignee": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                  },
+                  "kind": {
+                    "enum": [
+                      "human",
+                      "agent"
+                    ]
+                  },
+                  "displayName": {
+                    "type": "string"
+                  },
+                  "active": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "id",
+                  "kind",
+                  "displayName",
+                  "active"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "enum": [
+              "Backlog",
+              "Todo",
+              "In Progress",
+              "In Review",
+              "Done",
+              "Canceled"
+            ]
+          },
+          "resolvedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "resolution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimeValue"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/Schedule"
+          },
+          "title": {
+            "type": "string",
+            "description": "Independent title, <=4096 UTF-8 bytes"
+          },
+          "workspaceId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "metadata": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Immutable original imported attributes, separate from current fields"
+          },
+          "revisionOrigin": {
+            "enum": [
+              "native",
+              "source-version",
+              "new-import-baseline"
+            ]
+          },
+          "number": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "typeId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "statusId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdById": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "priorityKey": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "none",
+              "low",
+              "medium",
+              "high",
+              "urgent",
+              null
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "projectId",
+          "body",
+          "revision",
+          "createdAt",
+          "updatedAt",
+          "priority",
+          "assigneeId",
+          "assignee",
+          "state",
+          "resolvedAt",
+          "resolution",
+          "schedule"
+        ],
+        "additionalProperties": false
+      },
+      "CreateIssueInput": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192,
+            "description": "Nonblank valid Unicode without NUL, unchanged text. UTF-8 <=8192 bytes AND encoded JSON string <=12288 bytes."
+          },
+          "title": {
+            "type": "string",
+            "description": "Issue/Wiki only; <=4096 UTF-8 bytes"
+          }
+        },
+        "required": [
+          "operationId",
+          "body"
+        ],
+        "additionalProperties": false
+      },
+      "EditIssueInput": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740990
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192,
+            "description": "Nonblank valid Unicode without NUL, unchanged text. UTF-8 <=8192 bytes AND encoded JSON string <=12288 bytes."
+          },
+          "priority": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 5
+          },
+          "assigneeId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,128}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "state": {
+            "enum": [
+              "Backlog",
+              "Todo",
+              "In Progress",
+              "In Review",
+              "Done",
+              "Canceled"
+            ]
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/Schedule"
+          },
+          "title": {
+            "type": "string",
+            "description": "Issue/Wiki only; <=4096 UTF-8 bytes"
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "typeId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "operationId",
+          "revision"
+        ],
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "body"
+            ]
+          },
+          {
+            "required": [
+              "priority"
+            ]
+          },
+          {
+            "required": [
+              "assigneeId"
+            ]
+          },
+          {
+            "required": [
+              "state"
+            ]
+          },
+          {
+            "required": [
+              "schedule"
+            ]
+          },
+          {
+            "required": [
+              "title"
+            ]
+          },
+          {
+            "required": [
+              "parentId"
+            ]
+          },
+          {
+            "required": [
+              "typeId"
+            ]
+          }
+        ]
+      },
+      "IssueMutationResult": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/Issue"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "committed",
+              "recovered"
+            ]
+          }
+        },
+        "required": [
+          "operationId",
+          "snapshot",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "IssueReadResult": {
+        "type": "object",
+        "properties": {
+          "issue": {
+            "$ref": "#/components/schemas/Issue"
+          }
+        },
+        "required": [
+          "issue"
+        ],
+        "additionalProperties": false
+      },
+      "IssueOperationResult": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/Issue"
+          }
+        },
+        "required": [
+          "operationId",
+          "snapshot"
+        ],
+        "additionalProperties": false
+      },
+      "IssueHistory": {
+        "type": "object",
+        "properties": {
+          "issueId": {
+            "type": "string",
+            "pattern": "^I_[a-f0-9]{64}$"
+          },
+          "projectId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "actorId": {
+            "type": "string"
+          },
+          "actorName": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "issue.create",
+              "issue.edit"
+            ]
+          },
+          "beforeBody": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "afterBody": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192,
+            "description": "Nonblank valid Unicode without NUL, unchanged text. UTF-8 <=8192 bytes AND encoded JSON string <=12288 bytes."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "changedFields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "before": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Issue"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "after": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Issue"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "issueId",
+          "projectId",
+          "revision",
+          "operationId",
+          "actorId",
+          "actorName",
+          "kind",
+          "beforeBody",
+          "afterBody",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "IssueHistoryPage": {
+        "type": "object",
+        "properties": {
+          "history": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "$ref": "#/components/schemas/IssueHistory"
+            }
+          },
+          "nextAfterRevision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "resolutionEvents": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "object",
+              "properties": {
+                "revision": {
+                  "type": "integer"
+                },
+                "kind": {
+                  "enum": [
+                    "resolved",
+                    "reopened"
+                  ]
+                },
+                "time": {
+                  "$ref": "#/components/schemas/TimeValue"
+                },
+                "recordedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "required": [
+                "revision",
+                "kind",
+                "time",
+                "recordedAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextResolutionAfterRevision": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "history",
+          "nextAfterRevision"
+        ],
+        "additionalProperties": false
+      },
+      "IssueError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "reason": {
+            "type": "string"
+          },
+          "current": {
+            "$ref": "#/components/schemas/Issue"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      },
+      "TimeValue": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "date"
+              },
+              "date": {
+                "type": "string",
+                "format": "date"
+              }
+            },
+            "required": [
+              "kind",
+              "date"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "instant"
+              },
+              "at": {
+                "type": "string",
+                "format": "date-time",
+                "description": "Offset required; normalized to UTC ISO8601. No implicit midnight for dates."
+              }
+            },
+            "required": [
+              "kind",
+              "at"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "unknown"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "Schedule": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimeValue"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "end": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimeValue"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "due": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimeValue"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "due"
+        ],
+        "additionalProperties": false
+      },
+      "IssueList": {
+        "type": "object",
+        "properties": {
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Issue"
+            }
+          },
+          "total": {
+            "type": "integer"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "order": {
+            "const": "priority"
+          }
+        },
+        "required": [
+          "issues",
+          "total",
+          "page",
+          "pageSize",
+          "order"
+        ],
+        "additionalProperties": false
+      },
+      "BodyDocument": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^(?:[IWC]_[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$"
+          },
+          "projectId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "body": {
+            "type": "string",
+            "maxLength": 32768,
+            "description": "Wiki permits blank body, <=32768 UTF-8 bytes; comments remain nonblank <=8192 UTF-8 bytes. Exact Unicode/body bytes preserved."
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "kind": {
+            "enum": [
+              "wiki",
+              "comment"
+            ]
+          },
+          "parentKind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "issue",
+              "wiki",
+              null
+            ]
+          },
+          "parentId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "type": "string",
+            "description": "Independent title, <=4096 UTF-8 bytes"
+          },
+          "workspaceId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "metadata": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "Immutable original imported attributes, separate from current fields"
+          },
+          "revisionOrigin": {
+            "enum": [
+              "native",
+              "source-version",
+              "new-import-baseline"
+            ]
+          },
+          "scopeId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "projectId",
+          "body",
+          "revision",
+          "createdAt",
+          "updatedAt",
+          "kind"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "kind": {
+                  "const": "comment"
+                }
+              },
+              "required": [
+                "kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "body": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 8192,
+                  "description": "Nonblank <=8192 UTF-8 bytes"
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ContentMutationResult": {
+        "type": "object",
+        "required": [
+          "operationId",
+          "snapshot"
+        ],
+        "properties": {
+          "operationId": {
+            "type": "string"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/BodyDocument"
+          },
+          "source": {
+            "enum": [
+              "committed",
+              "recovered"
+            ]
+          }
+        }
+      },
+      "ContentHistoryPage": {
+        "type": "object",
+        "required": [
+          "history",
+          "nextAfterRevision"
+        ],
+        "properties": {
+          "history": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ContentHistory"
+            }
+          },
+          "nextAfterRevision": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "resolutionEvents": {
+            "type": "array",
+            "maxItems": 0
+          },
+          "nextResolutionAfterRevision": {
+            "type": "null"
+          }
+        }
+      },
+      "ContentList": {
+        "type": "object",
+        "required": [
+          "documents",
+          "total",
+          "page",
+          "pageSize"
+        ],
+        "properties": {
+          "documents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BodyDocument"
+            }
+          },
+          "total": {
+            "type": "integer"
+          },
+          "page": {
+            "type": "integer"
+          },
+          "pageSize": {
+            "type": "integer"
+          }
+        }
+      },
+      "CreateContentInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "operationId",
+          "body"
+        ],
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "body": {
+            "type": "string",
+            "description": "Wiki: blank allowed, <=32768 UTF-8 bytes. Comment: nonblank, <=8192 bytes. Valid Unicode without NUL."
+          },
+          "title": {
+            "type": "string",
+            "description": "Issue/Wiki only; <=4096 UTF-8 bytes"
+          }
+        }
+      },
+      "ContentHistory": {
+        "type": "object",
+        "required": [
+          "revision",
+          "operationId",
+          "actorName",
+          "kind",
+          "beforeBody",
+          "afterBody",
+          "createdAt"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "operationId": {
+            "type": "string"
+          },
+          "actorName": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "wiki.create",
+              "wiki.edit",
+              "comment.create",
+              "comment.edit"
+            ]
+          },
+          "beforeBody": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "afterBody": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "beforeTitle": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "afterTitle": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
