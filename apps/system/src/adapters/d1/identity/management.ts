@@ -2,7 +2,7 @@
 // @role private-management
 import type { Permission } from "../../../modules/identity/dto";
 import type { AuthDB,Authenticated } from './db';
-import {currentCredentialSql,currentPermissionsSql} from "./authorization";
+import {currentCredentialSql,currentPermissionSetSql,credentialCeilingSql,authorityValid} from "./authorization";
 import {executeMutation,readMutationResult,recoverMutation,type MutationAdapter,type MutationTarget,type ReadPolicyFor,} from "../persistence/transaction";
 import {MutationError,type Json} from "../persistence/public";
 import {sql,type Sql} from "../primitives";
@@ -12,6 +12,7 @@ export {type ManagementCommand} from "../../../modules/identity/rules";
 import type {ManagementPlan,ManagementPlanningRead} from "../../../modules/identity/ports";
 import type {ManagementSnapshot} from "../../../modules/identity/public";
 import {failedChange} from "../persistence/outcomes";
+import {unavailableScopeProjection,type IdentityScopeProjection} from './scope-projection';
 function globalOperation(kind:string):boolean{return managementAuthority(kind)==='global-administrator';}
 function visible(t: MutationTarget): Sql {
   if(t.kind==='management.membership.set')
@@ -22,33 +23,43 @@ function visible(t: MutationTarget): Sql {
   if(t.kind==='management.credential.scope')return sql('EXISTS(SELECT 1 FROM credential_project_records WHERE credential_id=? AND project_id=?)',t.targetId,t.projectId);
   return sql('EXISTS(SELECT 1 FROM api_credentials WHERE id=?)',t.targetId);
 }
+/** Missing relationships are an authorized edit proposal, never implicit membership. */
 export function managementSnapshot(t: MutationTarget): Sql {
   if(t.kind==='management.membership.set')return sql(`SELECT json_object('principalId',r.principal_id,'projectId',r.project_id,'revision',r.revision,
     'permissions',json((SELECT json_group_array(permission) FROM(SELECT permission FROM memberships WHERE principal_id=r.principal_id AND project_id=r.project_id ORDER BY permission))))
-    FROM principal_project_records r WHERE r.principal_id=? AND r.project_id=?`,t.targetId,t.projectId);
+    FROM principal_project_records r WHERE r.principal_id=? AND r.project_id=?
+    UNION ALL SELECT json_object('principalId',id,'projectId',?,'revision',0,'permissions',json('[]'),'relationExists',json('false'))
+    FROM principals WHERE id=? AND NOT EXISTS(SELECT 1 FROM principal_project_records WHERE principal_id=? AND project_id=?)`,t.targetId,t.projectId,t.projectId,t.targetId,t.targetId,t.projectId);
   if(t.kind==='management.principal.update'||t.kind==='management.principal.create')return sql(`SELECT json_object('principalId',p.id,'kind',p.kind,'displayName',p.display_name,'active',p.active,
     'authVersion',p.auth_version,'globalAdministrator',r.global_administrator,'revision',r.revision)
     FROM principals p JOIN principal_management r ON r.principal_id=p.id WHERE p.id=?`,t.targetId);
   if(t.kind==='management.credential.revoke')return sql(`SELECT json_object('credentialId',c.id,'principalId',c.principal_id,'expiresAt',c.expires_at,
     'revokedAt',c.revoked_at,'revision',r.revision) FROM api_credentials c JOIN credential_management r ON r.credential_id=c.id WHERE c.id=?`,t.targetId);
-  return sql(`SELECT json_object('credentialId',c.id,'principalId',c.principal_id,'expiresAt',c.expires_at,'revokedAt',c.revoked_at,
+  return sql(`SELECT CASE WHEN EXISTS(SELECT 1 FROM credential_project_records WHERE credential_id=? AND project_id=?) THEN snapshot
+    ELSE json_set(snapshot,'$.relationExists',json('false')) END FROM(SELECT json_object('credentialId',c.id,'principalId',c.principal_id,'expiresAt',c.expires_at,'revokedAt',c.revoked_at,
     'revision',r.revision,'projectId',?,'permissions',json((SELECT json_group_array(permission) FROM(SELECT permission FROM api_grants
-      WHERE credential_id=c.id AND project_id=? ORDER BY permission))))
-    FROM api_credentials c JOIN credential_management r ON r.credential_id=c.id WHERE c.id=?`,t.projectId,t.projectId,t.targetId);
+      WHERE credential_id=c.id AND project_id=? ORDER BY permission)))) snapshot
+    FROM api_credentials c JOIN credential_management r ON r.credential_id=c.id WHERE c.id=?)`,t.targetId,t.projectId,t.projectId,t.projectId,t.targetId);
 }
+/** Only existing Work scopes and existing Identity targets can receive a first relation. */
+export function managementRelationVisible(t:MutationTarget,scopes:IdentityScopeProjection):Sql {
+ const existing=visible(t),scope=scopes.exists(sql('?',t.projectId));
+ const target=t.kind==='management.membership.set'?sql('EXISTS(SELECT 1 FROM principals WHERE id=?)',t.targetId):sql('EXISTS(SELECT 1 FROM api_credentials WHERE id=?)',t.targetId);
+ return sql(`(${existing.text}) OR ((${scope.text}) AND (${target.text}))`,...existing.values,...scope.values,...target.values);
+}
+
 function resource(t: MutationTarget): {table:string;where:Sql} {
   if(t.kind==='management.membership.set')return {table:'principal_project_records',where:sql('principal_id=? AND project_id=?',t.targetId,t.projectId)};
   if(t.kind==='management.principal.update')return {table:'principal_management',where:sql('principal_id=?',t.targetId)};
   return {table:'credential_management',where:sql('credential_id=?',t.targetId)};
 }
 export function managementPolicies(): ReadPolicyFor {
-  return kind=>kind==='management.principal.create'?{visible,authority:'global-administrator'}:kinds.some(k=>k===kind)?{visible,authority:globalOperation(kind)?'global-administrator':'project'}:undefined;
+  return kind=>kind==='management.principal.create'?{visible,authority:'global-administrator'}:kinds.some(k=>k===kind)?{visible,authority:managementAuthority(kind),...(!globalOperation(kind)?{legacyAuthorities:['project' as const]}:{})}:undefined;
 }
-async function before(db: AuthDB, auth: Authenticated, command: ManagementCommand): Promise<string> {
-  const credential=currentCredentialSql(auth),rights=globalOperation(command.kind)
-    ?sql('EXISTS(SELECT 1 FROM principal_management WHERE principal_id=? AND global_administrator=1)',auth.id)
-    :currentPermissionsSql(auth,command.projectId,['view','manage']);
-  const target=visible(command),current=managementSnapshot(command);
+async function before(db: AuthDB, auth: Authenticated, command: ManagementCommand,scopes:IdentityScopeProjection): Promise<string> {
+  const credential=currentCredentialSql(auth),rights=authorityValid(auth,managementAuthority(command.kind),command.projectId,JSON.stringify(['view','manage']));
+  const creating=('createRelation'in command.input)&&command.input.createRelation===true;
+  const target=creating?managementRelationVisible(command,scopes):visible(command),current=managementSnapshot(command);
   const q=sql(`SELECT (${credential.text}) AS authenticated,(${rights.text}) AND (${target.text}) AS permitted,
     CASE WHEN (${credential.text}) AND (${rights.text}) AND (${target.text}) THEN (${current.text}) ELSE NULL END AS snapshot`,
     ...credential.values,...rights.values,...target.values,...credential.values,...rights.values,...target.values,...current.values);
@@ -57,24 +68,36 @@ async function before(db: AuthDB, auth: Authenticated, command: ManagementComman
   if(!row.permitted||row.snapshot===null)throw new MutationError(403,'forbidden');
   return row.snapshot;
 }
-function adapter(auth: Authenticated, plan:ManagementPlan): MutationAdapter<Json> {
+function adapter(auth: Authenticated, plan:ManagementPlan,scopes:IdentityScopeProjection): MutationAdapter<Json> {
   const command=plan.command,old=JSON.stringify(plan.expected);
   const r=resource(command),current=managementSnapshot(command);
   const parsed: {permissions?:Permission[]}=JSON.parse(old) as {permissions?:Permission[]};
-  const oldCount=parsed.permissions?.length??0;
+  const oldCount=parsed.permissions?.length??0,scoped=command.kind==='management.membership.set'||command.kind==='management.credential.scope';
+  const creating=scoped&&command.input.createRelation===true;
+  const added=JSON.stringify(plan.grantedPermissions??[]),actorRights=currentPermissionSetSql(auth,command.projectId,sql('?',added));
+  const global=authorityValid(auth,'global-administrator',command.projectId,'[]');
+  const ceiling=credentialCeilingSql(auth,sql('?',command.projectId),sql('wanted.value'));
+  const grantCeiling=sql(`((${global.text}) OR (${actorRights.text})) AND NOT EXISTS(SELECT 1 FROM json_each(?) wanted WHERE NOT (${ceiling.text}))`,...global.values,...actorRights.values,added,...ceiling.values);
+  const targetCeiling=sql(`NOT EXISTS(SELECT 1 FROM json_each(?) wanted WHERE NOT EXISTS(SELECT 1 FROM memberships m JOIN api_credentials c ON c.principal_id=m.principal_id WHERE c.id=? AND m.project_id=? AND m.permission=wanted.value))`,added,command.targetId,command.projectId);
+  const missingRelation=command.kind==='management.membership.set'?sql('NOT EXISTS(SELECT 1 FROM principal_project_records WHERE principal_id=? AND project_id=?)',command.targetId,command.projectId):sql('NOT EXISTS(SELECT 1 FROM credential_project_records WHERE credential_id=? AND project_id=?)',command.targetId,command.projectId);
   return {
-    authority:globalOperation(command.kind)?'global-administrator':'project',
-    permissions:globalOperation(command.kind)?[]:['manage'],visible,current:managementSnapshot,
+    authority:managementAuthority(command.kind),
+    permissions:globalOperation(command.kind)?[]:['manage'],visible:creating?t=>managementRelationVisible(t,scopes):visible,current:managementSnapshot,
     preconditions:()=>[
+      ...(scoped?[{reason:'grant_ceiling',valid:grantCeiling}]:[]),
+      ...(command.kind==='management.credential.scope'?[{reason:'target_membership_ceiling',valid:targetCeiling}]:[]),
+      ...(creating?[{reason:'relation_exists',valid:missingRelation},{reason:'scope_unavailable',valid:scopes.exists(sql('?',command.projectId))}]:[]),
       ...(command.kind==='management.membership.set'?[{reason:'target_inactive',valid:sql('EXISTS(SELECT 1 FROM principals WHERE id=? AND active=1)',command.targetId)}]:[]),
       ...(command.kind==='management.credential.scope'?[{reason:'credential_inactive',valid:sql(`EXISTS(SELECT 1 FROM api_credentials c JOIN principals p ON p.id=c.principal_id
         WHERE c.id=? AND c.revoked_at IS NULL AND c.expires_at>unixepoch() AND p.active=1)`,command.targetId)}]:[]),
-      {reason:'revision_conflict',valid:sql(`EXISTS(SELECT 1 FROM ${r.table} WHERE ${r.where.text} AND revision=?)`,...r.where.values,command.input.revision)},
+      {reason:'revision_conflict',valid:creating&&command.kind==='management.membership.set'?sql('?',Number(command.input.revision===0)):sql(`EXISTS(SELECT 1 FROM ${r.table} WHERE ${r.where.text} AND revision=?)`,...r.where.values,command.input.revision)},
       {reason:'target_changed',valid:sql(`(${current.text})=?`,...current.values,old)},
     ],
     updates:()=>{
-      const writes=[{statement:sql(`UPDATE ${r.table} SET before_snapshot=(${current.text}),revision=revision+1 WHERE ${r.where.text} AND revision=?`,
-        ...current.values,...r.where.values,command.input.revision),expectedChanges:1}];
+      const writes=[{statement:creating&&command.kind==='management.membership.set'
+        ?sql('INSERT INTO principal_project_records(principal_id,project_id,revision,before_snapshot) VALUES(?,?,1,?)',command.targetId,command.projectId,old)
+        :sql(`UPDATE ${r.table} SET before_snapshot=?,revision=revision+1 WHERE ${r.where.text} AND revision=?`,old,...r.where.values,command.input.revision),expectedChanges:1}];
+      if(creating&&command.kind==='management.credential.scope')writes.push({statement:sql('INSERT INTO credential_project_records(credential_id,project_id) VALUES(?,?)',command.targetId,command.projectId),expectedChanges:1});
       if(command.kind==='management.membership.set'||command.kind==='management.credential.scope'){
         const membership=command.kind==='management.membership.set',table=membership?'memberships':'api_grants',column=membership?'principal_id':'credential_id';
         if(oldCount>0)writes.push({statement:sql(`DELETE FROM ${table} WHERE ${column}=? AND project_id=?`,command.targetId,command.projectId),expectedChanges:oldCount});
@@ -95,15 +118,15 @@ function adapter(auth: Authenticated, plan:ManagementPlan): MutationAdapter<Json
   };
 }
 /** Receipt-first read preserves authorized replay even when the current state has moved on. */
-export async function readManagementForChange(db:AuthDB,auth:Authenticated,command:ManagementCommand):Promise<ManagementPlanningRead>{
+export async function readManagementForChange(db:AuthDB,auth:Authenticated,command:ManagementCommand,scopes:IdentityScopeProjection=unavailableScopeProjection):Promise<ManagementPlanningRead>{
  try{
   const recovered=await recoverMutation(db,auth,command,managementPolicies());
   if(recovered)return{kind:'outcome',outcome:{application:'confirmed',disclosure:'allowed',source:'recovered',receipt:{operationId:command.operationId,snapshot:recovered.snapshot as unknown as ManagementSnapshot}}};
-  return{kind:'observed',snapshot:JSON.parse(await before(db,auth,command)) as ManagementSnapshot};
+  return{kind:'observed',snapshot:JSON.parse(await before(db,auth,command,scopes)) as ManagementSnapshot};
  }catch(error){return{kind:'outcome',outcome:failedChange<ManagementSnapshot>(command.operationId,error)};}
 }
-export function executeManagement(db:AuthDB,auth:Authenticated,plan:ManagementPlan){
- return executeMutation(db,auth,plan.command,adapter(auth,plan),managementPolicies());
+export function executeManagement(db:AuthDB,auth:Authenticated,plan:ManagementPlan,scopes:IdentityScopeProjection=unavailableScopeProjection){
+ return executeMutation(db,auth,plan.command,adapter(auth,plan,scopes),managementPolicies());
 }
 export function readManagementResult(db: AuthDB, auth: Authenticated, operationId: string) {
   return readMutationResult(db,auth,operationId,managementPolicies());

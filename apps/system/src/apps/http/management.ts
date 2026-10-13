@@ -13,13 +13,13 @@ function json(body: unknown,status=200): Response {
 }
 /** Management API. Explicit registration only; no administrator assignment or credential issuance. */
 export async function managementApi(request: Request,requests:RequestServices,origin: string): Promise<Response|null> {
-  const url=new URL(request.url),path=url.pathname,id='([A-Za-z0-9_-]{1,128})';
+  const url=new URL(request.url),path=url.pathname,id='([A-Za-z0-9_-]{1,128})',scopeId='([A-Za-z0-9_-]{1,128}|workspace(?::|%3[Aa])[a-fA-F0-9-]{36})';
   const principal=path.match(new RegExp(`^/api/management/principals/${id}$`));
   const revoke=path.match(new RegExp(`^/api/management/credentials/${id}/revoke$`));
-  const membership=path.match(new RegExp(`^/api/projects/${id}/memberships/${id}$`));
-  const scope=path.match(new RegExp(`^/api/projects/${id}/credential-scopes/${id}$`));
+  const membership=path.match(new RegExp(`^/api/projects/${scopeId}/memberships/${id}$`));
+  const scope=path.match(new RegExp(`^/api/projects/${scopeId}/credential-scopes/${id}$`));
   const result=path.match(new RegExp(`^/api/management/operations/${id}$`));
-  const display=path.match(new RegExp(`^/api/projects/${id}/principals/${id}/display$`));
+  const display=path.match(new RegExp(`^/api/projects/${scopeId}/principals/${id}/display$`));
   const context=path==='/api/management/context',collection=path==='/api/management/records',record=path.match(new RegExp(`^/api/management/records/${id}$`)),history=path==='/api/management/history',registration=path==='/api/management/principals';
   if(!principal&&!revoke&&!membership&&!scope&&!result&&!display&&!context&&!collection&&!record&&!history&&!registration)return null;
  const resultOperationId=request.method==='GET'?result?.[1]:undefined;
@@ -40,18 +40,18 @@ export async function managementApi(request: Request,requests:RequestServices,or
       return json(await changeValue(services.identity.managementRegister(parsePrincipalRegistration(await readJsonInput(request)))));
     }
     if(result&&request.method==='GET')return json({snapshot:(await resultValue(services.identity.managementResult(result[1]),undefined,resultOperationId)).snapshot});
-    if(display&&request.method==='GET')return json(await readValue(services.identity.displayPrincipal(display[1],display[2])));
+    if(display&&request.method==='GET')return json(await readValue(services.identity.displayPrincipal(decodeURIComponent(display[1]),display[2])));
     if(!(principal&&request.method==='PATCH')&&!(revoke&&request.method==='POST')
       &&!((membership||scope)&&request.method==='PUT'))return json({error:'method_not_allowed'},405);
     if(services.actor.authentication==='session'){requireOrigin(request,origin);requireCsrf(request,services.actor);}
     const body=await readJsonInput(request);
-    const allowed=principal?['operationId','revision','displayName','active']:revoke?['operationId','revision']:['operationId','revision','permissions'];
+    const allowed=principal?['operationId','revision','displayName','active']:revoke?['operationId','revision']:['operationId','revision','permissions','createRelation'];
     if(Object.keys(body).some(key=>!allowed.includes(key)))throw new ApiError(400,'invalid_input',{body:'unknown fields'});
     const {operationId,...change}=body;
     const route=principal?{kind:'management.principal.update',targetId:principal[1],projectId:'GLOBAL'}
       :revoke?{kind:'management.credential.revoke',targetId:revoke[1],projectId:'GLOBAL'}
-      :membership?{kind:'management.membership.set',targetId:membership[2],projectId:membership[1]}
-      :{kind:'management.credential.scope',targetId:scope![2],projectId:scope![1]};
+      :membership?{kind:'management.membership.set',targetId:membership[2],projectId:decodeURIComponent(membership[1])}
+      :{kind:'management.credential.scope',targetId:scope![2],projectId:decodeURIComponent(scope![1])};
     const command={...route,operationId,input:change};
     return json(await changeValue(services.identity.managementExecute(parseManagementCommand(command))));
   }catch(error){

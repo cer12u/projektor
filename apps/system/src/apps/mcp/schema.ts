@@ -50,7 +50,15 @@ export const reports=z.strictObject({execution:execution.nullable(),reports:z.ar
 export const reconciled=z.strictObject({confirmation,importedReport:report.nullable(),nextAction:z.enum(['restart','existing_result_imported','remain_interrupted']),execution:execution.nullable()});
 export const restarted=z.strictObject({attempt:execution,confirmation,nextAction:z.literal('execute_new_attempt')});
 export const reportSnapshot=z.union([report,reconciled,restarted]);
-export const snapshot=z.union([issue,document,execution,reportSnapshot]);
+export const directoryEntity=z.discriminatedUnion('kind',[
+ z.strictObject({kind:z.literal('workspace'),id:identifier,scopeId:scope,name:text,revision}),
+ z.strictObject({kind:z.literal('project'),id:identifier,workspaceId:identifier,key:text,slug:text,name:text,description:text,revision})
+]);
+export const workspaceCreate=z.strictObject({operationId:identifier,name:text.min(1).max(200)});
+export const workspaceUpdate=workspaceCreate.extend({revision});
+export const projectCreate=workspaceCreate.extend({workspaceId:identifier,key:text.regex(/^[A-Za-z0-9][A-Za-z0-9_-]*$/).max(128),slug:text.regex(/^[a-z0-9][a-z0-9-]*$/).max(128),description:text.max(4000)});
+export const projectUpdate=z.strictObject({operationId:identifier,revision,name:text.min(1).max(200).optional(),description:text.max(4000).optional()}).refine(x=>x.name!==undefined||x.description!==undefined);
+export const snapshot=z.union([issue,document,execution,reportSnapshot,directoryEntity]);
 export const receipt=z.strictObject({operationId:text,snapshot});
 export const mutationReceipt=receipt.extend({source:z.enum(['committed','recovered'])});
 export const errorResult=z.strictObject({error:text,status:z.number().int(),fields:z.record(text,text).optional(),reason:text.optional(),current:jsonValue.optional(),
@@ -93,6 +101,8 @@ export const operationResource=z.discriminatedUnion('kind',[
 ]);
 
 export const operationRoute=z.discriminatedUnion('kind',[
+  z.strictObject({kind:z.literal('project'),id:identifier.optional()}),
+  z.strictObject({kind:z.literal('workspace'),id:identifier.optional()}),
   z.strictObject({kind:z.literal('issue'),projectId:identifier,id:issueId.optional()}),
   z.strictObject({kind:z.literal('wiki'),projectId:scope,id:wikiId.optional()}),
   z.strictObject({kind:z.literal('comment'),projectId:scope,parentKind:z.enum(['issue','wiki']),parentId:z.union([issueId,wikiId]),id:commentId.optional()}),
@@ -100,7 +110,7 @@ export const operationRoute=z.discriminatedUnion('kind',[
   z.strictObject({kind:z.literal('report'),projectId:identifier,issueId,action:z.enum(['progress','failed','completed','reconcile','restart'])})
 ]);
 export const storedInput=z.union([
-  issueCreate,issueUpdate,wikiCreate,wikiUpdate,commentCreate,commentUpdate,
+  issueCreate,issueUpdate,wikiCreate,wikiUpdate,commentCreate,commentUpdate,workspaceCreate,workspaceUpdate,projectCreate,projectUpdate,
   z.strictObject({operationId:identifier}),
   z.strictObject({operationId:identifier,attemptId,leaseVersion:revision}),
   z.strictObject(reportInput),
@@ -110,7 +120,7 @@ export const storedInput=z.union([
 ]);
 const durableFields={sequence:revision,operationId:identifier,recorded:z.literal(true),
   inputHash:text.regex(/^[a-f0-9]{64}$/),route:operationRoute,
-  target:z.strictObject({kind:text,targetId:text,projectId:scope}),requiredPermissions:z.array(z.enum(['view','edit','assign','transition','execute'])),
+  target:z.strictObject({kind:text,targetId:text,projectId:scope}),requiredPermissions:z.array(z.enum(['view','edit','assign','transition','execute','manage'])),
   preparedAt:natural,result:z.discriminatedUnion('status',[z.strictObject({status:z.literal('unknown')}),z.strictObject({status:z.literal('confirmed'),snapshot})])};
 
 /** Preparation remains strict. Retained pre-fencing reports are readable data, never new commands. */

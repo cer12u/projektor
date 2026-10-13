@@ -192,8 +192,8 @@ assert.deepEqual(await db.prepare('SELECT revision,state,resolved_at FROM issues
 assert.equal(await db.prepare("SELECT count(*) n FROM operation_results WHERE operation_id='state_race'").first('n'),0);
 save('state_planning_revision_race_does_not_replan_or_commit');
 // Imported status selection is a pure choice; cardinality and exact ID are rechecked atomically.
-await db.prepare("INSERT INTO workspaces VALUES('W_STATE','Synthetic workspace','{}')").run();
-await db.prepare("INSERT INTO projects VALUES('P','W_STATE','P','p','Synthetic project','','{}')").run();
+await db.prepare("INSERT INTO workspaces(id,name,source_json) VALUES('W_STATE','Synthetic workspace','{}')").run();
+await db.prepare("INSERT INTO projects(id,workspace_id,key,slug,name,description,source_json) VALUES('P','W_STATE','P','p','Synthetic project','','{}')").run();
 await db.prepare("INSERT INTO imported_entities VALUES('task_statuses','done-original','W_STATE','workspace:W_STATE','{\"key\":\"done\"}','synthetic-done')").run();
 await db.prepare("INSERT INTO imported_entities VALUES('task_statuses','todo-original','W_STATE','workspace:W_STATE','{\"key\":\"todo\"}','synthetic-todo')").run();
 await db.prepare("UPDATE issues SET metadata_json='{}',workspace_id='W_STATE' WHERE id=?").bind(stateIssue).run();
@@ -294,6 +294,46 @@ await assert.rejects(db.prepare("DELETE FROM operation_intents WHERE operation_i
 await assert.rejects(db.prepare("INSERT OR REPLACE INTO operation_intents SELECT * FROM operation_intents WHERE operation_id='delayed_prepare'").run(),/immutable/);
 await assert.rejects(db.prepare("INSERT OR REPLACE INTO operation_intents SELECT sequence,'AGENT_B',operation_id,format_version,operation_kind,target_id,project_id,route_json,input_json,input_hash,required_permissions,prepared_at FROM operation_intents WHERE operation_id='delayed_prepare'").run(),/immutable/);
 assert.equal((await call('get',{operationId:'delayed_prepare'},'B')).status,404);save('immutable_input_and_retention_enforced_in_d1');
+// Directory commands retain their original input across restart; creation requires current
+// global authority while editing permits the explicit view/manage scope intersection.
+await db.prepare("UPDATE principal_management SET global_administrator=1 WHERE principal_id='AGENT_A'").run();
+const directoryPreparation={route:{kind:'workspace'},input:{operationId:'directory_workspace_create',name:'Exact durable workspace'}};
+result=await call('prepare',directoryPreparation);assert.equal(result.status,200,JSON.stringify(result.body));
+const workspaceTarget=result.body.target.targetId,workspaceScope='workspace:'+workspaceTarget,originalHash=result.body.inputHash;
+assert.equal(await db.prepare('SELECT count(*) n FROM workspaces WHERE id=?').bind(workspaceTarget).first('n'),0);
+await mf.dispose();await start();
+result=await call('get',{operationId:'directory_workspace_create'});assert.equal(result.status,200);assert.deepEqual(result.body.input,directoryPreparation.input);assert.equal(result.body.inputHash,originalHash);
+result=await call('execute',{operationId:'directory_workspace_create'});assert.equal(result.status,200,JSON.stringify(result.body));assert.equal(result.body.snapshot.id,workspaceTarget);
+result=await call('execute',{operationId:'directory_workspace_create'});assert.equal(result.status,200);assert.equal(result.body.source,'recovered');assert.equal(result.metrics.businessBatches,0);
+assert.equal(await db.prepare('SELECT count(*) n FROM memberships WHERE project_id=?').bind(workspaceScope).first('n'),0);
+await db.prepare("UPDATE principal_management SET global_administrator=0 WHERE principal_id='AGENT_A'").run();
+for(const path of ['get','execute'])assert.equal((await call(path,{operationId:'directory_workspace_create'})).status,403);
+assert.equal((await call('list',{})).body.operations.some(x=>x.operationId==='directory_workspace_create'),false);
+for(const permission of ['view','manage']){
+ await db.prepare("INSERT INTO memberships VALUES('AGENT_A',?,?)").bind(workspaceScope,permission).run();
+ await db.prepare("INSERT INTO api_grants VALUES('KEY_A',?,?)").bind(workspaceScope,permission).run();
+}
+const directoryEdit={route:{kind:'workspace',id:workspaceTarget},input:{operationId:'directory_workspace_edit',revision:1,name:'Scoped manager edit'}};
+result=await call('prepare',directoryEdit);assert.equal(result.status,200,JSON.stringify(result.body));
+await db.prepare("DELETE FROM api_grants WHERE credential_id='KEY_A' AND project_id=? AND permission='manage'").bind(workspaceScope).run();
+for(const path of ['get','execute'])assert.equal((await call(path,{operationId:'directory_workspace_edit'})).status,403);
+await db.prepare("INSERT INTO api_grants VALUES('KEY_A',?,'manage')").bind(workspaceScope).run();
+result=await call('execute',{operationId:'directory_workspace_edit'});assert.equal(result.status,200,JSON.stringify(result.body));assert.equal(result.body.snapshot.revision,2);
+await db.prepare("DELETE FROM memberships WHERE principal_id='AGENT_A' AND project_id=? AND permission='manage'").bind(workspaceScope).run();
+for(const path of ['get','execute'])assert.equal((await call(path,{operationId:'directory_workspace_edit'})).status,403);
+await db.prepare("INSERT INTO memberships VALUES('AGENT_A',?,'manage')").bind(workspaceScope).run();
+await db.prepare(`INSERT INTO operation_intents(principal_id,operation_id,format_version,operation_kind,target_id,project_id,route_json,input_json,input_hash,required_permissions,prepared_at)
+ SELECT principal_id,'directory_malformed',1,operation_kind,target_id,project_id,json_set(route_json,'$.id','OTHER'),json_set(input_json,'$.operationId','directory_malformed'),input_hash,required_permissions,prepared_at FROM operation_intents WHERE operation_id='directory_workspace_edit'`).run();
+assert.equal((await call('get',{operationId:'directory_malformed'})).status,403);
+assert.equal((await call('list',{})).body.operations.some(x=>x.operationId==='directory_malformed'),false);
+await db.prepare(`INSERT INTO operation_intents(principal_id,operation_id,format_version,operation_kind,target_id,project_id,route_json,input_json,input_hash,required_permissions,prepared_at)
+ SELECT principal_id,'directory_future',2,operation_kind,target_id,project_id,route_json,json_set(input_json,'$.operationId','directory_future'),input_hash,required_permissions,prepared_at FROM operation_intents WHERE operation_id='directory_workspace_edit'`).run();
+assert.equal((await call('get',{operationId:'directory_future'})).status,200);
+result=await call('execute',{operationId:'directory_future'});assert.equal(result.status,409);assert.equal(result.body.error,'operation_format_unsupported');
+await db.prepare(`INSERT INTO operation_intents(principal_id,operation_id,format_version,operation_kind,target_id,project_id,route_json,input_json,input_hash,required_permissions,prepared_at)
+ SELECT principal_id,'directory_bad_input',1,operation_kind,target_id,project_id,route_json,input_json,input_hash,required_permissions,prepared_at FROM operation_intents WHERE operation_id='directory_workspace_edit'`).run();
+assert.equal((await call('get',{operationId:'directory_bad_input'})).status,403);
+save('directory_restart_receipt_first_and_current_global_or_scoped_authority');
 assert.equal(report.externalRequests,0);report.passed=true;
 }catch(error){report.passed=false;report.failure={name:error.name,message:error.message,stack:error.stack};throw error;}
 finally{report.changedSourcesDuringRun=[];for(const file of capturedFiles){if(createHash('sha256').update(await readFile(resolve(candidate,file))).digest('hex')!==report.sourceHashes[file])report.changedSourcesDuringRun.push(file);}report.finishedAt=new Date().toISOString();await writeFile(output,JSON.stringify(report,null,2)+'\n');if(mf)await mf.dispose();await rm(root,{recursive:true,force:true});}

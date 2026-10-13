@@ -1,5 +1,6 @@
 // @module work
 // @role application
+import {normalizeDirectoryChange,validateDirectoryQuery} from './directory-rules';
 import {InputError,type Failure,type ReadOutcome,type ChangeOutcome,type ResultOutcome} from "../change-outcomes";
 import type {WorkContent} from './public';
 import {needsIssueState,decideIssueChange,decideContentChange} from "./decisions";
@@ -39,6 +40,10 @@ export function createWorkContent(port:WorkContentPort):WorkContent {
   contentHistory:x=>read(()=>{validateContentRoute(x.projectId,x.resource,x.id);validateHistoryPage(x.afterRevision,x.limit);},()=>port.contentHistory(x)),
   changeContent:(x,fence)=>change(x.input?.operationId??'',()=>{const command=normalizeContentChange(x);return port.commitContentChange(command,decideContentChange(command),fence);}),
   contentResult:x=>result(()=>{validateContentRoute(x.projectId,x.resource);validateOperationId(x.operationId);},()=>port.contentResult(x)),
+  changeDirectory:(x,fence)=>change(x.input?.operationId??'',()=>port.commitDirectoryChange(normalizeDirectoryChange(x),fence)),
+  directoryEntity:x=>read(()=>validateDirectoryQuery(x),()=>port.directoryEntity(x)),
+  directoryHistory:x=>read(()=>{validateDirectoryQuery(x);validateHistoryPage(x.afterRevision??0,x.limit??20);},()=>port.directoryHistory(x)),
+  directoryResult:x=>result(()=>validateOperationId(x.operationId),()=>port.directoryResult(x)),
   directory:()=>read(()=>{},()=>port.directory()),
   resolveLegacy:x=>read(()=>validateLegacyReference(x),()=>port.resolveLegacy(x)),
   importedSource:x=>read(()=>validateImportedSource(x),()=>port.importedSource(x))

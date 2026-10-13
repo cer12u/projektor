@@ -11533,7 +11533,7 @@
                   },
                   "revision": {
                     "type": "integer",
-                    "minimum": 1,
+                    "minimum": 0,
                     "maximum": 9007199254740990
                   },
                   "permissions": {
@@ -11548,6 +11548,9 @@
                         "manage"
                       ]
                     }
+                  },
+                  "createRelation": {
+                    "const": true
                   }
                 },
                 "required": [
@@ -11555,7 +11558,32 @@
                   "revision",
                   "permissions"
                 ],
-                "additionalProperties": false
+                "additionalProperties": false,
+                "allOf": [
+                  {
+                    "if": {
+                      "required": [
+                        "createRelation"
+                      ]
+                    },
+                    "then": {
+                      "properties": {
+                        "revision": {
+                          "const": 0
+                        }
+                      }
+                    },
+                    "else": {
+                      "properties": {
+                        "revision": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740990
+                        }
+                      }
+                    }
+                  }
+                ]
               }
             }
           },
@@ -11568,7 +11596,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+              "pattern": "^(?:[A-Za-z0-9_-]{1,128}|workspace:[a-fA-F0-9-]{36})$"
             }
           },
           {
@@ -11605,11 +11633,12 @@
           "stopped": "common mutations reject 503 write_stopped; no commit"
         },
         "x-permissions": {
-          "authority": "project",
+          "authority": "global-administrator-or-scoped-manager",
           "required": [
             "view",
             "manage"
-          ]
+          ],
+          "grantCeiling": "new permissions only; current actor rights or global administrator, always within credential/session ceiling; API grants also within target principal memberships"
         },
         "x-response-policy": {
           "cacheControl": "no-store",
@@ -11920,6 +11949,9 @@
                         "manage"
                       ]
                     }
+                  },
+                  "createRelation": {
+                    "const": true
                   }
                 },
                 "required": [
@@ -11940,7 +11972,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+              "pattern": "^(?:[A-Za-z0-9_-]{1,128}|workspace:[a-fA-F0-9-]{36})$"
             }
           },
           {
@@ -11977,11 +12009,12 @@
           "stopped": "common mutations reject 503 write_stopped; no commit"
         },
         "x-permissions": {
-          "authority": "project",
+          "authority": "global-administrator-or-scoped-manager",
           "required": [
             "view",
             "manage"
-          ]
+          ],
+          "grantCeiling": "new permissions only; current actor rights or global administrator, always within credential/session ceiling; API grants also within target principal memberships"
         },
         "x-response-policy": {
           "cacheControl": "no-store",
@@ -12461,7 +12494,7 @@
             "required": true,
             "schema": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+              "pattern": "^(?:[A-Za-z0-9_-]{1,128}|workspace:[a-fA-F0-9-]{36})$"
             }
           },
           {
@@ -15691,12 +15724,16 @@
                       "items": {
                         "$ref": "#/components/schemas/DirectoryDefinition"
                       }
+                    },
+                    "management": {
+                      "$ref": "#/components/schemas/DirectoryManagement"
                     }
                   },
                   "required": [
                     "projects",
                     "workspaces",
-                    "definitions"
+                    "definitions",
+                    "management"
                   ],
                   "additionalProperties": false
                 }
@@ -15883,9 +15920,8 @@
           "stopped": "route evaluated"
         },
         "x-permissions": {
-          "authority": "authenticated",
-          "required": [],
-          "disclosure": "Only scopes with current view grant are returned; empty directory succeeds."
+          "authority": "current Identity",
+          "disclosure": "Display collections require current view. Management collections require global administration or scoped view+manage; canCreate requires global administration. No membership is granted."
         },
         "x-response-policy": {
           "cacheControl": "no-store",
@@ -17449,7 +17485,7 @@
             "individualApiBearer": []
           }
         ],
-        "description": "Current authority rechecked on each disclosure. principal/credential require global administrator; projectId omitted, empty, or GLOBAL. membership/scope require explicit projectId and current view/manage plus credential grants and session ceiling. Unknown/repeated query rejected. Stable ascending ID pages (records) or audit row cursor (history); page size fixed at 50.",
+        "description": "Current authority rechecked on each disclosure. principal/credential require global administrator; projectId omitted, empty, or GLOBAL. membership/scope require explicit projectId and current global administrator or view/manage plus credential grants and session ceiling. Missing relations return relationExists:false only for an existing Work scope and existing Identity target. First membership uses revision 0; first credential scope retains the current credential-wide revision. PUT requires explicit createRelation:true for either first relation. New rights require current actor rights (global administrator may bootstrap) within its credential/session ceiling; new API grants also require target principal memberships. Existing higher rights may be retained or revoked. Unknown/repeated query rejected. Stable ascending ID pages (records) or audit row cursor (history); page size fixed at 50.",
         "parameters": [
           {
             "name": "kind",
@@ -17470,7 +17506,7 @@
             "required": false,
             "schema": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+              "pattern": "^(?:[A-Za-z0-9_-]{1,128}|workspace:[a-fA-F0-9-]{36})$"
             }
           },
           {
@@ -17724,7 +17760,7 @@
             "individualApiBearer": []
           }
         ],
-        "description": "Current authority rechecked on each disclosure. principal/credential require global administrator; projectId omitted, empty, or GLOBAL. membership/scope require explicit projectId and current view/manage plus credential grants and session ceiling. Unknown/repeated query rejected. Stable ascending ID pages (records) or audit row cursor (history); page size fixed at 50.",
+        "description": "Current authority rechecked on each disclosure. principal/credential require global administrator; projectId omitted, empty, or GLOBAL. membership/scope require explicit projectId and current global administrator or view/manage plus credential grants and session ceiling. Missing relations return relationExists:false only for an existing Work scope and existing Identity target. First membership uses revision 0; first credential scope retains the current credential-wide revision. PUT requires explicit createRelation:true for either first relation. New rights require current actor rights (global administrator may bootstrap) within its credential/session ceiling; new API grants also require target principal memberships. Existing higher rights may be retained or revoked. Unknown/repeated query rejected. Stable ascending ID pages (records) or audit row cursor (history); page size fixed at 50.",
         "parameters": [
           {
             "name": "kind",
@@ -17745,7 +17781,7 @@
             "required": false,
             "schema": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+              "pattern": "^(?:[A-Za-z0-9_-]{1,128}|workspace:[a-fA-F0-9-]{36})$"
             }
           },
           {
@@ -17983,7 +18019,7 @@
             "individualApiBearer": []
           }
         ],
-        "description": "Current authority rechecked on each disclosure. principal/credential require global administrator; projectId omitted, empty, or GLOBAL. membership/scope require explicit projectId and current view/manage plus credential grants and session ceiling. Unknown/repeated query rejected. Stable ascending ID pages (records) or audit row cursor (history); page size fixed at 50.",
+        "description": "Current authority rechecked on each disclosure. principal/credential require global administrator; projectId omitted, empty, or GLOBAL. membership/scope require explicit projectId and current global administrator or view/manage plus credential grants and session ceiling. Missing relations return relationExists:false only for an existing Work scope and existing Identity target. First membership uses revision 0; first credential scope retains the current credential-wide revision. PUT requires explicit createRelation:true for either first relation. New rights require current actor rights (global administrator may bootstrap) within its credential/session ceiling; new API grants also require target principal memberships. Existing higher rights may be retained or revoked. Unknown/repeated query rejected. Stable ascending ID pages (records) or audit row cursor (history); page size fixed at 50.",
         "parameters": [
           {
             "name": "kind",
@@ -18004,7 +18040,7 @@
             "required": false,
             "schema": {
               "type": "string",
-              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+              "pattern": "^(?:[A-Za-z0-9_-]{1,128}|workspace:[a-fA-F0-9-]{36})$"
             }
           },
           {
@@ -24871,6 +24907,1142 @@
         }
       }
     },
+    "/api/projects": {
+      "post": {
+        "operationId": "createProject",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Exact configured Origin required for session authentication."
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Current CSRF token required for session authentication."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryMutationReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          }
+        },
+        "x-response-policy": {
+          "cacheControl": "no-store",
+          "contentType": "application/json",
+          "redirects": false
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProjectInput"
+              }
+            }
+          },
+          "x-max-utf8-bytes": 32768
+        },
+        "description": "Global administrator only. Deterministic actor/operation-bound identifier. Atomic current authority, business insert, history and receipt; never grants membership. Same-ID replay recovers identical input only."
+      }
+    },
+    "/api/projects/{id}": {
+      "patch": {
+        "operationId": "editProject",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Exact configured Origin required for session authentication."
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Current CSRF token required for session authentication."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryMutationReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          }
+        },
+        "x-response-policy": {
+          "cacheControl": "no-store",
+          "contentType": "application/json",
+          "redirects": false
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditProjectInput"
+              }
+            }
+          },
+          "x-max-utf8-bytes": 32768
+        },
+        "description": "Current global administrator or scoped view+manage, including credential ceiling. Revision checked atomically. IDs, project workspace, key and slug are immutable. Response disclosure rechecks current authority."
+      },
+      "get": {
+        "operationId": "getManagedProject",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedProject"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          }
+        },
+        "x-response-policy": {
+          "cacheControl": "no-store",
+          "contentType": "application/json",
+          "redirects": false
+        }
+      }
+    },
+    "/api/projects/{id}/history": {
+      "get": {
+        "operationId": "getProjectHistory",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "afterRevision",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryHistory"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          }
+        },
+        "x-response-policy": {
+          "cacheControl": "no-store",
+          "contentType": "application/json",
+          "redirects": false
+        }
+      }
+    },
+    "/api/workspaces": {
+      "post": {
+        "operationId": "createWorkspace",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Exact configured Origin required for session authentication."
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Current CSRF token required for session authentication."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryMutationReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          }
+        },
+        "x-response-policy": {
+          "cacheControl": "no-store",
+          "contentType": "application/json",
+          "redirects": false
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkspaceInput"
+              }
+            }
+          },
+          "x-max-utf8-bytes": 32768
+        },
+        "description": "Global administrator only. Deterministic actor/operation-bound identifier. Atomic current authority, business insert, history and receipt; never grants membership. Same-ID replay recovers identical input only."
+      }
+    },
+    "/api/workspaces/{id}": {
+      "patch": {
+        "operationId": "editWorkspace",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "Origin",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Exact configured Origin required for session authentication."
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Current CSRF token required for session authentication."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryMutationReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          }
+        },
+        "x-response-policy": {
+          "cacheControl": "no-store",
+          "contentType": "application/json",
+          "redirects": false
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditWorkspaceInput"
+              }
+            }
+          },
+          "x-max-utf8-bytes": 32768
+        },
+        "description": "Current global administrator or scoped view+manage, including credential ceiling. Revision checked atomically. IDs, project workspace, key and slug are immutable. Response disclosure rechecks current authority."
+      },
+      "get": {
+        "operationId": "getManagedWorkspace",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedWorkspace"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          }
+        },
+        "x-response-policy": {
+          "cacheControl": "no-store",
+          "contentType": "application/json",
+          "redirects": false
+        }
+      }
+    },
+    "/api/workspaces/{id}/history": {
+      "get": {
+        "operationId": "getWorkspaceHistory",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "afterRevision",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryHistory"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          }
+        },
+        "x-response-policy": {
+          "cacheControl": "no-store",
+          "contentType": "application/json",
+          "redirects": false
+        }
+      }
+    },
+    "/api/directory-operations/{operationId}": {
+      "get": {
+        "operationId": "getDirectoryOperation",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "operationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectoryError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "JSON; Cache-Control: no-store",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicError"
+                }
+              }
+            }
+          }
+        },
+        "x-response-policy": {
+          "cacheControl": "no-store",
+          "contentType": "application/json",
+          "redirects": false
+        },
+        "description": "Current-authorized immutable receipt lookup. Missing or denied receipt keeps application unknown and cannot authorize a new operation ID."
+      }
+    },
     "/api/agent/operations": {
       "get": {
         "operationId": "listAgentOperationSummaries",
@@ -25725,7 +26897,8 @@
         ],
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "pattern": "^(?:[A-Za-z0-9_-]{1,128}|workspace:[a-fA-F0-9-]{36})$"
           },
           "permissions": {
             "type": "array",
@@ -26855,6 +28028,10 @@
         "type": "string",
         "pattern": "^[A-Za-z0-9_-]{1,128}$"
       },
+      "ScopeIdentifier": {
+        "type": "string",
+        "pattern": "^(?:[A-Za-z0-9_-]{1,128}|workspace:[a-fA-F0-9-]{36})$"
+      },
       "Permission": {
         "enum": [
           "view",
@@ -27156,11 +28333,11 @@
           },
           "projectId": {
             "type": "string",
-            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            "pattern": "^(?:[A-Za-z0-9_-]{1,128}|workspace:[a-fA-F0-9-]{36})$"
           },
           "revision": {
             "type": "integer",
-            "minimum": 1,
+            "minimum": 0,
             "maximum": 9007199254740990
           },
           "permissions": {
@@ -27175,6 +28352,9 @@
                 "manage"
               ]
             }
+          },
+          "relationExists": {
+            "const": false
           }
         },
         "required": [
@@ -27183,7 +28363,23 @@
           "revision",
           "permissions"
         ],
-        "additionalProperties": false
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "revision": {
+                  "const": 0
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "relationExists"
+              ]
+            }
+          }
+        ]
       },
       "ManagementCredential": {
         "type": "object",
@@ -27255,7 +28451,7 @@
           },
           "projectId": {
             "type": "string",
-            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            "pattern": "^(?:[A-Za-z0-9_-]{1,128}|workspace:[a-fA-F0-9-]{36})$"
           },
           "permissions": {
             "type": "array",
@@ -27269,6 +28465,9 @@
                 "manage"
               ]
             }
+          },
+          "relationExists": {
+            "const": false
           }
         },
         "required": [
@@ -27303,7 +28502,7 @@
         "properties": {
           "projectId": {
             "type": "string",
-            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            "pattern": "^(?:[A-Za-z0-9_-]{1,128}|workspace:[a-fA-F0-9-]{36})$"
           },
           "permissions": {
             "type": "array",
@@ -27441,6 +28640,11 @@
           },
           "description": {
             "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740990
           }
         },
         "required": [
@@ -27449,7 +28653,8 @@
           "key",
           "slug",
           "name",
-          "description"
+          "description",
+          "revision"
         ],
         "additionalProperties": false
       },
@@ -27465,12 +28670,18 @@
           },
           "name": {
             "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740990
           }
         },
         "required": [
           "id",
           "scopeId",
-          "name"
+          "name",
+          "revision"
         ],
         "additionalProperties": false
       },
@@ -28950,8 +30161,508 @@
         ],
         "additionalProperties": false
       },
+      "ManagedProject": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "const": "project"
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "workspaceId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "key": {
+            "type": "string"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740990
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "workspaceId",
+          "key",
+          "slug",
+          "name",
+          "description",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "ManagedWorkspace": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "const": "workspace"
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "scopeId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740990
+          }
+        },
+        "required": [
+          "kind",
+          "id",
+          "scopeId",
+          "name",
+          "revision"
+        ],
+        "additionalProperties": false
+      },
+      "DirectoryEntity": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ManagedProject"
+          },
+          {
+            "$ref": "#/components/schemas/ManagedWorkspace"
+          }
+        ]
+      },
+      "DirectoryManagement": {
+        "type": "object",
+        "properties": {
+          "canCreate": {
+            "type": "boolean"
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedProject"
+            }
+          },
+          "workspaces": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedWorkspace"
+            }
+          }
+        },
+        "required": [
+          "canCreate",
+          "projects",
+          "workspaces"
+        ],
+        "additionalProperties": false
+      },
+      "DirectoryHistory": {
+        "type": "object",
+        "properties": {
+          "history": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "revision": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740990
+                },
+                "operationId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                },
+                "actorId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                },
+                "recordedAt": {
+                  "type": "string"
+                },
+                "before": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/DirectoryEntity"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "after": {
+                  "$ref": "#/components/schemas/DirectoryEntity"
+                }
+              },
+              "required": [
+                "revision",
+                "operationId",
+                "actorId",
+                "recordedAt",
+                "before",
+                "after"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextAfterRevision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740990
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "history",
+          "nextAfterRevision"
+        ],
+        "additionalProperties": false
+      },
+      "DirectoryReceipt": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/DirectoryEntity"
+          }
+        },
+        "required": [
+          "operationId",
+          "snapshot"
+        ],
+        "additionalProperties": false
+      },
+      "DirectoryError": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/PublicError"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "error": {
+                "const": "forbidden"
+              },
+              "mutationOutcome": {
+                "type": "object",
+                "properties": {
+                  "operationId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                  },
+                  "status": {
+                    "const": "not_applied"
+                  },
+                  "phase": {
+                    "const": "pre_dispatch"
+                  }
+                },
+                "required": [
+                  "operationId",
+                  "status",
+                  "phase"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "error",
+              "mutationOutcome"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "DirectoryMutationReceipt": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/DirectoryEntity"
+          },
+          "source": {
+            "enum": [
+              "committed",
+              "recovered"
+            ]
+          }
+        },
+        "required": [
+          "operationId",
+          "snapshot",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "CreateWorkspaceInput": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "operationId",
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "EditWorkspaceInput": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740990
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "\\S"
+          }
+        },
+        "required": [
+          "operationId",
+          "revision",
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "CreateProjectInput": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "workspaceId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "key": {
+            "type": "string",
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+          },
+          "slug": {
+            "type": "string",
+            "maxLength": 128,
+            "pattern": "^[a-z0-9][a-z0-9-]*$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "\\S"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "operationId",
+          "workspaceId",
+          "key",
+          "slug",
+          "name",
+          "description"
+        ],
+        "additionalProperties": false
+      },
+      "EditProjectInput": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740990
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "\\S"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "operationId",
+          "revision"
+        ],
+        "additionalProperties": false,
+        "anyOf": [
+          {
+            "required": [
+              "name"
+            ]
+          },
+          {
+            "required": [
+              "description"
+            ]
+          }
+        ]
+      },
       "OperationPreparationInput": {
         "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "route": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "project"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              "input": {
+                "$ref": "#/components/schemas/CreateProjectInput"
+              }
+            },
+            "required": [
+              "route",
+              "input"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "route": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "project"
+                  },
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ],
+                "additionalProperties": false
+              },
+              "input": {
+                "$ref": "#/components/schemas/EditProjectInput"
+              }
+            },
+            "required": [
+              "route",
+              "input"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "route": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "workspace"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "additionalProperties": false
+              },
+              "input": {
+                "$ref": "#/components/schemas/CreateWorkspaceInput"
+              }
+            },
+            "required": [
+              "route",
+              "input"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "route": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "workspace"
+                  },
+                  "id": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "id"
+                ],
+                "additionalProperties": false
+              },
+              "input": {
+                "$ref": "#/components/schemas/EditWorkspaceInput"
+              }
+            },
+            "required": [
+              "route",
+              "input"
+            ],
+            "additionalProperties": false
+          },
           {
             "type": "object",
             "properties": {
@@ -29547,6 +31258,64 @@
             "type": "object",
             "properties": {
               "kind": {
+                "const": "project"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "project"
+              },
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,128}$"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "workspace"
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "workspace"
+              },
+              "id": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,128}$"
+              }
+            },
+            "required": [
+              "kind",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
                 "const": "issue"
               },
               "projectId": {
@@ -29939,6 +31708,18 @@
       "OperationInput": {
         "anyOf": [
           {
+            "$ref": "#/components/schemas/CreateProjectInput"
+          },
+          {
+            "$ref": "#/components/schemas/EditProjectInput"
+          },
+          {
+            "$ref": "#/components/schemas/CreateWorkspaceInput"
+          },
+          {
+            "$ref": "#/components/schemas/EditWorkspaceInput"
+          },
+          {
             "$ref": "#/components/schemas/CreateIssueInput"
           },
           {
@@ -29995,6 +31776,9 @@
           },
           {
             "$ref": "#/components/schemas/ExecutionRestart"
+          },
+          {
+            "$ref": "#/components/schemas/DirectoryEntity"
           }
         ]
       },
@@ -30055,7 +31839,8 @@
                 "edit",
                 "assign",
                 "transition",
-                "execute"
+                "execute",
+                "manage"
               ]
             }
           },
@@ -30173,7 +31958,8 @@
                 "edit",
                 "assign",
                 "transition",
-                "execute"
+                "execute",
+                "manage"
               ]
             }
           },
@@ -30386,7 +32172,8 @@
                 "edit",
                 "assign",
                 "transition",
-                "execute"
+                "execute",
+                "manage"
               ]
             }
           },

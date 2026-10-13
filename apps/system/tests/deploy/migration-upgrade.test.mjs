@@ -10,10 +10,10 @@ import {fileURLToPath} from 'node:url';
 const hash=x=>createHash('sha256').update(x).digest('hex');
 const quote=x=>'"'+x.replaceAll('"','""')+'"';
 const directory=new URL('../../migrations/',import.meta.url);
-test('0017 through0019 retains representative existing identities, histories, receipts, leases and prepared intents',async()=>{
+test('0017 through0021 retains representative existing identities, histories, receipts, leases and prepared intents',async()=>{
  const startedAt=new Date().toISOString(),db=new DatabaseSync(':memory:');
  try{
-  const names=(await readdir(directory)).filter(n=>n.endsWith('.sql')).sort();assert.equal(names.length,19);
+  const names=(await readdir(directory)).filter(n=>n.endsWith('.sql')).sort();assert.equal(names.length,21);
   db.exec('CREATE TABLE d1_migrations(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT UNIQUE,applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)');
   const migrationHashes={};
   for(const name of names.slice(0,17)){const bytes=await readFile(new URL(name,directory));migrationHashes[name]=hash(bytes);db.exec(bytes.toString());db.prepare('INSERT INTO d1_migrations(name) VALUES(?)').run(name);}
@@ -43,7 +43,8 @@ test('0017 through0019 retains representative existing identities, histories, re
   db.exec("UPDATE write_gate SET mode='stopped',epoch=4");
   assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(),[]);
   const tables=db.prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name<>'d1_migrations' ORDER BY name").all().map(r=>r.name);
-  const snapshot=()=>Object.fromEntries(tables.map(name=>[name,db.prepare('SELECT * FROM '+quote(name)).all().map(r=>JSON.stringify(r)).sort()]));
+  const columns=Object.fromEntries(tables.map(name=>[name,db.prepare('PRAGMA table_info('+quote(name)+')').all().map(c=>quote(c.name)).join(',')]));
+  const snapshot=()=>Object.fromEntries(tables.map(name=>[name,db.prepare('SELECT '+columns[name]+' FROM '+quote(name)).all().map(r=>JSON.stringify(r)).sort()]));
   const before=snapshot(),baselineLedger=db.prepare('SELECT * FROM d1_migrations ORDER BY id').all();
   const existingObjects=db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY name").all();
   const migration=await readFile(new URL(names[17],directory));migrationHashes[names[17]]=hash(migration);
@@ -64,7 +65,7 @@ test('0017 through0019 retains representative existing identities, histories, re
   assert.equal(db.prepare('SELECT count(*) n FROM recipient_setup_contexts').get().n,0);
   assert.deepEqual(snapshot(),before,'every preexisting application row, identifier and value is retained');
   assert.deepEqual(db.prepare('SELECT * FROM d1_migrations ORDER BY id LIMIT 17').all(),baselineLedger);
-  assert.deepEqual(db.prepare('SELECT name FROM d1_migrations ORDER BY id').all().map(r=>r.name),names);
+  assert.deepEqual(db.prepare('SELECT name FROM d1_migrations ORDER BY id').all().map(r=>r.name),names.slice(0,19));
   const afterObjects=db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY name").all();
   assert.deepEqual(afterObjects.filter(r=>existingObjects.some(x=>x.name===r.name)),existingObjects);
   for(const statement of ["UPDATE owner_setup_contexts SET expires_at=1600","UPDATE owner_setup_contexts SET operation_id='other'","UPDATE owner_setup_contexts SET owner_id='A'"])assert.throws(()=>db.exec(statement),/immutable|fixed/);
@@ -86,8 +87,23 @@ test('0017 through0019 retains representative existing identities, histories, re
   assert.throws(()=>db.exec("UPDATE issue_history SET actor_name='replacement'"),/immutable/);
   assert.throws(()=>db.exec("UPDATE operation_intents SET input_json='{}'"),/immutable/);
   assert.throws(()=>db.exec("UPDATE operation_results SET snapshot='{}'"),/immutable/);
+  // Populated referenced receipts and immutable prepared inputs survive both table rebuilds.
+  for(const name of names.slice(19)){
+   const bytes=await readFile(new URL(name,directory));migrationHashes[name]=hash(bytes);
+   const schemaBefore=db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY name").all();
+   db.exec('BEGIN IMMEDIATE');db.exec(bytes.toString());assert.throws(()=>db.prepare('INSERT INTO d1_migrations(name) VALUES(?)').run(names[0]),/UNIQUE/);db.exec('ROLLBACK');
+   assert.deepEqual(snapshot(),before,'failed migration keeps old rows');assert.deepEqual(db.prepare("SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%' ORDER BY name").all(),schemaBefore,'failed migration keeps old tables and immutable triggers');
+   db.exec('BEGIN IMMEDIATE');db.exec(bytes.toString());db.prepare('INSERT INTO d1_migrations(name) VALUES(?)').run(name);db.exec('COMMIT');
+   assert.deepEqual(snapshot(),before,'table rebuild preserves every original field and identifier');assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(),[]);
+  }
+  assert.deepEqual(db.prepare('SELECT name FROM d1_migrations ORDER BY id').all().map(r=>r.name),names);
+  assert.equal(db.prepare("SELECT revision FROM projects WHERE id='P'").get().revision,1);
+  assert.equal(db.prepare('SELECT count(*) n FROM directory_history').get().n,0);
+  assert.throws(()=>db.exec("UPDATE operation_results SET snapshot='{}'"),/immutable/);
+  assert.throws(()=>db.exec("UPDATE operation_intents SET input_json='{}'"),/immutable/);
+  assert.throws(()=>db.exec("INSERT OR REPLACE INTO operation_intents SELECT * FROM operation_intents"),/immutable/);
   assert.equal(db.prepare('PRAGMA quick_check').get().quick_check,'ok');assert.deepEqual(db.prepare('PRAGMA foreign_key_check').all(),[]);
-  const result={passed:true,startedAt,finishedAt:new Date().toISOString(),runtime:'Node SQLite, exact migration bytes; not hosted D1',migrationHashes,baselineMigrations:17,finalMigrations:19,existingTablesCompared:tables.length,beforeRowsSha256:hash(JSON.stringify(before)),afterRowsSha256:hash(JSON.stringify(snapshot())),counts:Object.fromEntries(tables.map(name=>[name,before[name].length])),ledgerBaselineUnchanged:true,existingSchemaObjectsUnchanged:true,newTablesInitiallyEmpty:true,ownerContextsPreservedAcross19:true,newConstraintsChecked:true,atomicLedgerFailureRolledBack:true,quickCheck:'ok',foreignKeyViolations:0,productionReadOrWrite:false,productionCompleteness:'not established'};
+  const result={passed:true,startedAt,finishedAt:new Date().toISOString(),runtime:'Node SQLite, exact migration bytes; not hosted D1',migrationHashes,baselineMigrations:17,finalMigrations:21,existingTablesCompared:tables.length,beforeRowsSha256:hash(JSON.stringify(before)),afterRowsSha256:hash(JSON.stringify(snapshot())),counts:Object.fromEntries(tables.map(name=>[name,before[name].length])),ledgerBaselineUnchanged:true,existingSchemaObjectsUnchangedThrough19:true,directoryRebuildRetainsReferencedReceipts:true,newTablesInitiallyEmpty:true,ownerContextsPreservedAcross19:true,newConstraintsChecked:true,atomicLedgerFailureRolledBack:true,quickCheck:'ok',foreignKeyViolations:0,productionReadOrWrite:false,productionCompleteness:'not established'};
   const output=fileURLToPath(new URL('../../.local/deployment-verification/',import.meta.url));await mkdir(output,{recursive:true});await writeFile(output+'migration-upgrade.json',JSON.stringify(result,null,2)+'\n');
  }finally{db.close();}
 });

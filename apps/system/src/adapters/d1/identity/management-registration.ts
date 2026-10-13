@@ -3,7 +3,7 @@
 /** Authenticated HTTP registration reuses the private provisioning builder, never its privileged commit. */
 import type { AuthDB,Authenticated } from './db';
 import { managementPolicies,managementSnapshot } from './management';
-import {currentCredentialSql,currentPermissionsSql} from "./authorization";
+import {currentCredentialSql,currentPermissionsSql,credentialCeilingSql} from "./authorization";
 import {executeMutation,type MutationAdapter} from "../persistence/transaction";
 import {MutationError,type Json} from "../persistence/public";
 import {sql} from "../primitives";
@@ -12,7 +12,11 @@ import type {PrincipalRegistration} from "../../../modules/identity/rules";
 export async function preparePrincipalRegistration(db:AuthDB,auth:Authenticated,registration:PrincipalRegistration){
  const {operationId,principal}=registration,prepared=preparePrincipalProvision(principal),input=prepared.normalized;
  const projectRights=currentPermissionsSql(auth,sql("json_extract(managed_project.value,'$.projectId')"),['view','manage']);
- const managedProjects=sql(`NOT EXISTS(SELECT 1 FROM json_each(?) managed_project WHERE NOT (${projectRights.text}))`,JSON.stringify(input.projects),...projectRights.values);
+ // Registration grants every requested right, so every right must fit the live credential ceiling.
+ // Keep this predicate in commit visibility too: an earlier successful read is not authorization.
+ const ceiling=credentialCeilingSql(auth,sql("json_extract(managed_project.value,'$.projectId')"),sql('requested_permission.value'));
+ const projectCeiling=sql(`NOT EXISTS(SELECT 1 FROM json_each(json_extract(managed_project.value,'$.permissions')) requested_permission WHERE NOT (${ceiling.text}))`,...ceiling.values);
+ const managedProjects=sql(`NOT EXISTS(SELECT 1 FROM json_each(?) managed_project WHERE NOT ((${projectRights.text}) AND (${projectCeiling.text})))`,JSON.stringify(input.projects),...projectRights.values,...projectCeiling.values);
  const credential=currentCredentialSql(auth),rights=sql(`EXISTS(SELECT 1 FROM principal_management WHERE principal_id=? AND global_administrator=1) AND (${managedProjects.text})`,auth.id,...managedProjects.values);
  const row=await db.prepare(`SELECT (${credential.text}) AS authenticated,(${rights.text}) AS permitted`).bind(...credential.values,...rights.values).first<{authenticated:number;permitted:number}>();
  if(!row?.authenticated)throw new MutationError(401,'unauthenticated');if(!row.permitted)throw new MutationError(403,'forbidden');

@@ -89,10 +89,33 @@ test('same-name weakened0018/0019 triggers/index cannot certify schema compatibi
   for(const name of ['owner_setup_context_binding_immutable','owner_setup_operation','recipient_setup_binding_immutable','recipient_setup_operation']){const h=harness(url=>{if(!url.endsWith('/query'))return;const data=body(url.slice(root.length));data[4]=result(schema.map(r=>r.name===name?{...r,sql:name.endsWith('_operation')?'CREATE INDEX '+name+' ON '+(name.startsWith('owner_')?'owner_setup_contexts(owner_id,operation_id)':'recipient_setup_contexts(issuer_id,operation_id)'):'CREATE TRIGGER '+name+' BEFORE UPDATE ON '+(name.startsWith('owner_')?'owner_setup_contexts':'recipient_setup_contexts')+' BEGIN SELECT 1; END'}:r));return response(url,data);});await assert.rejects(h.reader.inspect(target,version),/REQUIRED_SCHEMA_DEFINITIONS_CHANGED/);assert.equal(h.calls.length,7);}
 });
 
-test('canonical0018/0019 SQL expectation is produced by the actual complete migration files',async()=>{
-  const db=new DatabaseSync(':memory:');try{for(const name of migrations)db.exec(await readFile(resolve(candidate,'migrations',name),'utf8'));
-    const actual=db.prepare("SELECT type,name,sql FROM sqlite_schema WHERE name IN ('owner_setup_contexts','owner_setup_operation','owner_setup_context_binding_immutable','owner_setup_context_no_extend','recipient_setup_contexts','recipient_setup_operation','recipient_setup_binding_immutable','recipient_setup_no_extend') ORDER BY name").all().map(r=>({...r,sql:r.sql.trim().replace(/\r\n/g,'\n')}));assert.deepEqual(actual,schema);
+test('the actual provider schema query certifies every setup and directory schema definition',async()=>{
+  const db=new DatabaseSync(':memory:');try{
+    for(const name of migrations)db.exec(await readFile(resolve(candidate,'migrations',name),'utf8'));
+    // Execute the emitted query rather than echoing policy fixtures: a missing
+    // new object in the provider SELECT must fail the same schema check.
+    const h=harness((url,init)=>{
+      if(!url.endsWith('/query'))return;
+      const query=JSON.parse(init.body).sql.split(';').find(sql=>sql.includes('FROM sqlite_schema'));
+      const actual=db.prepare(query).all();
+      const data=body(url.slice(root.length));data[4]=result(actual);return response(url,data);
+    });
+    await h.reader.inspect(target,version);
+    assert.equal(schema.length,21);
+    for(const name of ['projects','workspaces','directory_history','operation_results','operation_intents','operation_intents_no_replace'])assert.ok(schema.some(r=>r.name===name));
   }finally{db.close();}
+});
+test('missing or same-name weakened directory schemas cannot certify deployment prerequisites',async()=>{
+  const names=['projects','workspaces','directory_history','directory_history_no_update','directory_history_no_delete','operation_results','operation_results_immutable','operation_results_match_intent','operation_intents','operation_intents_no_update','operation_intents_no_delete','operation_intents_no_replace','operation_intents_principal_sequence'];
+  for(const name of names)for(const missing of [true,false]){
+    const h=harness(url=>{
+      if(!url.endsWith('/query'))return;
+      const data=body(url.slice(root.length));
+      data[4]=result(missing?schema.filter(r=>r.name!==name):schema.map(r=>r.name===name?{...r,sql:'CREATE TABLE '+name+'(id TEXT)'}:r));
+      return response(url,data);
+    });
+    await assert.rejects(h.reader.inspect(target,version),/REQUIRED_SCHEMA_DEFINITIONS_CHANGED/);
+  }
 });
 test('actual adapter defaults fail proxy readiness before credentials or provider access',async()=>{const saved=process.execArgv;let checks=0;try{process.execArgv=[];const p=createWranglerAdapter({candidate,configuration,credentials:{check(){checks++;},run(){throw Error('UNEXPECTED_AUTH_OR_NETWORK');}}});assert.equal(p.describe().operations.inspectPrerequisites,'supported');await assert.rejects(p.ready(),/READ_PROXY_STARTUP_REQUIRED/);assert.equal(checks,0);}finally{process.execArgv=saved;}});
 test('a reader schema rejection prevents the use case mutation and journal intent',async()=>{

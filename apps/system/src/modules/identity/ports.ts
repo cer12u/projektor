@@ -23,7 +23,7 @@ export interface SetupManagementCommit {targetId:string;operationId:string;revis
  | {kind:'issue';purpose:'initial'|'reset';rightId:string;tokenHash:string;lifetimeSeconds:number;expectedPasswordCount:0|1;recipientRequestId:string;contextExpiresAt:number;expiresAt:number}
  | {kind:'revoke'}}
 export interface BootstrapSetupCommit {targetId:string;operationId:string;rightId:string;rightHash:string;expiresAt:number|null;lifetimeSeconds:number}
-export interface ManagementPlan {command:ManagementCommand;expected:import('./public').ManagementSnapshot;principal?:{displayName:string;active:number;authVersion:number}}
+export interface ManagementPlan {command:ManagementCommand;expected:import('./public').ManagementSnapshot;grantedPermissions?:import('./dto').Permission[];principal?:{displayName:string;active:number;authVersion:number}}
 export type ManagementPlanningRead={kind:'observed';snapshot:import('./public').ManagementSnapshot}|{kind:'outcome';outcome:import('../change-outcomes').ChangeOutcome<import('./public').ManagementSnapshot>};
 export interface RecipientContextCommit {replacesContextHash?:string;replacesRequestId?:string;expectedRequestId?:string;contextHash:string;requestId:string|null;csrfHash:string;challengeHash:string;existing:boolean;lifetimeSeconds:number}
 export interface RecipientPasswordCommit {contextHash:string;csrfHash:string;requestId:string;operationId:string;principalId:string;issuerId:string;purpose:import('./public').SetupPurpose;inputHash:string;encodedPassword:string}

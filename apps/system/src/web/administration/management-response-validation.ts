@@ -2,10 +2,10 @@
 // @role model
 import type {Permission} from "../../modules/identity/dto";
 import type {ManagementRecord} from './management-contracts';
-import {object,identifier,integer,permissions} from './management-validation';
+import {object,identifier,scopeIdentifier,integer,permissions} from './management-validation';
 /** Only non-secret, documented fields from a successful management result are accepted. */
 export function managementRecord(value:unknown):ManagementRecord {
-  const s=object(value);if(!identifier(s.principalId)||!integer(s.revision))throw new Error('invalid_management_response');
+  const s=object(value);if(!identifier(s.principalId)||(!integer(s.revision)&&!(s.revision===0&&s.relationExists===false&&s.projectId!==undefined&&s.credentialId===undefined)))throw new Error('invalid_management_response');
   let kind:ManagementRecord['kind'],allowed:string[];
   if(s.credentialId!==undefined){
     if(!identifier(s.credentialId)||!integer(s.expiresAt)||(s.revokedAt!==null&&!integer(s.revokedAt)))throw new Error('invalid_management_response');
@@ -16,7 +16,7 @@ export function managementRecord(value:unknown):ManagementRecord {
     kind='principal';allowed=['principalId','revision','kind','displayName','active','authVersion','globalAdministrator'];
   }
   if(kind==='membership'||kind==='scope'){
-    if(!identifier(s.projectId)||!permissions(s.permissions))throw new Error('invalid_management_response');allowed.push('projectId','permissions');
+    if(!scopeIdentifier(s.projectId)||!permissions(s.permissions))throw new Error('invalid_management_response');allowed.push('projectId','permissions','relationExists');if(s.relationExists!==undefined&&(s.relationExists!==false||s.permissions.length!==0))throw new Error('invalid_management_response');
   }
   if(Object.keys(s).some(k=>!allowed.includes(k)))throw new Error('invalid_management_response');
   return {kind,snapshot:s} as unknown as ManagementRecord;
@@ -26,6 +26,6 @@ export function sameManagementTarget(a:ManagementRecord,b:ManagementRecord):bool
 /** Creation audit metadata only; it never supplies current membership or authority. */
 export function historyInitialProjects(value:unknown):{projectId:string;permissions:Permission[]}[] {
   if(!Array.isArray(value)||value.length>64)throw new Error('invalid_initial_projects');
-  const result=value.map((entry:unknown)=>{const p=object(entry);if(Object.keys(p).some(k=>!['projectId','permissions'].includes(k))||!identifier(p.projectId)||!permissions(p.permissions))throw new Error('invalid_initial_projects');return{projectId:p.projectId,permissions:[...p.permissions]};});
+  const result=value.map((entry:unknown)=>{const p=object(entry);if(Object.keys(p).some(k=>!['projectId','permissions'].includes(k))||!scopeIdentifier(p.projectId)||!permissions(p.permissions))throw new Error('invalid_initial_projects');return{projectId:p.projectId,permissions:[...p.permissions]};});
   if(new Set(result.map(p=>p.projectId)).size!==result.length)throw new Error('invalid_initial_projects');return result;
 }

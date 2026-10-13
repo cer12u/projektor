@@ -1,5 +1,7 @@
 // @module work
 // @role private-d1
+import {directoryJson,directoryManagerSql} from './directory';
+import {currentGlobalAdministratorSql} from '../identity/authorization';
 import type {AuthDB} from "../primitives";
 import type {Authenticated} from "../identity/authorization";
 import type {LegacyReference} from "../../../modules/work/public";
@@ -22,9 +24,9 @@ export async function readImportedSource(db:AuthDB,auth:Authenticated,scope:stri
 }
 
 export async function readDirectory(db:AuthDB,auth:Authenticated):Promise<unknown>{
- const credential=currentCredentialSql(auth),allowed=currentViewScopesSql(auth);
+ const credential=currentCredentialSql(auth),allowed=currentViewScopesSql(auth),global=currentGlobalAdministratorSql(auth),projects=directoryManagerSql(auth,sql('p.id')),workspaces=directoryManagerSql(auth,sql("'workspace:'||w.id"));
   // Project access exposes workspace-shared definitions, never another project's private definitions.
-  const q=sql(`WITH allowed AS (${allowed.text}) SELECT json_object('projects',json((SELECT json_group_array(json_object('id',id,'workspaceId',workspace_id,'key',key,'slug',slug,'name',name,'description',description)) FROM projects WHERE id IN(SELECT scope FROM allowed))),'workspaces',json((SELECT json_group_array(json_object('id',id,'scopeId','workspace:'||id,'name',name)) FROM workspaces WHERE 'workspace:'||id IN(SELECT scope FROM allowed))),'definitions',json((SELECT json_group_array(json_object('sourceTable',kind,'scopeId',scope_id,'record',json(record))) FROM imported_entities WHERE ((kind IN('task_statuses','task_types','custom_field_definitions') AND (scope_id IN(SELECT scope FROM allowed) OR (scope_id='workspace:'||workspace_id AND workspace_id IN(SELECT workspace_id FROM projects WHERE id IN(SELECT scope FROM allowed))))) OR (kind IN('user_groups','user_group_members','group_project_grants','workspace_members') AND scope_id IN(SELECT scope FROM allowed)))))) data`,...allowed.values);
+  const q=sql(`WITH allowed AS (${allowed.text}) SELECT json_object('management',json_object('canCreate',json(CASE WHEN (${global.text}) THEN 'true' ELSE 'false' END),'projects',json((SELECT json_group_array(json(${directoryJson('project','p')})) FROM projects p WHERE ${projects.text})),'workspaces',json((SELECT json_group_array(json(${directoryJson('workspace','w')})) FROM workspaces w WHERE ${workspaces.text}))),'projects',json((SELECT json_group_array(json_object('id',id,'revision',revision,'workspaceId',workspace_id,'key',key,'slug',slug,'name',name,'description',description)) FROM projects WHERE id IN(SELECT scope FROM allowed))),'workspaces',json((SELECT json_group_array(json_object('id',id,'scopeId','workspace:'||id,'name',name,'revision',revision)) FROM workspaces WHERE 'workspace:'||id IN(SELECT scope FROM allowed))),'definitions',json((SELECT json_group_array(json_object('sourceTable',kind,'scopeId',scope_id,'record',json(record))) FROM imported_entities WHERE ((kind IN('task_statuses','task_types','custom_field_definitions') AND (scope_id IN(SELECT scope FROM allowed) OR (scope_id='workspace:'||workspace_id AND workspace_id IN(SELECT workspace_id FROM projects WHERE id IN(SELECT scope FROM allowed))))) OR (kind IN('user_groups','user_group_members','group_project_grants','workspace_members') AND scope_id IN(SELECT scope FROM allowed)))))) data`,...allowed.values,...global.values,...projects.values,...workspaces.values);
   const guarded=sql(`SELECT (${credential.text}) authenticated,CASE WHEN (${credential.text}) THEN (${q.text}) END data`,...credential.values,...credential.values,...q.values);
   const row=await db.prepare(guarded.text).bind(...guarded.values).first<{authenticated:number;data:string|null}>();
   if(!row?.authenticated||row.data===null)throw new ApiError(401,'unauthenticated');

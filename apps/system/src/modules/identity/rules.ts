@@ -7,7 +7,7 @@ import type {Authenticated} from './model';
 export const PERMISSIONS: readonly Permission[] = ['view','edit','assign','transition','execute','manage'];
 export function isPermission(value:unknown):value is Permission{return typeof value==='string'&&PERMISSIONS.some(p=>p===value);}
 type Command<T>={operationId:string;kind:string;projectId:string;targetId:string;input:T};
-type PermissionsInput = {revision:number;permissions:Permission[]};
+type PermissionsInput = {revision:number;permissions:Permission[];createRelation?:true};
 type PrincipalInput = {revision:number;displayName:string|null;active:boolean|null};
 type RevokeInput = {revision:number};
 export type ManagementCommand =
@@ -28,18 +28,18 @@ export function parseManagementCommand(value: unknown): ManagementCommand {
   const kind=v.kind;
   if(typeof kind!=='string'||!managementKinds.some(k=>k===kind)) throw new InputError('invalid_management_kind');
   const ids: Record<string,string>={};
-  for(const key of ['operationId','targetId','projectId']){
-    const item=v[key];if(typeof item!=='string'||!(/^[A-Za-z0-9_-]{1,128}$/).test(item)) throw new InputError('invalid_management_identifier');
-    ids[key]=item;
-  }
+  for(const key of ['operationId','targetId'])ids[key]=managementIdentifier(v[key]);
+  ids.projectId=managementScopeIdentifier(v.projectId);
   const input=object(v.input), revision=input.revision;
-  if(typeof revision!=='number'||!Number.isSafeInteger(revision)||revision<1||revision>=Number.MAX_SAFE_INTEGER)
+  if(typeof revision!=='number'||!Number.isSafeInteger(revision)||revision<(kind==='management.membership.set'&&input.createRelation===true?0:1)||revision>=Number.MAX_SAFE_INTEGER)
     throw new InputError('invalid_management_revision');
   const common={operationId:ids.operationId,targetId:ids.targetId,projectId:ids.projectId};
   if(kind==='management.membership.set'||kind==='management.credential.scope'){
-    keys(input,['revision','permissions']);
+    keys(input,['revision','permissions','createRelation']);
+    if(input.createRelation!==undefined&&input.createRelation!==true)throw new InputError('invalid_relation_creation');
+    if(kind==='management.membership.set'&&input.createRelation===true&&revision!==0)throw new InputError('invalid_management_revision');
     if(!Array.isArray(input.permissions)||!input.permissions.every(isPermission)) throw new InputError('invalid_management_permissions');
-    return {...common,kind,input:{revision,permissions:[...new Set(input.permissions)].sort()}};
+    return {...common,kind,input:{revision,permissions:[...new Set(input.permissions)].sort(),...(input.createRelation===true?{createRelation:true as const}:{})}};
   }
   if(kind==='management.principal.update'){
     if(ids.projectId!=='GLOBAL')throw new InputError('invalid_global_context');
@@ -86,7 +86,6 @@ export function parsePrincipalRegistration(value:unknown):PrincipalRegistration 
  const {operationId:rawOperationId,...raw}=body;
  if(typeof rawOperationId!=='string'||!/^[A-Za-z0-9_-]{1,128}$/.test(rawOperationId))throw new InputError('invalid_management_identifier');
  const principal=normalizePrincipalProvision({...raw,globalAdministrator:false} as unknown as PrincipalProvision);
- if(principal.projects.some(p=>!/^[A-Za-z0-9_-]{1,128}$/.test(p.projectId)))throw new InputError('invalid_management_identifier');
  if(new TextEncoder().encode(principal.displayName).byteLength>256)throw new InputError('invalid_display_name');
  return{operationId:rawOperationId,principal:{...principal,globalAdministrator:false}};
 }
@@ -102,9 +101,15 @@ export function managementRecordKind(value:string|null):ManagementRecordKind{
 export function managementIdentifier(value:unknown):string{
  if(typeof value!=='string'||!/^[A-Za-z0-9_-]{1,128}$/.test(value))throw new InputError('invalid_management_identifier');return value;
 }
+export function isManagementScopeIdentifier(value:unknown):value is string{
+ return typeof value==='string'&&(/^[A-Za-z0-9_-]{1,128}$/.test(value)||/^workspace:[a-fA-F0-9-]{36}$/.test(value));
+}
+export function managementScopeIdentifier(value:unknown):string{
+ if(!isManagementScopeIdentifier(value))throw new InputError('invalid_management_identifier');return value;
+}
 export function managementProject(kind:ManagementRecordKind,value:string|null):string{
  if(kind==='principal'||kind==='credential'){if(value!==null&&value!==''&&value!=='GLOBAL')throw new InputError('invalid_global_context');return 'GLOBAL';}
- return managementIdentifier(value);
+ return managementScopeIdentifier(value);
 }
 
 export const SETUP_SECONDS=1800;
@@ -128,7 +133,7 @@ export function browserScope(source:BrowserScopeSource):BrowserScope[] {
  const selected=new Map(source.memberships.filter(r=>grants.has(key(r))).map(r=>[key(r),{projectId:r.projectId,permission:r.permission}]));
  return [...selected.values()].sort((a,b)=>a.projectId===b.projectId?(a.permission<b.permission?-1:a.permission>b.permission?1:0):(a.projectId<b.projectId?-1:1));
 }
-export const managementAuthority=(kind:string):'global-administrator'|'project'=>['management.principal.update','management.credential.revoke','management.principal.create'].includes(kind)?'global-administrator':'project';
+export const managementAuthority=(kind:string):'global-administrator'|'global-administrator-or-scoped-manager'=>['management.principal.update','management.credential.revoke','management.principal.create'].includes(kind)?'global-administrator':'global-administrator-or-scoped-manager';
 
 export function normalizePrincipalRegistration(command:PrincipalRegistration):PrincipalRegistration {
  if(command.principal.globalAdministrator!==false)throw new InputError('invalid_registration_authority');
@@ -145,6 +150,10 @@ export function planSetupManagement(observed:import('./ports').SetupManagementOb
 
 /** Principal activation changes invalidate credentials exactly when active state changes. */
 export function planManagement(command:ManagementCommand,expected:import('./public').ManagementSnapshot):import('./ports').ManagementPlan {
+ if(command.kind==='management.membership.set'||command.kind==='management.credential.scope'){
+  if(!('permissions'in expected))throw new IdentityError('internal','invalid_permission_observation');
+  return{command,expected,grantedPermissions:command.input.permissions.filter(p=>!expected.permissions.includes(p))};
+ }
  if(command.kind!=='management.principal.update')return{command,expected};
  if(!('authVersion' in expected))throw new IdentityError('internal','invalid_principal_observation');
  const active=command.input.active===null?expected.active:Number(command.input.active);

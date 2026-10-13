@@ -6,6 +6,6 @@ export function canManageProject(identity:Identity,projectId:string):boolean{ret
 export function canManageRecord(context:ManagementContext,record:ManagementRecord):boolean {
   const projectId='projectId'in record.snapshot?record.snapshot.projectId:null;
   return projectId!==null
-    ?context.projects.some(p=>p.id===projectId&&p.permissions.includes('view')&&p.permissions.includes('manage'))
+    ?context.globalAdministrator===true||context.projects.some(p=>p.id===projectId&&p.permissions.includes('view')&&p.permissions.includes('manage'))
     :context.globalAdministrator===true;
 }

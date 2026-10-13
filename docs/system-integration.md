@@ -16,10 +16,14 @@ The release builder selects only the new Worker, static WASM dependencies, Web a
 
 ## Retained functionality not ported
 
+The canonical Work directory now provides explicit workspace/project creation and revision-checked name/description changes, authorized history and operation-result recovery. Web uses `/projects`; REST, MCP and the Agent client use the same Work contracts. Agent commands are prepared on the server before execution and remain discoverable after a restart. Creation does not grant Identity memberships implicitly. Initial access for existing principals and credential scopes is a separate, explicitly authorized Identity operation; creation alone is not sufficient evidence of a usable end-to-end project.
+
+An Issue's Web view also shows its Execution attempt, progress/results, artifact references and external-operation reconciliation, with paginated report/restart history. An Agent completion report does not resolve the Issue. This is not a claim that every lease transition has a separately exposed history event.
+
 The following upstream families remain in reference source but are not claimed as implemented by this app:
 
 - R2 files and attachments
-- Full workspace/project administration and branding
+- Workspace/project deletion, relocation, branding and administration beyond the bounded creation/edit/history contracts above
 - Sprints, custom-field value editing and the full task catalog administration
 - Full issue-link/reference operations
 - Wiki search/backlinks/watchers/drafts/export/trash/attachment extensions

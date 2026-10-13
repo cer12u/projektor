@@ -1,5 +1,8 @@
 // @module work
 // @role public-contract
+import type {WorkDirectory,DirectoryManagement} from './directory-contracts';
+export type {DirectoryChange,DirectoryEntity,DirectoryQuery,DirectoryHistory,DirectoryManagement,ProjectSnapshot,WorkspaceSnapshot} from './directory-contracts';
+export {decodeDirectoryChange,directoryPolicy,directoryPermissions,DIRECTORY_KINDS,DIRECTORY_INPUT_LIMIT} from './directory-rules';
 import type {OperationJson,StoredOperationFence} from "../prepared-operations";
 import type {EditingResource,WikiDocument,CommentDocument,ContentHistory} from "./content-contracts";
 import type {PlannedIssue,Schedule,IssueState,TimeValue} from "./planning-contracts";
@@ -33,13 +36,13 @@ export interface IssueHistoryEntry extends ContentHistory {issueId:string;projec
 export interface IssueHistoryPage {history:IssueHistoryEntry[];resolutionEvents:{revision:number;kind:string;time:TimeValue;recordedAt:string}[];nextAfterRevision:number|null;nextResolutionAfterRevision:number|null}
 export interface ContentListPage {documents:ContentView[];total:number;page:number;pageSize:number}
 export interface ContentHistoryPage {history:ContentHistory[];nextAfterRevision:number|null;resolutionEvents:[];nextResolutionAfterRevision:null}
-export interface DirectoryView {projects:{id:string;workspaceId:string;key:string;slug:string;name:string;description:string}[];workspaces:{id:string;scopeId:string;name:string}[];definitions:{sourceTable:string;scopeId:string;record:Record<string,OperationJson>}[]}
+export interface DirectoryView {management:DirectoryManagement;projects:{id:string;workspaceId:string;key:string;slug:string;name:string;description:string;revision:number}[];workspaces:{id:string;scopeId:string;name:string;revision:number}[];definitions:{sourceTable:string;scopeId:string;record:Record<string,OperationJson>}[]}
 export type LegacyReference={kind:'issue-number';projectKey:string;number:number}|{kind:'project-slug';slug:string}|{kind:'wiki-slug';slug:string};
 export interface LegacyResolution {url:string;id:string;scopeId:string;content:'issue'|'wiki'|'project'}
 export interface ImportedSourceQuery {scopeId:string;kind:'issues'|'wiki_pages'|'issue_comments'|'projects';id:string;page?:number}
 export interface ImportedSourcePage {record:Record<string,OperationJson>;history:{sourceTable:string;sourceId:string;actorName:string|null;record:Record<string,OperationJson>}[];page:number;historyTotal:number}
 /** Actor-bound commands and typed data only. Credentials, SQL and provider state stay outside. */
-export interface WorkContent {
+export interface WorkContent extends WorkDirectory {
  listIssues(query:ProjectQuery&{query:IssueListQuery}):Promise<ReadOutcome<IssueListPage>>;
  listAssignees(query:ProjectQuery):Promise<ReadOutcome<AssigneePage>>;
  getIssue(query:IssueQuery):Promise<ReadOutcome<IssueView>>;

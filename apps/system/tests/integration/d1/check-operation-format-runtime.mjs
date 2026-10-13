@@ -67,8 +67,8 @@ try{
    const sql=(text,...values)=>db.prepare(text).bind(...values).run();
    await sql("INSERT INTO principals VALUES(?,'agent','Synthetic format agent',NULL,1,1)",principal);
    await sql("INSERT INTO api_credentials VALUES('FORMAT_KEY',?,?,unixepoch()+3600,NULL)",principal,hash(token));
-   await sql("INSERT INTO workspaces VALUES('W','Synthetic workspace','{}')");
-   await sql("INSERT INTO projects VALUES('P','W','P','p','Synthetic project','','{}')");
+   await sql("INSERT INTO workspaces(id,name,source_json) VALUES('W','Synthetic workspace','{}')");
+   await sql("INSERT INTO projects(id,workspace_id,key,slug,name,description,source_json) VALUES('P','W','P','p','Synthetic project','','{}')");
    for(const permission of ['view','edit']){await sql('INSERT INTO memberships VALUES(?,?,?)',principal,'P',permission);await sql("INSERT INTO api_grants VALUES('FORMAT_KEY','P',?)",permission);}
    async function call(path,method='GET',input,mode=''){
     const response=await mf.dispatchFetch(origin+path,{method,headers:{Authorization:'Bearer '+token,'Content-Type':'application/json','X-Fixture-Mode':mode},...(input===undefined?{}:{body:JSON.stringify(input)})});

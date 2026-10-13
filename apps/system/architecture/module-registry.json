@@ -2022,7 +2022,8 @@
         "projects",
         "imported_entities",
         "import_runs",
-        "import_row_receipts"
+        "import_row_receipts",
+        "directory_history"
       ],
       "allowedDependencies": [
         "identity",
@@ -2293,6 +2294,7 @@
       "generatedFrom": [
         "scripts/contracts/build-public-openapi.mjs",
         "scripts/contracts/operation-openapi.mjs",
+        "scripts/contracts/directory-openapi.mjs",
         "docs/openapi-base.json",
         "docs/execution-openapi-fragment.json"
       ],
@@ -2490,6 +2492,18 @@
       "kind": "authored"
     },
     {
+      "path": "migrations/0020_work_directory.sql",
+      "module": "work",
+      "role": "schema",
+      "kind": "authored"
+    },
+    {
+      "path": "migrations/0021_directory_operation_intents.sql",
+      "module": "persistence",
+      "role": "schema",
+      "kind": "authored"
+    },
+    {
       "path": "package-lock.json",
       "module": "project.configuration",
       "kind": "data",
@@ -2629,6 +2643,12 @@
     },
     {
       "path": "scripts/contracts/build-public-openapi.mjs",
+      "module": "tooling.contracts",
+      "role": "public-schema",
+      "kind": "authored"
+    },
+    {
+      "path": "scripts/contracts/directory-openapi.mjs",
       "module": "tooling.contracts",
       "role": "public-schema",
       "kind": "authored"
@@ -3042,6 +3062,12 @@
       "kind": "authored"
     },
     {
+      "path": "src/adapters/d1/identity/scope-projection.ts",
+      "module": "identity",
+      "role": "d1-projection-port",
+      "kind": "authored"
+    },
+    {
       "path": "src/adapters/d1/identity/setup-context.ts",
       "module": "identity",
       "role": "private-d1",
@@ -3139,6 +3165,18 @@
     },
     {
       "path": "src/adapters/d1/work/content.ts",
+      "module": "work",
+      "role": "private-d1",
+      "kind": "authored"
+    },
+    {
+      "path": "src/adapters/d1/work/directory-recovery.ts",
+      "module": "work",
+      "role": "private-d1",
+      "kind": "authored"
+    },
+    {
+      "path": "src/adapters/d1/work/directory.ts",
       "module": "work",
       "role": "private-d1",
       "kind": "authored"
@@ -3279,6 +3317,12 @@
       "path": "src/apps/http/credentials.ts",
       "module": "delivery",
       "role": "credential-input",
+      "kind": "authored"
+    },
+    {
+      "path": "src/apps/http/directory.ts",
+      "module": "delivery",
+      "role": "http-adapter",
       "kind": "authored"
     },
     {
@@ -3571,6 +3615,18 @@
     },
     {
       "path": "src/modules/work/decisions.ts",
+      "module": "work",
+      "role": "domain-rules",
+      "kind": "authored"
+    },
+    {
+      "path": "src/modules/work/directory-contracts.ts",
+      "module": "work",
+      "role": "public-contract",
+      "kind": "authored"
+    },
+    {
+      "path": "src/modules/work/directory-rules.ts",
       "module": "work",
       "role": "domain-rules",
       "kind": "authored"
@@ -4260,6 +4316,42 @@
       "kind": "authored"
     },
     {
+      "path": "src/web/workbench/project-client.ts",
+      "module": "workbench",
+      "role": "transport",
+      "kind": "authored"
+    },
+    {
+      "path": "src/web/workbench/project-controller.ts",
+      "module": "workbench",
+      "role": "controller",
+      "kind": "authored"
+    },
+    {
+      "path": "src/web/workbench/project-draft.ts",
+      "module": "workbench",
+      "role": "model",
+      "kind": "authored"
+    },
+    {
+      "path": "src/web/workbench/project-management.tsx",
+      "module": "workbench",
+      "role": "presenter",
+      "kind": "authored"
+    },
+    {
+      "path": "src/web/workbench/project-storage.ts",
+      "module": "workbench",
+      "role": "storage",
+      "kind": "authored"
+    },
+    {
+      "path": "src/web/workbench/project-view.tsx",
+      "module": "workbench",
+      "role": "view",
+      "kind": "authored"
+    },
+    {
       "path": "src/web/workbench/reference-links.ts",
       "module": "workbench",
       "role": "model",
@@ -4366,6 +4458,20 @@
             "../../../src/agent/public.ts"
           ],
           "reason": "Imports the esbuild output whose explicit entry/inline export sources are these registered paths; generated in-memory/temporary bundle is not a separate authored module."
+        },
+        {
+          "expression": "'data:text/javascript;base64,'+Buffer.from(directoryBundle.outputFiles[0].text).toString('base64')",
+          "specifiers": [
+            {
+              "specifier": "../../../src/agent/operations.ts",
+              "names": [
+                "businessOperationRoute",
+                "agentOperationClient",
+                "verifyPreparedReceipt"
+              ]
+            }
+          ],
+          "reason": "Local esbuild output of these exact named source exports for the focused regression; no generated-source exemption."
         }
       ],
       "role": "operation-regression"
@@ -4704,6 +4810,45 @@
       ]
     },
     {
+      "path": "tests/client/web/check-management-first-grant.mjs",
+      "module": "verification",
+      "role": "browser-regression",
+      "kind": "authored",
+      "dynamicDependencies": [
+        {
+          "expression": "'data:text/javascript;base64,'+Buffer.from(bundled.outputFiles[0].text).toString('base64')",
+          "specifiers": [
+            {
+              "specifier": "../../../src/web/administration/management-controller.ts",
+              "names": [
+                "useManagementController"
+              ]
+            },
+            {
+              "specifier": "../../../src/web/administration/management-client.ts",
+              "names": [
+                "ManagementClient"
+              ]
+            },
+            {
+              "specifier": "../../../src/web/administration/management-response-validation.ts",
+              "names": [
+                "managementRecord"
+              ]
+            },
+            {
+              "specifier": "../../../src/web/session/identity-observation.ts",
+              "names": [
+                "recordIdentity",
+                "invalidateIdentityObservations"
+              ]
+            }
+          ],
+          "reason": "Real management controller, client, absent-relation validation and identity authority exports bundled for first-grant recovery regression; exact named source dependencies."
+        }
+      ]
+    },
+    {
       "path": "tests/client/web/check-management-persistence.mjs",
       "module": "verification",
       "role": "browser-regression",
@@ -4726,6 +4871,26 @@
             }
           ],
           "reason": "This runner builds these exact source symbols into its temporary esbuild result. Controller aliases are mapped to their source names. Only the named existing test SPI/public symbols are accessible; generated bundles are not authored source exemptions."
+        }
+      ]
+    },
+    {
+      "path": "tests/client/web/check-management-workspace-selection.mjs",
+      "module": "verification",
+      "role": "browser-regression",
+      "kind": "authored",
+      "dynamicDependencies": [
+        {
+          "expression": "'../../../'+outfile",
+          "specifiers": [
+            {
+              "specifier": "../../../src/web/administration/management-controller.ts",
+              "names": [
+                "useManagementController"
+              ]
+            }
+          ],
+          "reason": "Local esbuild output of these exact named source exports for the focused regression; no generated-source exemption."
         }
       ]
     },
@@ -4778,6 +4943,46 @@
             }
           ],
           "reason": "Builds exact recipient controller/storage exports with controlled client boundaries, using actual session request and challenge code."
+        }
+      ]
+    },
+    {
+      "path": "tests/client/web/check-project-management.mjs",
+      "module": "verification",
+      "role": "browser-regression",
+      "kind": "authored",
+      "dynamicDependencies": [
+        {
+          "expression": "'data:text/javascript;base64,'+Buffer.from(bundle.outputFiles[0].text).toString('base64')",
+          "specifiers": [
+            {
+              "specifier": "../../../src/web/workbench/project-controller.ts",
+              "names": [
+                "useProjectController"
+              ]
+            },
+            {
+              "specifier": "../../../src/web/workbench/project-view.tsx",
+              "names": [
+                "ProjectManagementView"
+              ]
+            },
+            {
+              "specifier": "../../../src/web/workbench/project-draft.ts",
+              "names": [
+                "restoreProjectState",
+                "matchesProjectReceipt"
+              ]
+            },
+            {
+              "specifier": "../../../src/web/session/identity-observation.ts",
+              "names": [
+                "recordIdentity",
+                "invalidateIdentityObservations"
+              ]
+            }
+          ],
+          "reason": "Local esbuild output of these exact named source exports for the focused regression; no generated-source exemption."
         }
       ]
     },
@@ -5073,6 +5278,18 @@
       "role": "review-sql-list-size"
     },
     {
+      "path": "tests/integration/d1/check-directory-runtime.mjs",
+      "module": "verification",
+      "role": "directory-regression",
+      "kind": "authored",
+      "references": [
+        "src/adapters/d1/work/assembly.ts",
+        "src/apps/http/directory.ts",
+        "src/apps/http/model.ts",
+        "src/apps/http/outcomes.ts"
+      ]
+    },
+    {
       "path": "tests/integration/d1/check-domain-policy.mjs",
       "module": "verification",
       "role": "regression",
@@ -5269,6 +5486,58 @@
       "module": "verification",
       "role": "integration-http",
       "kind": "authored"
+    },
+    {
+      "path": "tests/integration/http/check-management-grant-boundaries.mjs",
+      "module": "verification",
+      "role": "management-grant-runtime-contract",
+      "kind": "authored",
+      "references": [
+        "src/apps/worker.ts"
+      ]
+    },
+    {
+      "path": "tests/integration/http/check-management-registration-ceiling.mjs",
+      "module": "verification",
+      "role": "management-grant-runtime-contract",
+      "kind": "authored",
+      "references": [
+        "src/apps/worker.ts"
+      ]
+    },
+    {
+      "path": "tests/integration/http/check-management-workspace-scopes.mjs",
+      "module": "verification",
+      "role": "management-scope-runtime-contract",
+      "kind": "authored",
+      "dynamicDependencies": [
+        {
+          "expression": "pathToFileURL(join(root,'browser.mjs')).href",
+          "specifiers": [
+            {
+              "specifier": "../../../src/web/administration/management-client.ts",
+              "names": [
+                "ManagementClient"
+              ]
+            },
+            {
+              "specifier": "../../../src/web/administration/management-model.ts",
+              "names": [
+                "restoreSubmission",
+                "registrationInput",
+                "historyInitialProjects",
+                "managementQuery",
+                "managementRecord"
+              ]
+            }
+          ],
+          "reason": "Local esbuild output of these exact named source exports for the focused regression; no generated-source exemption."
+        }
+      ],
+      "references": [
+        "src/apps/worker.ts",
+        "docs/openapi.json"
+      ]
     },
     {
       "path": "tests/integration/http/check-public-openapi.mjs",
@@ -6469,7 +6738,8 @@
       "module": "identity",
       "kind": "assembly",
       "exports": [
-        "createIdentityModule"
+        "createIdentityModule",
+        "IdentityScopeProjection"
       ],
       "consumers": [
         {
@@ -6499,7 +6769,8 @@
         "requirePermission",
         "principalProjectionSql",
         "activeViewMembersSql",
-        "currentViewScopesSql"
+        "currentViewScopesSql",
+        "currentGlobalAdministratorSql"
       ],
       "consumers": [
         {
@@ -6542,6 +6813,13 @@
             "tests/support/p2-02-fixture/worker.ts",
             "tests/support/p2-03-fixture/worker.ts",
             "tests/support/ptordev32-d1-fixture.ts"
+          ]
+        },
+        {
+          "module": "work",
+          "paths": [
+            "src/adapters/d1/work/directory.ts",
+            "src/adapters/d1/work/model.ts"
           ]
         }
       ]
@@ -6682,6 +6960,30 @@
           "paths": [
             "src/adapters/d1/identity/operator-assembly.ts",
             "src/adapters/d1/identity/recipient-context.ts"
+          ]
+        },
+        {
+          "module": "work",
+          "paths": [
+            "src/adapters/d1/work/directory.ts"
+          ]
+        },
+        {
+          "module": "work",
+          "roles": [
+            "transaction-spi"
+          ],
+          "paths": [
+            "src/adapters/d1/work/transaction.ts"
+          ]
+        },
+        {
+          "module": "identity",
+          "roles": [
+            "d1-projection-port"
+          ],
+          "paths": [
+            "src/adapters/d1/identity/scope-projection.ts"
           ]
         }
       ]
@@ -7058,7 +7360,8 @@
       "kind": "public",
       "exports": [
         "Workspace",
-        "WorkspaceProps"
+        "WorkspaceProps",
+        "ProjectManagement"
       ],
       "consumers": [
         {
@@ -7183,6 +7486,21 @@
           ],
           "paths": [
             "tests/client/web/check-execution-panel.mjs"
+          ]
+        },
+        {
+          "module": "verification",
+          "paths": [
+            "tests/client/web/check-project-management.mjs"
+          ]
+        },
+        {
+          "module": "verification",
+          "roles": [
+            "browser-regression"
+          ],
+          "paths": [
+            "tests/client/web/check-management-first-grant.mjs"
           ]
         }
       ]
@@ -7374,6 +7692,21 @@
             "tests/client/web/check-client-regressions.mjs",
             "tests/client/web/setup-client-outcome-check.mjs"
           ]
+        },
+        {
+          "module": "verification",
+          "paths": [
+            "tests/integration/http/check-management-workspace-scopes.mjs"
+          ]
+        },
+        {
+          "module": "verification",
+          "roles": [
+            "browser-regression"
+          ],
+          "paths": [
+            "tests/client/web/check-management-first-grant.mjs"
+          ]
         }
       ]
     },
@@ -7392,6 +7725,21 @@
           ],
           "paths": [
             "tests/client/web/check-management-persistence.mjs"
+          ]
+        },
+        {
+          "module": "verification",
+          "paths": [
+            "tests/client/web/check-management-workspace-selection.mjs"
+          ]
+        },
+        {
+          "module": "verification",
+          "roles": [
+            "browser-regression"
+          ],
+          "paths": [
+            "tests/client/web/check-management-first-grant.mjs"
           ]
         }
       ]
@@ -7686,6 +8034,16 @@
           "paths": [
             "src/adapters/d1/execution/adapter.ts"
           ]
+        },
+        {
+          "module": "work",
+          "roles": [
+            "private-d1"
+          ],
+          "paths": [
+            "src/adapters/d1/work/directory.ts",
+            "src/adapters/d1/work/directory-recovery.ts"
+          ]
         }
       ]
     },
@@ -7833,7 +8191,19 @@
         "decodeContentChange",
         "decodeLegacyReference",
         "workPermissions",
-        "WORK_INPUT_LIMITS"
+        "WORK_INPUT_LIMITS",
+        "DirectoryChange",
+        "DirectoryEntity",
+        "DirectoryQuery",
+        "DirectoryHistory",
+        "DirectoryManagement",
+        "ProjectSnapshot",
+        "WorkspaceSnapshot",
+        "decodeDirectoryChange",
+        "directoryPolicy",
+        "directoryPermissions",
+        "DIRECTORY_KINDS",
+        "DIRECTORY_INPUT_LIMIT"
       ],
       "consumers": [
         {
@@ -7852,6 +8222,12 @@
           "module": "persistence",
           "paths": [
             "src/modules/prepared-operations.ts"
+          ]
+        },
+        {
+          "module": "workbench",
+          "paths": [
+            "src/web/workbench/project-draft.ts"
           ]
         }
       ]
@@ -9733,13 +10109,20 @@
       "kind": "test",
       "exports": [
         "verifyPreparedReceipt",
-        "agentOperationClient"
+        "agentOperationClient",
+        "businessOperationRoute"
       ],
       "consumers": [
         {
           "module": "verification",
           "paths": [
             "tests/client/agent/reassigned-receipt.mjs"
+          ]
+        },
+        {
+          "module": "verification",
+          "paths": [
+            "tests/client/agent/check-agent-operation-client.mjs"
           ]
         }
       ]
@@ -9931,6 +10314,146 @@
           ],
           "paths": [
             "tests/client/web/check-execution-panel.mjs"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "src/modules/work/directory-contracts.ts",
+      "module": "work",
+      "kind": "public",
+      "exports": [
+        "WorkspaceSnapshot",
+        "ProjectSnapshot",
+        "DirectoryEntity",
+        "DirectoryChange",
+        "DirectoryQuery",
+        "DirectoryHistory",
+        "WorkDirectory",
+        "DirectoryManagement"
+      ],
+      "consumers": [
+        {
+          "module": "workbench"
+        }
+      ]
+    },
+    {
+      "path": "src/apps/http/directory.ts",
+      "module": "delivery",
+      "kind": "public",
+      "exports": [
+        "directoryApi"
+      ],
+      "consumers": [
+        {
+          "module": "composition",
+          "paths": [
+            "src/apps/worker.ts"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "src/web/workbench/project-controller.ts",
+      "module": "workbench",
+      "kind": "test",
+      "exports": [
+        "useProjectController"
+      ],
+      "consumers": [
+        {
+          "module": "verification",
+          "paths": [
+            "tests/client/web/check-project-management.mjs"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "src/web/workbench/project-view.tsx",
+      "module": "workbench",
+      "kind": "test",
+      "exports": [
+        "ProjectManagementView"
+      ],
+      "consumers": [
+        {
+          "module": "verification",
+          "paths": [
+            "tests/client/web/check-project-management.mjs"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "src/web/workbench/project-draft.ts",
+      "module": "workbench",
+      "kind": "test",
+      "exports": [
+        "restoreProjectState",
+        "matchesProjectReceipt"
+      ],
+      "consumers": [
+        {
+          "module": "verification",
+          "paths": [
+            "tests/client/web/check-project-management.mjs"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "src/web/administration/management-model.ts",
+      "module": "administration",
+      "kind": "test",
+      "exports": [
+        "restoreSubmission",
+        "registrationInput",
+        "historyInitialProjects",
+        "managementQuery",
+        "managementRecord"
+      ],
+      "consumers": [
+        {
+          "module": "verification",
+          "paths": [
+            "tests/integration/http/check-management-workspace-scopes.mjs"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "src/web/administration/management-response-validation.ts",
+      "module": "administration",
+      "kind": "test",
+      "exports": [
+        "managementRecord"
+      ],
+      "consumers": [
+        {
+          "module": "verification",
+          "roles": [
+            "browser-regression"
+          ],
+          "paths": [
+            "tests/client/web/check-management-first-grant.mjs"
+          ]
+        }
+      ]
+    },
+    {
+      "path": "src/adapters/d1/work/transaction.ts",
+      "module": "work",
+      "kind": "assembly",
+      "exports": [
+        "scopeExistsSql"
+      ],
+      "consumers": [
+        {
+          "module": "composition",
+          "paths": [
+            "src/apps/composition.ts"
           ]
         }
       ]

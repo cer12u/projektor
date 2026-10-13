@@ -62,7 +62,12 @@ export function currentCredentialSql(auth: Authenticated): Sql { return credenti
 export function currentPermissionsSql(auth: Authenticated, projectId: string | Sql, permissions: readonly Permission[]): Sql {
   return permissionsValid(auth, projectId, JSON.stringify([...new Set(permissions)].sort()));
 }
-export function authorityValid(auth: Authenticated, authority: 'project'|'global-administrator', project: string, permissions: string | Sql): Sql {
+export function authorityValid(auth: Authenticated, authority: 'project'|'global-administrator'|'global-administrator-or-scoped-manager', project: string | Sql, permissions: string | Sql): Sql {
+  if(authority==='global-administrator-or-scoped-manager'){
+    const global=authorityValid(auth,'global-administrator',project,'[]'), scoped=permissionsValid(auth,project,permissions);
+    const manager=currentPermissionsSql(auth,project,['view','manage']);
+    return sql(`(${global.text}) OR ((${manager.text}) AND (${scoped.text}))`,...global.values,...manager.values,...scoped.values);
+  }
   return authority==='global-administrator'
     ? sql('EXISTS(SELECT 1 FROM principal_management WHERE principal_id=? AND global_administrator=1)',auth.id)
     : permissionsValid(auth,project,permissions);
@@ -96,4 +101,8 @@ export function activeViewMembersSql(project:Sql):Sql {
 export function currentViewScopesSql(auth:Authenticated):Sql {
  const credential=currentCredentialSql(auth),ceiling=credentialCeilingSql(auth,sql('m.project_id'),sql('m.permission'));
  return sql(`SELECT m.project_id scope FROM memberships m WHERE m.principal_id=? AND m.permission='view' AND (${credential.text}) AND (${ceiling.text})`,auth.id,...credential.values,...ceiling.values);
+}
+/** Current Identity-owned global management fact; callers must pair with credential validity. */
+export function currentGlobalAdministratorSql(auth:Authenticated):Sql {
+ return authorityValid(auth,'global-administrator','', '[]');
 }

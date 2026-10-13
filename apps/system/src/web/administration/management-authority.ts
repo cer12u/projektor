@@ -19,8 +19,8 @@ export class ManagementAuthority {
   async read<T>(work:()=>Promise<T>,scope?:(result:T)=>{projectId?:string},finish?:(result:T,identity:Identity)=>T){return sessionRequest(async()=>{
     await this.identity();const authority=authorityObservation(),result=await work(),target=scope?.(result);
     // Global authority is separate from project membership and is absent from /me.
-    const context=target&&!target.projectId?await this.context():null,identity=await this.identity();if(!authority())throw new AuthorityChanged();
-    if(target&&(target.projectId?!canManageProject(identity,target.projectId):context?.globalAdministrator!==true))throw new HttpError(403,'forbidden');
+    const context=target?await this.context():null,identity=await this.identity();if(!authority())throw new AuthorityChanged();
+    if(target&&(target.projectId?context?.globalAdministrator!==true&&!canManageProject(identity,target.projectId):context?.globalAdministrator!==true))throw new HttpError(403,'forbidden');
     return finish?finish(result,identity):result;
   });}
 

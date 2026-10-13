@@ -24,7 +24,9 @@ export interface MutationContext<I extends Json = Json> extends MutationCommand<
 }
 export interface MutationReadPolicy {
   /** Trusted server policy, never request input. Global administration is independent of project permissions. */
-  readonly authority?: 'project' | 'global-administrator';
+  readonly authority?: 'project' | 'global-administrator' | 'global-administrator-or-scoped-manager';
+  /** Read-only recovery of immutable older receipts; their stored authority is still enforced. */
+  readonly legacyAuthorities?: readonly ('project' | 'global-administrator' | 'global-administrator-or-scoped-manager')[];
   /** Must test current target visibility/project relation, including deleted or moved targets. */
   visible(target: MutationTarget): Sql;
 }
@@ -97,7 +99,7 @@ function permissionsWithIntent(principalId:string,operationId:string,base:string
 interface StoredOperation {
   operation_id: string; operation_kind: string; target_id: string; project_id: string; input_hash: string;
   required_permissions: string; state: string;
-  authority_kind: 'project'|'global-administrator';
+  authority_kind: 'project'|'global-administrator'|'global-administrator-or-scoped-manager';
 }
 interface ReadOperation { readonly row: StoredOperation; readonly snapshot: Json }
 async function readStored(db: AuthDB, auth: Authenticated, operationId: string, policyFor: ReadPolicyFor): Promise<ReadOperation | null> {
@@ -112,7 +114,7 @@ async function readStored(db: AuthDB, auth: Authenticated, operationId: string, 
   const target = { kind: row.operation_kind, targetId: row.target_id, projectId: row.project_id };
   const policy = policyFor(target.kind);
   // Unknown kinds cannot be read with another target type's visibility predicate.
-  if (!policy || (policy.authority??'project')!==row.authority_kind) throw new MutationError(403, 'forbidden');
+  if (!policy || ((policy.authority??'project')!==row.authority_kind&&!policy.legacyAuthorities?.includes(row.authority_kind))) throw new MutationError(403, 'forbidden');
   const credential = credentialValid(auth), rights = authorityValid(auth,row.authority_kind,target.projectId,permissionsWithIntent(auth.id,operationId,row.required_permissions));
   const visible = policy.visible(target), allowed = combine([credential, rights, visible]);
   const result = await prepare(db, sql(`SELECT (${credential.text}) AS authenticated, (${rights.text}) AS permitted,
@@ -179,7 +181,7 @@ async function commitMutation<I extends Json>(db: AuthDB, auth: Authenticated, c
   const authority=adapter.authority??'project';
   if((policy.authority??'project')!==authority)throw new MutationError(500,'invalid_mutation_authority');
   const allowedPermissions: readonly string[] = ['view', 'edit', 'assign', 'transition', 'execute', 'manage'];
-  if ((authority==='project'&&!adapter.permissions.length)||(authority==='global-administrator'&&adapter.permissions.length!==0)
+  if ((authority!=='global-administrator'&&!adapter.permissions.length)||(authority==='global-administrator'&&adapter.permissions.length!==0)
     || [...adapter.permissions,...(intentFence?.requiredPermissions??[])].some(p => !allowedPermissions.includes(p)))
     throw new MutationError(500, 'invalid_mutation_adapter');
   const basePermissions=authority==='global-administrator'?'[]':JSON.stringify([...new Set<Permission>(['view',...adapter.permissions,...(intentFence?.requiredPermissions??[])])].sort());

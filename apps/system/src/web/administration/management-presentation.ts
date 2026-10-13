@@ -3,7 +3,7 @@
 import type {Permission} from "../../modules/identity/dto";
 import {HttpError} from '../platform/index';
 import {type ManagementRecord} from './management-model';
-export const labels:Record<ManagementRecord['kind'],string>={principal:'主体',membership:'プロジェクトの所属',credential:'API資格情報',scope:'プロジェクトの資格scope'};
+export const labels:Record<ManagementRecord['kind'],string>={principal:'主体',membership:'Project / Workspaceの所属',credential:'API資格情報',scope:'Project / Workspaceの資格scope'};
 
 export const permissionLabels:Record<Permission,string>={view:'閲覧',edit:'編集',assign:'担当変更',transition:'状態変更',execute:'実行',manage:'管理'};
 

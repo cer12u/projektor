@@ -22,6 +22,8 @@ function same(a:unknown,b:unknown):boolean {
 function copy(value:unknown):unknown {return JSON.parse(JSON.stringify(value));}
 export function businessOperationRoute(path:string,method:string):OperationRoute|undefined {
  if(!['POST','PATCH'].includes(method)||path.includes('?'))return;
+ const directory=path.match(/^\/api\/(projects|workspaces)(?:\/([A-Za-z0-9_-]{1,128}))?$/);
+ if(directory&&((method==='POST'&&!directory[2])||(method==='PATCH'&&directory[2])))return {kind:directory[1]==='projects'?'project':'workspace',...(directory[2]?{id:directory[2]}:{})};
  const s=path.split('/');
  if(s[1]!=='api'||!['projects','workspaces'].includes(s[2])||!validId(s[3]))return;
  const workspace=s[2]==='workspaces',projectId=(workspace?'workspace:':'')+s[3];
@@ -41,7 +43,9 @@ export function businessOperationRoute(path:string,method:string):OperationRoute
  }
 }
 function routeValid(value:unknown):value is OperationRoute {
- if(!object(value)||typeof value.projectId!=='string')return false;
+ if(!object(value))return false;
+ if(value.kind==='project'||value.kind==='workspace')return keys(value,['kind','id'])&&(!Object.hasOwn(value,'id')||validId(value.id));
+ if(typeof value.projectId!=='string')return false;
  const workspace=value.projectId.startsWith('workspace:'),id=workspace?value.projectId.slice(10):value.projectId;
  if(!validId(id))return false;
  if(value.kind==='execution'||value.kind==='report')return !workspace&&keys(value,['kind','projectId','issueId','action'])&&typeof value.issueId==='string'&&validContentId({kind:'issue'},value.issueId)&&typeof value.action==='string'&&(value.kind==='execution'?executionActions:reportActions).includes(value.action);
@@ -56,9 +60,14 @@ function summaryValid(value:unknown):value is CheckedSummary {
  return true;
 }
 function durable(value:unknown,operationId?:string):DurableOperation {
- if(!summaryValid(value)||!object(value)||value.recorded!==true||!routeValid(value.route)||!object(value.input)||value.input.operationId!==value.operationId||!Array.isArray(value.requiredPermissions)||!value.requiredPermissions.every(p=>['view','edit','assign','transition','execute'].includes(p as string))||!value.requiredPermissions.includes('view')||!object(value.result)||!keys(value.result,value.result.status==='confirmed'?['status','snapshot']:['status'])||(value.result.status==='confirmed'&&!object(value.result.snapshot)))invalid();
+ if(!summaryValid(value)||!object(value)||value.recorded!==true||!routeValid(value.route)||!object(value.input)||value.input.operationId!==value.operationId||!Array.isArray(value.requiredPermissions)||!value.requiredPermissions.every(p=>['view','edit','assign','transition','execute','manage'].includes(p as string))||(!['project','workspace'].includes((value.route).kind)&&!value.requiredPermissions.includes('view'))||!object(value.result)||!keys(value.result,value.result.status==='confirmed'?['status','snapshot']:['status'])||(value.result.status==='confirmed'&&!object(value.result.snapshot)))invalid();
  if(operationId!==undefined&&value.operationId!==operationId)throw new Error('operation_response_mismatch');
- const route=value.route,target=value.target,kind=route.kind==='report'?'execution-report.'+route.action:route.kind==='execution'?'execution.'+route.action:route.kind+('id' in route?'.edit':'.create');
+ const route=value.route,target=value.target;
+ if(route.kind==='project'||route.kind==='workspace'){
+  if(target.kind!==`directory.${route.kind}.${'id' in route?'edit':'create'}`||!validId(target.targetId)||('id' in route&&route.id!==target.targetId)||target.projectId!==(route.kind==='workspace'?'workspace:':'')+target.targetId)throw new Error('operation_response_mismatch');
+  return value as unknown as DurableOperation;
+ }
+ const kind=route.kind==='report'?'execution-report.'+route.action:route.kind==='execution'?'execution.'+route.action:route.kind+('id' in route?'.edit':'.create');
  if(target.kind!==kind||target.projectId!==route.projectId)throw new Error('operation_response_mismatch');
  if(route.kind==='execution'||route.kind==='report'){if(target.targetId!==route.issueId)throw new Error('operation_response_mismatch');}
  else if(!validContentId({kind:route.kind},target.targetId)||('id' in route&&target.targetId!==route.id))throw new Error('operation_response_mismatch');
@@ -70,7 +79,9 @@ export function verifyPreparedReceipt(saved:DurableOperation,receipt:OperationRe
  const {route,target}=saved,snapshot=receipt.snapshot;
  if(!object(snapshot))invalid();
  if(receipt.operationId!==saved.operationId)mismatch();
- if(route.kind==='issue'){
+ if(route.kind==='project'||route.kind==='workspace'){
+  if(snapshot.kind!==route.kind||snapshot.id!==target.targetId||(route.kind==='workspace'&&snapshot.scopeId!==target.projectId))mismatch();
+ }else if(route.kind==='issue'){
   if(snapshot.id!==target.targetId||snapshot.projectId!==target.projectId)mismatch();
  }else if(route.kind==='wiki'||route.kind==='comment'){
   if(snapshot.id!==target.targetId||snapshot.scopeId!==target.projectId)mismatch();

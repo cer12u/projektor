@@ -20,8 +20,9 @@ import {registerManagementPrincipal} from "./management-registration";
 import {displayPrincipal} from "./permissions";
 import {recipientContextStore} from "./recipient-context";
 import {ownerContextStore} from "./setup-context";
+import {unavailableScopeProjection,type IdentityScopeProjection} from './scope-projection';
 async function effect<T>(run:()=>Promise<T>):Promise<T>{try{return await run();}catch(error){if(error instanceof IdentityError)throw error;const f=failureOf(error);throw new IdentityError(f.kind,f.code??'identity_unavailable',f.fields);}}
-export function createIdentityPersistence(db:AuthDB):IdentityPersistence {
+export function createIdentityPersistence(db:AuthDB,scopes:IdentityScopeProjection=unavailableScopeProjection):IdentityPersistence {
  const owner=ownerContextStore(db),recipient=recipientContextStore(db);
  return {
   abandonRecipientContext:c=>effect(()=>recipient.abandon(c)),
@@ -41,11 +42,11 @@ export function createIdentityPersistence(db:AuthDB):IdentityPersistence {
   redeemBrowserOnce:c=>effect(()=>redeemBrowserOnce(db,c)),
   commitBrowserTicket:(auth,c)=>effect(()=>commitBrowserTicket(db,auth,c)),
   readManagementContext:auth=>observeRead(()=>managementContext(db,auth)),
-  listManagement:(auth,q)=>observeRead(async()=>await listManagementRecords(db,auth,q.kind,q.projectId,q.after??null) as unknown as ManagementPage),
-  readManagement:(auth,q)=>observeRead(async()=>await readManagementRecord(db,auth,q.kind,q.projectId,q.targetId) as unknown as ManagementSnapshot),
-  readManagementHistory:(auth,q)=>observeRead(async()=>await readManagementHistory(db,auth,q.kind,q.projectId,q.targetId,q.after??null) as unknown as ManagementHistoryPage),
-  readManagementForChange:(auth,c)=>readManagementForChange(db,auth,c),
-  commitManagement:(auth,c)=>observeChange<ManagementSnapshot>(c.command.operationId,async()=>{const result=await executeManagement(db,auth,c);return{...result,operationId:c.command.operationId,snapshot:result.snapshot as unknown as ManagementSnapshot};}),
+  listManagement:(auth,q)=>observeRead(async()=>await listManagementRecords(db,auth,q.kind,q.projectId,q.after??null,scopes) as unknown as ManagementPage),
+  readManagement:(auth,q)=>observeRead(async()=>await readManagementRecord(db,auth,q.kind,q.projectId,q.targetId,scopes) as unknown as ManagementSnapshot),
+  readManagementHistory:(auth,q)=>observeRead(async()=>await readManagementHistory(db,auth,q.kind,q.projectId,q.targetId,q.after??null,scopes) as unknown as ManagementHistoryPage),
+  readManagementForChange:(auth,c)=>readManagementForChange(db,auth,c,scopes),
+  commitManagement:(auth,c)=>observeChange<ManagementSnapshot>(c.command.operationId,async()=>{const result=await executeManagement(db,auth,c,scopes);return{...result,operationId:c.command.operationId,snapshot:result.snapshot as unknown as ManagementSnapshot};}),
   registerPrincipal:(auth,c)=>observeChange<PrincipalSnapshot>(c.operationId,async()=>{const result=await registerManagementPrincipal(db,auth,c);return{...result,operationId:c.operationId,snapshot:result.snapshot as unknown as PrincipalSnapshot};}),
   managementResult:(auth,id)=>observeResult(id,async()=>({operationId:id,snapshot:await readManagementResult(db,auth,id) as unknown as ManagementSnapshot})),
   displayPrincipal:(auth,project,id)=>observeRead(()=>displayPrincipal(db,auth,project,id)),

@@ -1,5 +1,6 @@
 // @module tooling.contracts
 // @role public-schema
+import {addDirectoryContract} from './directory-openapi.mjs';
 import {addOperationIntentContract} from './operation-openapi.mjs';
 import {readFile,writeFile} from 'node:fs/promises';
 const doc=JSON.parse(await readFile(new URL("../../docs/openapi-base.json",import.meta.url))),S=doc.components.schemas;
@@ -9,7 +10,9 @@ const input=schema=>({required:true,content:{'application/json':{schema}}});
 const query=(name,schema,required=false)=>({name,in:'query',required,schema});
 const route=(path,method,operationId,schema,body,description='')=>{doc.paths[path]??={};return doc.paths[path][method]={operationId,security,description,parameters:[],...(body?{requestBody:input(body)}:{}),responses:{200:response(schema)}}};
 const patchSuccess=(path,method,schema)=>doc.paths[path][method].responses['200']=response(schema);
-S.Identifier=id;S.Permission=permissions.items;
+const scopeId={type:'string',pattern:'^(?:[A-Za-z0-9_-]{1,128}|workspace:[a-fA-F0-9-]{36})$'};
+S.Identifier=id;S.ScopeIdentifier=scopeId;S.Permission=permissions.items;
+S.Project.properties.id=scopeId;
 S.JsonValue={description:'Preserved original JSON value, intentionally not a generated operation, normalized revision, or new authentication assertion.',oneOf:[{type:'null'},{type:'boolean'},{type:'number'},str,arr(ref('JsonValue')),{type:'object',additionalProperties:ref('JsonValue')}]};
 S.ContentReference={oneOf:[obj({kind:{const:'link'},url:{...str,minLength:1,'x-max-utf8-bytes':2048},label:{...str,'x-max-utf8-bytes':512}},['kind','url']),obj({kind:{const:'library'},libraryFileId:{...str,pattern:'^libfile_[A-Za-z0-9_-]+$','x-max-utf8-bytes':256},versionId:{...str,pattern:'^[A-Za-z0-9_.:-]+$','x-max-utf8-bytes':128},fileId:{...str,pattern:'^[A-Za-z0-9_.:-]+$','x-max-utf8-bytes':256},url:{...str,minLength:1,'x-max-utf8-bytes':2048},label:{...str,'x-max-utf8-bytes':512}},['kind','libraryFileId','versionId'])]};
 S.ContentReferences={...arr(ref('ContentReference')),maxItems:32,'x-max-json-utf8-bytes':4096,description:'Exact values retained; versionId remains a string. Stored URL need not be navigable. Rendering independently permits safe HTTP(S) only.'};
@@ -31,29 +34,31 @@ for(const [path,item] of Object.entries(doc.paths))if(/\/(wikis|comments)(\/|$)/
  for(const [method,o]of Object.entries(item)){if(method==='post'||method==='patch')o.requestBody=input(ref((method==='post'?'Create':'Edit')+name+'Input'));if(method==='get'&&path.endsWith('}')){if(path.includes('-operations/'))o.responses['200']=response(obj({operationId:id,snapshot:ref('BodyDocument')}));else o.responses['200']=response(obj({document:ref('BodyDocument')}));}}
 }
 S.ManagementPrincipal=obj({principalId:id,kind:{enum:['human','agent']},displayName:str,active:{enum:[0,1]},authVersion:integer,globalAdministrator:{enum:[0,1]},revision:rev});
-S.ManagementMembership=obj({principalId:id,projectId:id,revision:rev,permissions});
+S.ManagementMembership=obj({principalId:id,projectId:scopeId,revision:{...rev,minimum:0},permissions,relationExists:{const:false}},['principalId','projectId','revision','permissions']);
+S.ManagementMembership.allOf=[{if:{properties:{revision:{const:0}}},then:{required:['relationExists']}}];
 S.ManagementCredential=obj({credentialId:id,principalId:id,expiresAt:integer,revokedAt:nullable(integer),revision:rev});
-S.ManagementScope=obj({...S.ManagementCredential.properties,projectId:id,permissions});
+S.ManagementScope=obj({...S.ManagementCredential.properties,projectId:scopeId,permissions,relationExists:{const:false}},[...S.ManagementCredential.required,'projectId','permissions']);
 S.ManagementSnapshot={oneOf:['ManagementPrincipal','ManagementMembership','ManagementCredential','ManagementScope'].map(ref)};
 const mgResult=s=>obj({operationId:id,snapshot:s,source:{enum:['committed','recovered']}});
+const relationInput=membership=>{const value=obj({operationId:id,revision:membership?{...rev,minimum:0}:rev,permissions,createRelation:{const:true}},['operationId','revision','permissions']);if(membership)value.allOf=[{if:{required:['createRelation']},then:{properties:{revision:{const:0}}},else:{properties:{revision:rev}}}];return value;};
 const principalInput=obj({operationId:id,revision:rev,displayName:nullable({...str,'x-max-utf8-bytes':256}),active:nullable({type:'boolean'})},['operationId','revision']);principalInput.anyOf=[{required:['displayName'],properties:{displayName:{...str,pattern:'\\S'}}},{required:['active'],properties:{active:{type:'boolean'}}}];
 for(const [p,m,n,b]of [
  ['/api/management/principals/{principalId}','patch','ManagementPrincipal',principalInput],
  ['/api/management/credentials/{credentialId}/revoke','post','ManagementCredential',obj({operationId:id,revision:rev})],
- ['/api/projects/{projectId}/memberships/{principalId}','put','ManagementMembership',obj({operationId:id,revision:rev,permissions})],
- ['/api/projects/{projectId}/credential-scopes/{credentialId}','put','ManagementScope',obj({operationId:id,revision:rev,permissions})]]){doc.paths[p][m].requestBody=input(b);patchSuccess(p,m,mgResult(ref(n)));}
+ ['/api/projects/{projectId}/memberships/{principalId}','put','ManagementMembership',relationInput(true)],
+ ['/api/projects/{projectId}/credential-scopes/{credentialId}','put','ManagementScope',relationInput(false)]]){doc.paths[p][m].requestBody=input(b);patchSuccess(p,m,mgResult(ref(n)));}
 patchSuccess('/api/management/operations/{operationId}','get',obj({snapshot:ref('ManagementSnapshot')}));
 patchSuccess('/api/projects/{projectId}/principals/{principalId}/display','get',obj({id,kind:{enum:['human','agent']},displayName:str,active:{type:'boolean'}}));
-S.InitialProject=obj({projectId:id,permissions:{...permissions,maxItems:6,uniqueItems:true}},['projectId','permissions']);
+S.InitialProject=obj({projectId:scopeId,permissions:{...permissions,maxItems:6,uniqueItems:true}},['projectId','permissions']);
 const register=obj({operationId:id,principalId:id,kind:{enum:['human','agent']},displayName:{...str,minLength:1,maxLength:128,'x-max-utf8-bytes':256,pattern:'\\S'},loginId:nullable({...str,pattern:'^[a-z0-9][a-z0-9._-]{0,63}$'}),projects:{...arr(ref('InitialProject')),maxItems:64}});register.allOf=[{if:{properties:{kind:{const:'agent'}}},then:{properties:{loginId:{type:'null'}}},else:{properties:{loginId:{type:'string'}}}}];
 route('/api/management/principals','post','registerPrincipal',mgResult(ref('ManagementPrincipal')),register,'Explicit registration: current global administrator plus view/manage for every initial project. No credential issuance, administrator assignment, automatic enrollment, or delete API. Nonempty permission arrays include view; project IDs unique.');
 route('/api/management/context','get','getManagementContext',obj({globalAdministrator:{type:'boolean'},projects:arr(ref('Project'))}));
-const kind={enum:['principal','membership','credential','scope']},filters=[query('kind',kind,true),query('projectId',id)];
+const kind={enum:['principal','membership','credential','scope']},filters=[query('kind',kind,true),query('projectId',scopeId)];
 route('/api/management/records','get','listManagementRecords',obj({records:{...arr(ref('ManagementSnapshot')),maxItems:50},nextAfter:nullable(id)})).parameters=[...filters,query('after',{...str,pattern:'^[A-Za-z0-9_-]{0,128}$'})];
 route('/api/management/records/{targetId}','get','getManagementRecord',obj({snapshot:ref('ManagementSnapshot')})).parameters=filters;
 S.ManagementHistoryEntry=obj({actorId:id,actorName:str,operationId:id,kind:{enum:['management.principal.create','management.principal.update','management.membership.set','management.credential.revoke','management.credential.scope']},beforeRevision:integer,afterRevision:integer,before:nullable(ref('ManagementSnapshot')),after:nullable(ref('ManagementSnapshot')),recordedAt:integer,initialProjects:arr(ref('InitialProject'))},['actorId','actorName','operationId','kind','beforeRevision','afterRevision','before','after','recordedAt']);
 route('/api/management/history','get','getManagementHistory',obj({history:{...arr(ref('ManagementHistoryEntry')),maxItems:50},nextAfter:nullable({type:'string',pattern:'^[1-9][0-9]{0,14}$'})})).parameters=[...filters,query('targetId',id,true),query('after',{type:'string',pattern:'^(?:|[1-9][0-9]{0,14})$'})];
-for(const p of ['/api/management/records','/api/management/records/{targetId}','/api/management/history'])doc.paths[p].get.description='Current authority rechecked on each disclosure. principal/credential require global administrator; projectId omitted, empty, or GLOBAL. membership/scope require explicit projectId and current view/manage plus credential grants and session ceiling. Unknown/repeated query rejected. Stable ascending ID pages (records) or audit row cursor (history); page size fixed at 50.';
+for(const p of ['/api/management/records','/api/management/records/{targetId}','/api/management/history'])doc.paths[p].get.description='Current authority rechecked on each disclosure. principal/credential require global administrator; projectId omitted, empty, or GLOBAL. membership/scope require explicit projectId and current global administrator or view/manage plus credential grants and session ceiling. Missing relations return relationExists:false only for an existing Work scope and existing Identity target. First membership uses revision 0; first credential scope retains the current credential-wide revision. PUT requires explicit createRelation:true for either first relation. New rights require current actor rights (global administrator may bootstrap) within its credential/session ceiling; new API grants also require target principal memberships. Existing higher rights may be retained or revoked. Unknown/repeated query rejected. Stable ascending ID pages (records) or audit row cursor (history); page size fixed at 50.';
 S.DirectoryProject=obj({id,workspaceId:nullable(str),key:nullable(str),slug:nullable(str),name:str,description:str});
 S.DirectoryWorkspace=obj({id,scopeId:str,name:str});
 S.DirectoryDefinition=obj({sourceTable:{enum:['task_statuses','task_types','custom_field_definitions','user_groups','user_group_members','group_project_grants','workspace_members']},scopeId:str,record:ref('JsonValue')});
@@ -107,6 +112,7 @@ for(const [p,item]of Object.entries(doc.paths))for(const [method,o]of Object.ent
  o.operationId??=method+p.replace(/[^A-Za-z0-9]+/g,'_');o.security??=security;o.parameters??=[];
  for(const match of p.matchAll(/\{([^}]+)\}/g)){
   const name=match[1];o.parameters=o.parameters.filter(v=>!(v.in==='path'&&v.name===name));let schema=id;
+  if(name==='projectId'&&(/\/(?:memberships|credential-scopes)\//.test(p)||p.endsWith('/principals/{principalId}/display')))schema=scopeId;
   if(name==='sourceTable')schema={enum:['issues','wiki_pages','issue_comments','projects']};
   if(['workspace','workspaceId'].includes(name)&&p.includes('/wikis'))schema={type:'string',pattern:'^[a-fA-F0-9-]{36}$'};
   if(['issueId','content','parent'].includes(name)){const prefix=name==='issueId'||(name==='parent'&&p.includes('/issues/'))?'I_':name==='content'&&p.includes('/comments/')?'C_':'W_';schema={type:'string',pattern:'^(?:'+prefix+'[a-f0-9]{64}|[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12})$'};}
@@ -120,7 +126,7 @@ for(const [p,item]of Object.entries(doc.paths))for(const [method,o]of Object.ent
  for(const status of statuses)o.responses[status]??={description:status===503?'Unavailable, import gate or stopped write gate; operation outcome must be recovered with same operation ID.':'Rejected request'};
  for(const [status,r]of Object.entries(o.responses))if(status!=='200'&&!r.content)Object.assign(r,response(ref('PublicError'),r.description));
  o['x-permissions']=p.startsWith('/api/management')?{authority:p==='/api/management/context'?'authenticated':p.includes('/operations/')?'recorded operation authority':p.includes('/records')||p.endsWith('/history')?'conditional management kind':'global-administrator'}:p.includes('/password-setup')||authRoute||p==='/api/health'?{authority:'route-specific'}:{authority:'project-or-workspace',required:write?['view','edit']:p.includes('-operations/')?['view','recorded-operation-permissions']:['view']};
- if(p.includes('/memberships/')||p.includes('/credential-scopes/'))o['x-permissions']={authority:'project',required:['view','manage']};
+ if(p.includes('/memberships/')||p.includes('/credential-scopes/'))o['x-permissions']={authority:'global-administrator-or-scoped-manager',required:['view','manage'],grantCeiling:'new permissions only; current actor rights or global administrator, always within credential/session ceiling; API grants also within target principal memberships'};
  if(p.endsWith('/issues/{issueId}')&&method==='patch')o['x-permissions']={authority:'project',required:['view'],byField:{body:['edit'],title:['edit'],references:['edit'],parentId:['edit'],typeId:['edit'],priority:['edit'],schedule:['edit'],assigneeId:['assign'],state:['transition']}};
  for(const q of o.parameters)if(q.in==='query'&&q.name==='page'&&!(p.includes('/source/')))q.schema={...q.schema,maximum:999999};
 }
@@ -176,5 +182,6 @@ S.IssueCreationNotApplied=obj({error:{const:'forbidden'},mutationOutcome:obj({op
 const createDenied=doc.paths['/api/projects/{projectId}/issues'].post.responses['403'];
 createDenied.content['application/json'].schema={anyOf:[createDenied.content['application/json'].schema,ref('IssueCreationNotApplied')]};
 createDenied.description+=' A mutationOutcome with the exact request operationId, status not_applied and phase pre_dispatch certifies this HTTP attempt was rejected before dispatch, with no stored operation observed. A client may resume corrected creation only after atomically retiring a single-attempt journal; another overlapping attempt may still commit. Bare 403 or a result-lookup failure does not establish nonapplication.';
+addDirectoryContract(doc);
 addOperationIntentContract(doc);
 await writeFile(new URL("../../docs/openapi.json",import.meta.url),JSON.stringify(doc,null,2)+'\n');console.log('Generated '+Object.keys(doc.paths).length+' paths');
