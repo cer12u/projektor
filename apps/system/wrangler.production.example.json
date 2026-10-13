@@ -1,0 +1,53 @@
+{
+  "name": "projektor",
+  "account_id": "00000000000000000000000000000000",
+  "main": "../../dist/worker/index.js",
+  "compatibility_date": "2026-10-09",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "migrations": [
+    {
+      "tag": "v2"
+    }
+  ],
+  "no_bundle": true,
+  "find_additional_modules": true,
+  "rules": [
+    {
+      "type": "CompiledWasm",
+      "globs": [
+        "**/*.wasm"
+      ],
+      "fallthrough": false
+    }
+  ],
+  "workers_dev": false,
+  "preview_urls": false,
+  "assets": {
+    "directory": "../../dist/web",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/api/*",
+      "/mcp",
+      "/mcp/*",
+      "/.well-known/*"
+    ]
+  },
+  "vars": {
+    "AUTH_ORIGIN": "https://projektor.example.invalid",
+    "MCP_ENABLED": "false",
+    "MCP_ACCESS_ISSUER": "",
+    "MCP_ACCESS_AUDIENCE": "",
+    "MCP_RESOURCE_METADATA_URL": ""
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "projektor",
+      "database_id": "00000000-0000-4000-8000-000000000001",
+      "migrations_dir": "../../migrations"
+    }
+  ]
+}

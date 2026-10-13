@@ -22,7 +22,7 @@ permissions:
 
 jobs:
   test:
-    name: Test & type-check
+    name: Retained legacy checks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,21 +44,21 @@ jobs:
       - name: Generated docs are fresh
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
         run: |
-          pnpm gen:docs
+          pnpm legacy:gen:docs
           git diff --exit-code -- apps/docs/src/content/docs/agents/tool-catalog.md \
             apps/docs/src/content/docs/agents/workflow-spec.md \
-            apps/docs/src/generated/mcp-stats.json README.md \
+            apps/docs/src/generated/mcp-stats.json README.legacy.md \
             apps/docs/src/content/docs/contributing/conventions.md \
             apps/docs/src/content/docs/guides/feedback-widget-integration.md \
-            || { echo "::error::Generated docs are stale. Run 'pnpm gen:docs' and commit the result."; exit 1; }
+            || { echo "::error::Generated docs are stale. Run 'pnpm legacy:gen:docs' and commit the result."; exit 1; }
           # A directory, not a fixed file list (PLAYBOOKS can gain/lose entries), so
           # `git status --porcelain` (which also reports untracked new files) is the
           # right check here, not `git diff` (which misses untracked additions).
           [ -z "$(git status --porcelain -- apps/docs/src/content/docs/agents/playbooks/)" ] \
-            || { echo "::error::Generated playbook docs are stale. Run 'pnpm gen:docs' and commit the result."; exit 1; }
+            || { echo "::error::Generated playbook docs are stale. Run 'pnpm legacy:gen:docs' and commit the result."; exit 1; }
       - id: lint
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' }}
-        run: pnpm lint --reporter=github --max-diagnostics=50
+        run: pnpm legacy:lint --reporter=github --max-diagnostics=50
       - name: Bounded public source formatting preview 1
         if: ${{ !cancelled() && steps.dependencies.outcome == 'success' && steps.lint.outcome == 'failure' }}
         env:
@@ -105,3 +105,30 @@ jobs:
 # Long-running freeze regression tests (PROJ-310): 'pnpm --filter @projektor/web test:e2e:long'
 # Requires: E2E_BASE_URL pointing at a dev deployment with ENVIRONMENT=development and DEV_USER_EMAIL set.
 
+
+  system:
+    name: Canonical system (Node 24.19.0)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/system
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.19.0'
+          cache: npm
+          cache-dependency-path: apps/system/package-lock.json
+      - name: Verify measured toolchain
+        run: node --version && test "$(npm --version)" = '11.9.0'
+      - name: Install locked runtime and build tools
+        run: npm ci --include=dev --include=optional
+      - name: Verify active source, boundaries and built API
+        run: npm run verify:ci
+      - name: Check generated public API freshness
+        run: npm run docs:generate && git diff --exit-code -- docs/openapi.json
+      - name: Check root release selects only this app
+        working-directory: .
+        run: node --test scripts/system-integration.test.mjs

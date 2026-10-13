@@ -32,13 +32,13 @@ jobs:
       VERSION: ${{ github.event.inputs.version || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'   # wrangler 4.x requires Node >= 22
-          cache: 'pnpm'
+          node-version: '24.19.0'
+          cache: 'npm'
+          cache-dependency-path: apps/system/package-lock.json
 
-      - run: pnpm install --frozen-lockfile
+      - run: test "$(npm --version)" = "11.9.0" && npm --prefix apps/system ci --include=dev --include=optional
 
       - name: Build release artifact
         run: bash scripts/build-release.sh "$VERSION"

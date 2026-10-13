@@ -1,0 +1,32 @@
+// @module repository.integration
+// @role release-package
+import {readFile,readdir,mkdir,writeFile,cp,rm} from 'node:fs/promises';
+import {resolve,dirname,relative} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {createHash} from 'node:crypto';
+import {spawnSync} from 'node:child_process';
+import {verifyMeasuredInputs,verifyStagedInputs} from './system-release-inputs.mjs';
+const root=resolve(dirname(fileURLToPath(import.meta.url)),'..'),app=resolve(root,'apps/system');
+const version=process.argv[2];
+if(!/^v?\d+\.\d+\.\d+(?:-[A-Za-z0-9.-]+)?$/.test(version||''))throw Error('Invalid release version');
+const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
+const manifest=await verifyMeasuredInputs(app);
+const sourceBytes=await readFile(resolve(app,'.local/verification/release/source-manifest.json'));
+if(hash(sourceBytes)!==manifest.sourceManifestSha256)throw Error('Source manifest changed before staging');
+const source=JSON.parse(sourceBytes);
+const stage=resolve(root,'dist/system-release-stage'),archive=resolve(root,'dist','projektor-'+version+'.tar.gz');
+await rm(stage,{recursive:true,force:true});await mkdir(stage,{recursive:true});
+await cp(resolve(app,'dist/worker'),resolve(stage,'worker'),{recursive:true});await cp(resolve(app,'dist/web'),resolve(stage,'web'),{recursive:true});await cp(resolve(app,'migrations'),resolve(stage,'migrations'),{recursive:true});
+const config=JSON.parse(await readFile(resolve(app,'wrangler.production.example.json')));
+config.main='./worker/index.js';config.assets.directory='./web';config.d1_databases[0].migrations_dir='./migrations';
+await writeFile(resolve(stage,'wrangler.example.json'),JSON.stringify(config,null,2)+'\n');
+await cp(resolve(app,'docs/deployment.md'),resolve(stage,'DEPLOYMENT.md'));await cp(resolve(root,'LICENSE'),resolve(stage,'LICENSE'));
+await writeFile(resolve(stage,'VERSION'),version+'\n');
+await writeFile(resolve(stage,'BUILD.json'),JSON.stringify({source:'apps/system',sourceTreeSha256:manifest.sourceTreeSha256,artifactTreeSha256:manifest.artifactTreeSha256,build:manifest.build,scope:'Local release build; no deployment or live database migration'},null,2)+'\n');
+await verifyStagedInputs(stage,source,manifest);
+const afterCopy=await verifyMeasuredInputs(app);
+for(const key of ['sourceTreeSha256','artifactTreeSha256','sourceManifestSha256'])if(afterCopy[key]!==manifest[key])throw Error('Build identity changed while staging');
+const inventory={};async function visit(dir){for(const e of await readdir(dir,{withFileTypes:true})){const p=resolve(dir,e.name);if(e.isDirectory())await visit(p);else if(e.isFile()){const bytes=await readFile(p);inventory[relative(stage,p)]={bytes:bytes.length,sha256:hash(bytes)};}else throw Error('Unexpected release object');}}await visit(stage);
+await writeFile(resolve(stage,'FILES.json'),JSON.stringify(Object.fromEntries(Object.entries(inventory).sort()),null,2)+'\n');
+const packed=spawnSync('tar',['--sort=name','--mtime=@0','--owner=0','--group=0','--numeric-owner','-czf',archive,'-C',stage,'.'],{stdio:'inherit'});if(packed.status!==0)throw Error('Archive command failed');
+console.log(JSON.stringify({archive:relative(root,archive),bytes:(await readFile(archive)).length,sha256:hash(await readFile(archive)),files:Object.keys(inventory).length+1}));

@@ -1,7 +1,7 @@
 name: Tag release
 
 # Fires when a release-prepare PR (labeled "release") merges to main. Reads the
-# now-merged apps/web/package.json version, tags it, and pushes the tag — which
+# now-merged apps/system/package.json version, tags it, and pushes the tag — which
 # triggers release.yml (CI gate, build artifact, GitHub Release).
 on:
   pull_request:
@@ -26,7 +26,7 @@ jobs:
       - name: Determine version
         id: version
         run: |
-          VERSION=$(node -p "require('./apps/web/package.json').version")
+          VERSION=$(node -p "require('./apps/system/package.json').version")
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Tag and push

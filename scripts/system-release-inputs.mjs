@@ -17,3 +17,11 @@ export async function verifyMeasuredInputs(app){
  if(JSON.stringify(actualArtifacts)!==JSON.stringify(manifest.artifacts)||treeDigest(actualArtifacts)!==manifest.artifactTreeSha256)throw Error('Artifact set changed after measured build');
  return manifest;
 }
+
+export async function verifyStagedInputs(stage, source, manifest){
+ const stagedArtifacts={...Object.fromEntries(Object.entries(await inventory(resolve(stage,'worker'))).map(([p,r])=>['worker/'+p,r])),...Object.fromEntries(Object.entries(await inventory(resolve(stage,'web'))).map(([p,r])=>['web/'+p,r]))};
+ const stagedMigrations=Object.fromEntries(Object.entries(await inventory(resolve(stage,'migrations'))).map(([p,r])=>['migrations/'+p,r]));
+ const expectedMigrations=Object.fromEntries(Object.entries(source.files).filter(([p])=>p.startsWith('migrations/')));
+ if(treeDigest(stagedArtifacts)!==manifest.artifactTreeSha256||JSON.stringify(Object.keys(stagedArtifacts).sort())!==JSON.stringify(Object.keys(manifest.artifacts).sort()))throw Error('Staged artifacts differ from measured build');
+ if(treeDigest(stagedMigrations)!==treeDigest(expectedMigrations))throw Error('Staged migrations differ from measured source');
+}
