@@ -3,6 +3,7 @@
 export { createFixture as createA } from "../modules/_fixture_a/internal/factory";
 export { createFixture as createB } from "../modules/_fixture_b/internal/factory";
 export { createAccess } from "../modules/access/internal/factory";
+export * as oauthRules from "../modules/access/internal/oauth-rules";
 export * as accessRules from "../modules/access/internal/rules";
 export { membershipContract } from "../modules/access/tests/contract";
 export { createModuleStore, createScopedBucket, createScopedKV } from "../platform/adapters";

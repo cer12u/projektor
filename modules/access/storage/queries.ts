@@ -40,4 +40,33 @@ export const queries = {
     "INSERT INTO access_events(workspace_id,sequence,event_id,aggregate_id,aggregate_version,type,occurred_at,actor_id) VALUES(?,(SELECT COALESCE(MAX(sequence),0)+1 FROM access_events WHERE workspace_id=?),?,?,?,?,?,?)",
   events:
     "SELECT sequence, event_id, aggregate_id, aggregate_version, type, occurred_at, actor_id FROM access_events WHERE workspace_id=? AND sequence>? ORDER BY sequence LIMIT ?",
+  oauthRegister:
+    "INSERT INTO access_oauth_clients(id,name,redirect_uris,scope,refresh_allowed,created_at) SELECT ?,?,?,?,?,? WHERE (SELECT COUNT(*) FROM access_oauth_clients)<10000 AND (SELECT COUNT(*) FROM access_oauth_clients WHERE created_at>?)<100",
+  oauthClient:
+    "SELECT id,name,redirect_uris,scope,refresh_allowed,created_at FROM access_oauth_clients WHERE id=?",
+  oauthWorkspaceClient:
+    "SELECT version,revoked FROM access_oauth_workspace_clients WHERE workspace_id=? AND client_id=?",
+  oauthBindClient:
+    "INSERT INTO access_oauth_workspace_clients(workspace_id,client_id) VALUES(?,?) ON CONFLICT(workspace_id,client_id) DO NOTHING",
+  oauthRevokeClient:
+    "UPDATE access_oauth_workspace_clients SET revoked=1,version=version+1 WHERE workspace_id=? AND client_id=? AND version=? AND revoked=0",
+  oauthCode: "SELECT * FROM access_oauth_codes WHERE workspace_id=? AND code_hash=?",
+  oauthIssueCode:
+    "INSERT INTO access_oauth_codes(workspace_id,code_hash,client_id,principal_id,membership_version,redirect_uri,challenge,resource,scope,expires_at) SELECT ?,?,?,?,?,?,?,?,?,? WHERE EXISTS(SELECT 1 FROM access_oauth_workspace_clients WHERE workspace_id=? AND client_id=? AND revoked=0)",
+  oauthConsumeCode:
+    "UPDATE access_oauth_codes SET used=1 WHERE workspace_id=? AND code_hash=? AND used=0 AND expires_at>?",
+  oauthFamily: "SELECT * FROM access_oauth_families WHERE workspace_id=? AND id=?",
+  oauthCreateFamily:
+    "INSERT INTO access_oauth_families(workspace_id,id,client_id,principal_id,membership_version,resource,scope,expires_at) VALUES(?,?,?,?,?,?,?,?)",
+  oauthAdvanceFamily:
+    "UPDATE access_oauth_families SET version=version+1,scope=? WHERE workspace_id=? AND id=? AND version=? AND revoked=0",
+  oauthRevokeFamily:
+    "UPDATE access_oauth_families SET revoked=1,version=version+1 WHERE workspace_id=? AND id=? AND revoked=0",
+  oauthFamilyEvent:
+    "INSERT INTO access_events(workspace_id,sequence,event_id,aggregate_id,aggregate_version,type,occurred_at,actor_id) SELECT ?, (SELECT COALESCE(MAX(sequence),0)+1 FROM access_events WHERE workspace_id=?), ?, id, version, ?, ?, principal_id FROM access_oauth_families WHERE workspace_id=? AND id=? AND changes()=1",
+  oauthToken: "SELECT * FROM access_oauth_tokens WHERE workspace_id=? AND token_hash=?",
+  oauthIssueToken:
+    "INSERT INTO access_oauth_tokens(workspace_id,token_hash,family_id,kind,scope,expires_at) VALUES(?,?,?,?,?,?)",
+  oauthConsumeRefresh:
+    "UPDATE access_oauth_tokens SET used=1 WHERE workspace_id=? AND token_hash=? AND kind='refresh' AND used=0 AND expires_at>?",
 } as const;
