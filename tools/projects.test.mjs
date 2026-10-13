@@ -69,6 +69,7 @@ async function fixture() {
 test("Access consumer fake enforces provenance and live permission; rules reject malformed input", async () => {
   const f = await fixture();
   await platform.accessConsumerContract(f.access.access, f.owner);
+  await assert.rejects(f.api.createProject(f.owner, null), code("validation"));
   await assert.rejects(f.api.createProject(f.owner, create("p1", "a")), code("validation"));
   await assert.rejects(f.api.createProject(f.owner, create("p1", "../A")), code("validation"));
   const viewer = f.access.issue(actor("viewer", "w1", "viewer"));

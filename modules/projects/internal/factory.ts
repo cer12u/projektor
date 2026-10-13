@@ -37,6 +37,9 @@ function missing(): never {
 function forbidden(): never {
   throw new PlatformError("forbidden", "Project access denied");
 }
+function inputObject(value: unknown): void {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) invalid();
+}
 function id(value: unknown): string {
   if (typeof value !== "string" || !/^[a-zA-Z0-9_-]{1,128}$/.test(value)) invalid();
   return value;
@@ -204,6 +207,7 @@ export function createProjects(deps: Dependencies): {
     async createProject(scope, input) {
       const s = await access.authorize(scope, "write");
       if (!privileged(s)) forbidden();
+      inputObject(input);
       const projectId = id(input.projectId);
       const projectKey = key(input.key);
       const projectName = name(input.name);
@@ -224,6 +228,7 @@ export function createProjects(deps: Dependencies): {
       );
     },
     async renameProject(scope, input) {
+      inputObject(input);
       const projectId = id(input.projectId);
       const expected = version(input.expectedVersion);
       const projectName = name(input.name);
@@ -250,6 +255,7 @@ export function createProjects(deps: Dependencies): {
       );
     },
     async grantProjectRole(scope, input) {
+      inputObject(input);
       const projectId = id(input.projectId);
       const expected = version(input.expectedVersion);
       const principalId = id(input.principalId);
@@ -281,6 +287,7 @@ export function createProjects(deps: Dependencies): {
       );
     },
     async revokeProjectRole(scope, input) {
+      inputObject(input);
       const projectId = id(input.projectId);
       const expected = version(input.expectedVersion);
       const principalId = id(input.principalId);
@@ -306,6 +313,7 @@ export function createProjects(deps: Dependencies): {
       );
     },
     async archiveProject(scope, input) {
+      inputObject(input);
       const projectId = id(input.projectId);
       const expected = version(input.expectedVersion);
       await authorizeProject(scope, projectId, "manage", true);
