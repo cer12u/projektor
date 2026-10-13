@@ -19,7 +19,7 @@ import type {
   IssuesApi,
 } from "../public";
 import type { queries } from "../storage/queries";
-import { canTransition, searchExpression } from "./rules";
+import { canTransition, searchExpression, searchPattern, searchTerms } from "./rules";
 
 type Name = keyof typeof queries;
 type Statement = Call<Name>;
@@ -175,6 +175,7 @@ export function createIssues(deps: Dependencies): {
             kind(scope),
             at,
             detail,
+            scope.clientId ?? null,
           ],
         },
         {
@@ -193,6 +194,7 @@ export function createIssues(deps: Dependencies): {
             at,
             actor(scope),
             kind(scope),
+            scope.clientId ?? null,
           ],
         },
       ]);
@@ -369,7 +371,16 @@ export function createIssues(deps: Dependencies): {
           ...guarded(scope, { name: "bump", values: [w(scope), current.id, expected] }),
           {
             name: "comment",
-            values: [w(scope), commentId, current.id, text, actor(scope), kind(scope), clock.now()],
+            values: [
+              w(scope),
+              commentId,
+              current.id,
+              text,
+              actor(scope),
+              kind(scope),
+              clock.now(),
+              scope.clientId ?? null,
+            ],
           },
         ],
       );
@@ -424,12 +435,18 @@ export function createIssues(deps: Dependencies): {
       const limit = input.limit ?? 50;
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
         fail("validation", "Invalid limit");
+      if (
+        input.cursor !== undefined &&
+        (typeof input.cursor !== "string" || !/^[1-9][0-9]*$/.test(input.cursor))
+      )
+        fail("validation", "Invalid cursor");
       const cursor =
         input.cursor === undefined ? Number.MAX_SAFE_INTEGER : version(Number(input.cursor));
       const filterState = input.state === undefined ? null : state(input.state);
       const filterPriority = input.priority === undefined ? null : priority(input.priority);
       const assigneeMode = input.assigneeId === undefined ? 0 : input.assigneeId === null ? 1 : 2;
-      const assignee = typeof input.assigneeId === "string" ? id(input.assigneeId) : null;
+      const assignee =
+        input.assigneeId === undefined || input.assigneeId === null ? null : id(input.assigneeId);
       const rows = (
         await store.run("list", [
           w(scope),
@@ -458,13 +475,29 @@ export function createIssues(deps: Dependencies): {
       const projectId = id(input.projectId);
       const project = await projects.authorizeProject(scope, projectId);
       const text = body(input.text, 256);
-      const expression = searchExpression(text);
-      if (!expression) fail("validation", "Empty search terms");
+      const terms = searchTerms(text);
+      if (!terms.length || terms.length > 12) fail("validation", "Expected 1–12 search terms");
       const limit = input.limit ?? 20;
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
         fail("validation", "Invalid limit");
       return (
-        await store.run("search", [expression, w(scope), projectId, w(scope), projectId, limit])
+        await (terms.some((term) => Array.from(term).length < 3)
+          ? store.run("searchShort", [
+              ...Array.from({ length: 12 }, (_, index) =>
+                terms[index] === undefined ? null : searchPattern(terms[index]),
+              ),
+              w(scope),
+              projectId,
+              limit,
+            ])
+          : store.run("search", [
+              searchExpression(terms),
+              w(scope),
+              projectId,
+              w(scope),
+              projectId,
+              limit,
+            ]))
       ).rows.map((row) => fromRow(row, project.key));
     },
     async getHistory(scope, issueId) {
@@ -475,6 +508,7 @@ export function createIssues(deps: Dependencies): {
           action: string(row, "action"),
           actorId: string(row, "actor_id"),
           actorKind: row.actor_kind === "machine" ? "machine" : "human",
+          clientId: row.client_id === null ? null : string(row, "client_id"),
           occurredAt: number(row, "occurred_at"),
           detail: string(row, "detail"),
         }),
@@ -522,6 +556,7 @@ export function createIssues(deps: Dependencies): {
           payload: {
             actorId: string(row, "actor_id"),
             actorKind: row.actor_kind === "machine" ? "machine" : "human",
+            clientId: row.client_id === null ? null : string(row, "client_id"),
           },
           cursor: number(row, "sequence"),
         }),

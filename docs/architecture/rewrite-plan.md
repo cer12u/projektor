@@ -353,6 +353,7 @@ owner の利用目的は OpenAI Dots、Codex、Claude Code など複数 agent �
 | 02b `rewrite/02b-access-oauth` | Access part 2: MCP OAuth 2.1 authorization server、Web と同じ Cloudflare Access identity での login、MCP authorization spec 対応 | claude.ai connectors 等の MCP clients がログインできる。独自 password なし。OAuth の discovery / authorization / token / scope / PKCE / refresh・revoke と負の security contract を仕様に沿って試験。Gateway への接続契約を用意 |
 | 03 `rewrite/03-projects` | Projects、直接 principal grant、archive | 同 workspace key unique を並行 create/rename で検証。project/history/receipt の一括 rollback。非参加者は存在も見えない。Access fake の provider contract が一致。Q3 決定反映 |
 | 04 `rewrite/04-issues` | Issues: 固定状態、番号、担当、コメント、履歴、検索 | create/edit/transition の version と同一操作再送、response loss 回収。issue number の一意性。Issues schema に Projects/Access table が存在しなくても動く。foreign DB read/write ゼロ |
+| 04a `rewrite/04a-audit-projects-issues` | 独立test audit、Projects/Issuesの回帰検証、日本語検索と代理client帰属 | 各public操作の不変条件をテストへ対応づけ、変異を実行して検出力を確認。既存migrationを維持し、trigram再構築と短語のproject限定LIKE、history/comments/eventsへのclientId追加。詳細は[test audit](test-audit.md) |
 | 05 `rewrite/05-wiki` | Wiki: project pages、revision、slug、検索 | 並行 edit で revision を失わない。body/FTS/history/receipt の整合。知らない project の page/revision が見えない。Issues なしで単独 test |
 | 06 `rewrite/06-gateway` | Gateway、Worker composition、REST/MCP の最小 catalog | 同じ fixture で surface parity。scope 不一致、未知 tool、binary/credential の明示例外。route に SQL/業務分岐なし。各 command の API 契約と生成 docs 一致。Claude Code / Codex / Dots 型 client の MCP Streamable HTTP 相互運用を OAuth login と bearer の両経路で検証 |
 | 08 `rewrite/08-coordination` | Coordination: sessions / fenced lease / file claims / progress | 同時 acquire の winner が一人、失効 lease の renew/report 拒否、restart 後の durable recovery。Issue 本体の状態を更新しない。WIP cap は自身の table の invariant |
@@ -467,3 +468,18 @@ Phase 0 の成果は設計判断と MR であり、これらの問いへの黙�
 ### Step 02 の具体化
 
 [Access implementation](access.md) に role、bootstrap、credential 再送、global identity の例外と試験を記録した。`access_events` は同一 commit の immutable history と outbox を兼ねる。認証失敗の永続記録はこの段階では必要なく `access_auth_attempts` を作らない。公開型検査は union の全構成型を検査した後の重複走査を修正した（文字列リテラル union の標準 String メソッドを外部型と誤検出していた）。D1、SQL literal、callback を union に隠す負の fixture を追加し、境界を緩和しない。
+
+### Step 04a audit refinements
+
+Owner指定の日本語部分一致を満たすため、Issues検索をunicode61の単語一致から
+trigramの部分一致へ変更する。1–2文字を含む検索は固定queryのescaped LIKEで
+認可済みprojectに限定し、入力256文字・12語・返却100件を上限とする。詳細と
+性能上の限界は[Issues仕様](issues.md)。actor kindだけでは代理clientを区別できない
+ため、Accessの公開RequestScope.clientIdをIssuesの履歴・コメント・イベントに保存し
+公開DTOへ追加する。旧データはnullとし、移行で帰属を推測しない。
+
+既存migrationの改変を避けるため、追加migrationで所有FTSを再構築する。検査器は
+SQLite内部のFTS DROP時data_versionとPython注入BEGINを利用者SQLと混同していた。
+前者を所有virtual tableの正確なDROPに限定して扱い、後者をautocommit接続で発生
+させないようにする。明示PRAGMA/transaction・他owner DROP・runtime DDLの拒否は
+負のテストで維持する。owner依存・storage境界・生bindingの流れは変更しない。

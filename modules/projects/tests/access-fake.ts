@@ -82,18 +82,32 @@ export function fakeAccess(): {
     },
   };
 }
-/** Apply the same provenance, role and liveness expectations to any Access provider fixture. */
+/** Run against both the real Access provider and this consumer fake. */
 export async function accessConsumerContract(
-  access: Pick<AccessApi, "authorize" | "getPrincipalSummary">,
+  access: Pick<AccessApi, "authorize" | "getPrincipalSummary" | "getMembership">,
   scope: RequestScope,
 ): Promise<void> {
   const live = await access.authorize(scope, "read");
   if (live.workspaceId !== scope.workspaceId || live.principalId !== scope.principalId)
     throw new Error("Access provider changed subject");
-  try {
-    await access.authorize({ ...scope });
-  } catch {
-    return;
+  const summary = await access.getPrincipalSummary(scope, scope.principalId);
+  const membership = await access.getMembership(scope, scope.principalId);
+  if (summary.id !== scope.principalId || summary.kind !== live.kind)
+    throw new Error("Access provider returned another principal");
+  if (membership.id !== scope.principalId || !membership.active || membership.role !== live.role)
+    throw new Error("Access provider returned inconsistent membership");
+  async function rejectsCode(action: Promise<unknown>, expected: string): Promise<void> {
+    try {
+      await action;
+    } catch (error) {
+      if (error instanceof PlatformError && error.code === expected) return;
+      throw error;
+    }
+    throw new Error(`Access provider failed to reject with ${expected}`);
   }
-  throw new Error("Access provider accepted copied scope");
+  await rejectsCode(access.authorize({ ...scope }), "forbidden");
+  await rejectsCode(access.getPrincipalSummary({ ...scope }, scope.principalId), "forbidden");
+  await rejectsCode(access.getMembership({ ...scope }, scope.principalId), "forbidden");
+  await rejectsCode(access.getPrincipalSummary(scope, "contract-absent"), "not_found");
+  await rejectsCode(access.getMembership(scope, "contract-absent"), "not_found");
 }

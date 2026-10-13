@@ -332,6 +332,7 @@ export function createProjects(deps: Dependencies): {
     getProject: (scope, projectId) => authorizeProject(scope, projectId),
     async listVisibleProjects(scope, cursor = "", limit = 50) {
       const live = await access.authorize(scope, "read");
+      if (typeof cursor !== "string") invalid();
       if (cursor) id(cursor);
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) invalid();
       const rows = (
