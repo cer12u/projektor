@@ -1,8 +1,9 @@
 # Working on the modular rewrite
 
 Read [the approved plan](docs/architecture/rewrite-plan.md) and
-[scaffold implementation notes](docs/architecture/scaffold.md). Step 01 contains
-only Platform, boundary tooling and test owners. Do not restore old business
+[scaffold implementation notes](docs/architecture/scaffold.md). Step 01 introduced
+Platform, boundary tooling and test owners; step 02 adds Access part 1 (see
+[Access contracts](docs/architecture/access.md)). Do not restore old business
 code, global service contexts, release workflows or production bindings.
 
 ## Ownership and public contracts

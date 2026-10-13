@@ -6,9 +6,11 @@ address is **tajdickson@protonmail.com**. For this Fork's code or deployment,
 contact the Fork operator through an established private channel; do not assume
 the upstream maintainer operates this Fork. Allow time for a fix before disclosure.
 
-This rewrite is currently a **non-deployable scaffold**. It has no authentication,
-workspace permissions, credential issuance, business endpoints or supported
-migration path from existing deployments. The old implementation's security
+This rewrite is currently **non-deployable**. Access part 1 implements assertion
+verification, scoped machine credentials and live workspace authorization as a
+module API. It has no business HTTP endpoints, MCP OAuth server yet, or supported
+migration path from existing deployments. See the [Access contract](docs/architecture/access.md)
+for credential handling, bootstrap capabilities and admission-time revoke semantics. The old implementation's security
 claims and operational instructions do not describe this branch.
 
 Module ownership checks prevent accidental coupling; they are not a sandbox for

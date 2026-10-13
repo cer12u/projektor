@@ -15,6 +15,6 @@ if (process.argv.includes("--coverage"))
     "--test-reporter=lcov",
     "--test-reporter-destination=reports/platform.lcov",
   );
-args.push("tools/runtime.test.mjs");
+args.push("--test-concurrency=1", "tools/runtime.test.mjs", "tools/access.test.mjs");
 const result = spawnSync(process.execPath, args, { stdio: "inherit" });
 process.exitCode = result.status ?? 1;

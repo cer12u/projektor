@@ -34,6 +34,27 @@ const ddl = (root, sql, object) => {
 };
 const cases = [
   [
+    "union hides storage",
+    "public-type",
+    (r) => append(r, `${a}/public.ts`, 'export type Hidden = "none" | { nested: D1Database };'),
+  ],
+  [
+    "union hides SQL literal",
+    "public-type",
+    (r) =>
+      append(r, `${a}/public.ts`, 'export type Hidden = "safe" | "SELECT * FROM fixture_a_items";'),
+  ],
+  [
+    "union hides callback",
+    "public-type",
+    (r) =>
+      append(
+        r,
+        `${a}/public.ts`,
+        'export type Hidden = { kind: "safe" } | { kind: "bad"; commit(fn: () => void): void };',
+      ),
+  ],
+  [
     "barrel leaks SQL catalog",
     "public-type",
     (r) => append(r, `${a}/public.ts`, 'export { queries } from "./storage/queries";'),

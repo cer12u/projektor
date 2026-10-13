@@ -109,7 +109,7 @@ docs/architecture/           # 本文と採用した変更判断
 
 | module | 責務 / 排他的所有データ | 公開 interface の最小集合 | 許可する業務依存 |
 |---|---|---|---|
-| **Access** | 人・machine の識別、資格の検証/取消、workspace と所属。`access_principals`, `access_credentials`, `access_workspaces`, `access_memberships`, `access_auth_attempts`。KV `access:jwks:<issuer>` のみ。membership/role を KV に cache しない | C `createWorkspace`, `inviteMember`, `removeMember`, `changeRole`, `provisionMachine`, `issueCredential`, `revokeCredential`, `archiveWorkspace`; Q `authenticate`, `requireMembership`, `getPrincipalSummary`, `listWorkspaces`, `readOperation`, `readEvents`; E `MembershipChanged`, `CredentialRevoked`, `WorkspaceArchived` | なし |
+| **Access** | 人・machine の識別、資格の検証/取消、workspace と所属。core に MCP OAuth 2.1 authorization server（Web と同じ人のアカウントで MCP client がログイン）を含む。`access_principals`, `access_credentials`, `access_workspaces`, `access_memberships`。step 02 は receipt/history-outbox/guard と一回限りの bootstrap latch も所有し、auth attempts は未導入。KV `access:jwks:<issuer>` のみ。membership/role を KV に cache しない | C `bootstrap`（operator capability）, `createWorkspace`, `inviteMember`, `removeMember`, `changeRole`, `provisionMachine`, `issueCredential`, `revokeCredential`, `archiveWorkspace`; Q `authenticate`, `requireMembership`, `authorize`, `getPrincipalSummary`, `getMembership`, `getCredential`, `listWorkspaces`, `readOperation`, `readEvents`; E `WorkspaceCreated`, `MembershipChanged`, `MachineProvisioned`, `CredentialIssued`, `CredentialRevoked`, `WorkspaceArchived` | なし |
 | **Projects** | project identity、key の一意性、project 参加権限と archive。`projects_projects`, `projects_grants` | C `createProject`, `renameProject`, `grantProjectRole`, `revokeProjectRole`, `archiveProject`; Q `getProject`, `listVisibleProjects`, `authorizeProject`, `readOperation`, `readEvents`; E `ProjectChanged`, `ProjectArchived`, `ProjectGrantChanged` | Access |
 | **Issues** | issue 本体、番号、状態、担当、コメント、履歴、検索を一つの整合性境界にする。`issues_issues`, `issues_counters`, `issues_comments`, `issues_search`（FTS） | C `createIssue`, `editIssue`, `transitionIssue`, `assignIssue`, `addComment`, `archiveIssue`; Q `getIssue`, `listIssues`, `searchIssues`, `getHistory`, `authorizeIssue`, `readOperation`, `readEvents`; E `IssueCreated`, `IssueChanged`, `IssueArchived` | Projects, Access |
 | **Wiki** | project wiki と改訂・slug・検索。`wiki_pages`, `wiki_revisions`, `wiki_search`（FTS） | C `createPage`, `editPage`, `archivePage`; Q `getPage`, `listPages`, `searchPages`, `getRevision`, `authorizePage`, `readOperation`, `readEvents`; E `PageCreated`, `PageChanged`, `PageArchived` | Projects |
@@ -124,7 +124,7 @@ docs/architecture/           # 本文と採用した変更判断
 
 Platform は raw Cloudflare binding の唯一の保管場所である。workspace や issue の意味を知らず、`Clock` / `IdGenerator` / `ModuleStore` / prefix 限定 KV・R2 adapter を提供する。業務 table や operation receipt の正本を持たない。migration bookkeeping `platform_schema_versions(owner,version,checksum)` のみ基盤が所有し、実行時業務コードからはアクセス不可。
 
-Access の初期認証は既存 Cloudflare Access の署名済み assertion と hash 保存した workspace-scoped bearer を採用する。人と machine の actor/issuer を区別し、machine の権限は workspace と credential scope で上限を設ける。`provisionMachine` は同 module 内で interactive workspace owner と actor membership を確認し、機械自身の昇格を許さない。MCP から token 発行・取消は公開しない。独自 password や OAuth server は必須にしない。通常の authenticate は workspace/membership を作成せず、初期 owner は明示的な一回限りの operator bootstrap で設定する。
+Access の初期認証は既存 Cloudflare Access の署名済み assertion と hash 保存した workspace-scoped bearer を採用する。人と machine の actor/issuer を区別し、machine の権限は workspace と credential scope で上限を設ける。`provisionMachine` は同 module 内で interactive workspace owner/admin と actor membership を確認し、機械自身の昇格を許さない。MCP から token 発行・取消は公開しない。独自 password は導入しない。owner Q2 により MCP OAuth login は core 必須とし、OAuth 2.1 authorization server は Access part 2（02b）で実装する。通常の authenticate は workspace/membership を作成せず、初期 owner は明示的な一回限りの operator bootstrap で設定する。
 
 Projects は workspace owner/admin と直接 principal grant を扱う。group ベースの ACL を初期から再現する場合は Access が group と group membership、Projects が group grant を所有する拡張とする。Projects は Access の `listSubjectGroups` を使い、group table を JOIN しない。この拡張の採否は §10。
 
@@ -172,7 +172,7 @@ flowchart TD
   Lifecycle --> Access
 ```
 
-後続提供時の Gateway → 後続 module の辺、および各 module → Platform の辺は図から省略。どちらも逆依存は禁止。CI は省略しない完全な manifest から検査する。Core の順序は Platform → Access → Projects → Issues / Wiki → Gateway → Web。後続は Coordination → Assets → Planning → Insights → Integrations → Lifecycle で実装できる。
+後続提供時の Gateway → 後続 module の辺、および各 module → Platform の辺は図から省略。どちらも逆依存は禁止。CI は省略しない完全な manifest から検査する。Core の順序は Platform → Access（02 / 02b）→ Projects → Issues / Wiki → Gateway → Coordination → Web。後続は Assets → Planning → Insights → Integrations → Lifecycle で実装できる。
 
 Issues は lease を知らない。Coordination は issue の状態を直接変えない。agent の「作業報告」と issue の「完了」は別コマンドにする。lease 所持を issue 編集の必須条件にする要件は初期には入れない（そうするなら lease を Issues の invariant に組み込む境界変更が必要）。Planning は issues.sprint_id を作らず、自分の membership を持つ。これで以前の循環と他領域 UPDATE を避ける。
 
@@ -218,9 +218,9 @@ version 条件付き UPDATE の 0 rows は SQL エラーではない。owner rep
 
 独立 module の table を一切読まない設計では、Access の revoke と Issues の commit を単一 SQL transaction に含められない。これを API で包んだ SQL SPI で隠さない。
 
-**提案する core の契約は、command admission 時の live 認可**。各公開 command の実行直前に Access/Projects を照会する。認可済みで進行中の一つの command は、直後に revoke/archive されても commit し得る。revoke 完了後に認可を開始した新しい command は拒否する。認可済み context の永続保存・キューへの持込み・次要求への再利用は禁止。保存結果の再照会は毎回再認可する。read replica と KV は認可判断に使わない。
+**採択済み Q1: core の契約は、command admission 時の live 認可**。各公開 command の実行直前に Access/Projects を照会する。認可済みで進行中の一つの command は、直後に revoke/archive されても commit し得る。revoke 完了後に認可を開始した新しい command は拒否する。認可済み context の永続保存・キューへの持込み・次要求への再利用は禁止。保存結果の再照会は毎回再認可する。read replica と KV は認可判断に使わない。
 
-「revoke 応答後には以前から進行中の write も一切 commit しない」という強い要件なら、この案のまま実装しない。候補は (a) scope 単位の admission/drain を公開 API で管理する coordinator を追加する（latency、deadlock 回避、crash 回復の負担）、(b) 認可とその業務 aggregate の所有境界を統合する（module が大きくなる）。どちらも代償がある。§10 Q1 は Access/Projects MR 前の決定事項であり、既存の強い認可仕様を黙って弱めるものではない。
+「revoke 応答後には以前から進行中の write も一切 commit しない」という強い要件なら、この案のまま実装しない。候補は (a) scope 単位の admission/drain を公開 API で管理する coordinator を追加する（latency、deadlock 回避、crash 回復の負担）、(b) 認可とその業務 aggregate の所有境界を統合する（module が大きくなる）。どちらも代償がある。§10 Q1 は owner が admission 時認可を採択済みである。
 
 ### 5.4 event と削除
 
@@ -325,17 +325,20 @@ Cloudflare smoke は専用検証用 binding だけに接続し、変数が欠け
 
 全 MR は直前の merge 済み main から作り、巨大な stacked integration branch は作らない。各 module は最小の公開操作だけで完結させ、HTTP/MCP/UI の全 feature を一度に実装しない。共通受入は boundary checker、型/lint、isolated module tests、tenant/retry/concurrency の該当試験、公開契約・docs 同期。merge は owner のレビュー対象。
 
+owner の利用目的は OpenAI Dots、Codex、Claude Code など複数 agent にまたがる統合タスク管理である。そのため 06 Gateway → 08 Coordination → 07 Web の順に実装する。既存の step 番号・branch 名は変更せず、実行順だけを変更した。
+
 | 順序 / branch | 変更する module とレビュー範囲 | 固有の受入条件 |
 |---|---|---|
 | 00 `rewrite/00-architecture` | この設計文書のみ | 根拠の SHA/行番号、実行した再現、所有表、DAG、CI、未決事項。MR 作成まで、merge しない |
 | 01 `rewrite/01-scaffold` | 旧 apps/packages/plugins/lockfile/legacy checks の除去、新 skeleton、Platform、boundary tooling、GitLab CI。README/AGENTS/SECURITY を新しい境界・実装段階に同期。削除 diff と新規基盤 diff を別 commit にする | 旧 runtime import がゼロ。ライセンス保持。secret-free shared runner で全基盤 gate が動き、各違反 fixture が失敗する。2 個の仮 owner schema で cross-table read/write を拒否。stale CAS/rollback の基盤試験。main の pipeline 必須化を確認。deploy 無効 |
 | 02 `rewrite/02-access` | Access の最小外部認証 adapter、workspace/membership、owner bootstrap、scoped machine credential | owner が他 workspace へ権限を持ち込めない。actor/issuer 区別、token hash 保存、失効/降格/期限、通常 authenticate の provisioning 無副作用。自己 schema のみで isolated test。Q1/Q2/Q3 の採択済み契約を反映 |
+| 02b `rewrite/02b-access-oauth` | Access part 2: MCP OAuth 2.1 authorization server、Web と同じ Cloudflare Access identity での login、MCP authorization spec 対応 | claude.ai connectors 等の MCP clients がログインできる。独自 password なし。OAuth の discovery / authorization / token / scope / PKCE / refresh・revoke と負の security contract を仕様に沿って試験。Gateway への接続契約を用意 |
 | 03 `rewrite/03-projects` | Projects、直接 principal grant、archive | 同 workspace key unique を並行 create/rename で検証。project/history/receipt の一括 rollback。非参加者は存在も見えない。Access fake の provider contract が一致。Q3 決定反映 |
 | 04 `rewrite/04-issues` | Issues: 固定状態、番号、担当、コメント、履歴、検索 | create/edit/transition の version と同一操作再送、response loss 回収。issue number の一意性。Issues schema に Projects/Access table が存在しなくても動く。foreign DB read/write ゼロ |
 | 05 `rewrite/05-wiki` | Wiki: project pages、revision、slug、検索 | 並行 edit で revision を失わない。body/FTS/history/receipt の整合。知らない project の page/revision が見えない。Issues なしで単独 test |
-| 06 `rewrite/06-gateway` | Gateway、Worker composition、REST/MCP の最小 catalog | 同じ fixture で surface parity。scope 不一致、未知 tool、binary/credential の明示例外。route に SQL/業務分岐なし。各 command の API 契約と生成 docs 一致 |
-| 07 `rewrite/07-web` | Web: login 状態、project 選択、issue/wiki 主操作、pending/unknown 表示 | 実画面で主担当が作成→編集→履歴・競合・workspace 切替まで操作。actor/workspace 変更で旧 response を表示しない。入力失敗時に内容を失わない。secret-free local browser CI。ここで最小 core 完成 |
+| 06 `rewrite/06-gateway` | Gateway、Worker composition、REST/MCP の最小 catalog | 同じ fixture で surface parity。scope 不一致、未知 tool、binary/credential の明示例外。route に SQL/業務分岐なし。各 command の API 契約と生成 docs 一致。Claude Code / Codex / Dots 型 client の MCP Streamable HTTP 相互運用を OAuth login と bearer の両経路で検証 |
 | 08 `rewrite/08-coordination` | Coordination: sessions / fenced lease / file claims / progress | 同時 acquire の winner が一人、失効 lease の renew/report 拒否、restart 後の durable recovery。Issue 本体の状態を更新しない。WIP cap は自身の table の invariant |
+| 07 `rewrite/07-web` | Web: login 状態、project 選択、issue/wiki 主操作、pending/unknown 表示 | 実画面で主担当が作成→編集→履歴・競合・workspace 切替まで操作。actor/workspace 変更で旧 response を表示しない。入力失敗時に内容を失わない。secret-free local browser CI。ここで最小 core 完成 |
 | 09 `rewrite/09-assets` | Assets: upload/download/link/GC | 他 module table に link metadata を追加しない。R2 故障・応答断・再送後も job が残り回収できる。archive/revoke 後 download 拒否。binary REST と MCP metadata の例外を catalog に明記 |
 | 10 `rewrite/10-planning` | Planning: sprint と items | sprint 削除/終了が Issues UPDATE を発生させない。無権限 issue の schedule 拒否。archived issue の読取り/表示を定義。失敗再送で重複 item なし |
 | 11 `rewrite/11-insights` | Insights: activity projection と最小 metrics | duplicate/out-of-order event の再生が安定。consumer crash 後に欠落しない。projection 遅延を表示し、revoke 後に本文・件数を漏らさない。巨大な分析/通知 engine を追加しない |
@@ -429,16 +432,20 @@ PY
 
 実測: services `(50,29,21)`、routes `(30,0,0)`、mcp `(29,1,0)`、middleware `(4,0,3)`、複数 schema 参照 24、cleanup targets 28/36。SQL target 名は migration で実在する table と照合した。grep 型の走査なので、権限の伝播や全動的 query の到達先を網羅する証明ではない。§2.2 はこの限界を保った集計である。
 
-## 10. owner の決定が必要な事項
+## 10. owner decisions と未決事項
 
-設計 MR は以下を未決としてレビューできる。文書のために実装や production を変更する必要はない。
+2026-10-13 の owner decisions を反映。Q1–Q3 は採択済み、Q4/Q5 は未決。source merge は配備やデータ変更の承認ではない。
 
 | ID / 決める時期 | 問い | 提案と代償 |
 |---|---|---|
-| **Q1 / Access・Projects 実装前** | revoke/archive と既に進行中の write の競合をどう保証するか | admission 時認可を提案。revoke 後も既存 in-flight が完了し得る。禁止したい場合は coordinator/drain または所有境界の統合を先に再設計する |
-| **Q2 / Access 実装前** | 認証要件は現行 Access + 個別 bearer で足りるか。過去ブランチの独自認証・長期 session 要件を引き継ぐか | 現行方式を最小 core に維持。独自 password/OAuth は延期。人のブラウザ認証を machine に要求しない経路と期限・front-door policy は配備時に検証する |
-| **Q3 / Projects 実装前** | core の direct principal grant、固定 issue 状態、project wiki、archive-only を受け入れるか。group ACL とどの既存機能が初回必須か | 上記最小 scope を提案。旧 group/state/workspace wiki を移行するなら lossless mapping か該当 owner の拡張が先。便利機能の数ではなく実際の運用対象で決める |
+| **Q1 / 決定済み** | revoke/archive と進行中 write | admission-time live authorization を採択。取消前に admission 済みの処理は commit し得る。取消完了後に admission を始める新しい処理は拒否する |
+| **Q2 / 決定済み** | 認証と MCP login | 人は Cloudflare Access signed assertion、machine は hash 保存した workspace-scoped bearer。加えて MCP OAuth login（OAuth 2.1 authorization server、Web と同じ人のアカウント）を core に含む。独自 password なし。02 は assertion/bearer、02b は OAuth |
+| **Q3 / 決定済み** | core の製品範囲 | direct principal grant、固定状態 todo/in_progress/done/cancelled、project wiki、archive-only の最小 core を採択。group ACL 等は後続 |
 | **Q4 / importer・切替設計前** | 既存データ・履歴・ID・URL・tool 名の維持範囲、停止許容時間、旧稼働版の保持期間 | 新 storage へ検証付き移行し旧 DB を保持。コード廃棄とデータ廃棄を分ける。旧 system branch を既存 production と仮定しない |
 | **Q5 / real-platform smoke 有効化前** | 検証用 Cloudflare resource/budget、main だけの smoke と手動 deploy の運用、MR 必須 pipeline 設定 | secret-free MR gates + main 専用検証環境 + 手動本番切替。現行 GitLab 設定は失敗 pipeline の merge を禁止していないので Phase 1 で是正する |
 
 Phase 0 の成果は設計判断と MR であり、これらの問いへの黙示承認、新 system の完成、データ移行の承認を意味しない。
+
+### Step 02 の具体化
+
+[Access implementation](access.md) に role、bootstrap、credential 再送、global identity の例外と試験を記録した。`access_events` は同一 commit の immutable history と outbox を兼ねる。認証失敗の永続記録はこの段階では必要なく `access_auth_attempts` を作らない。公開型検査は union の全構成型を検査した後の重複走査を修正した（文字列リテラル union の標準 String メソッドを外部型と誤検出していた）。D1、SQL literal、callback を union に隠す負の fixture を追加し、境界を緩和しない。
