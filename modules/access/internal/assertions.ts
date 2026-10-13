@@ -1,4 +1,4 @@
-import type { Clock, ScopedKV } from "../../../platform/public";
+import { type Clock, PlatformError, type ScopedKV } from "../../../platform/public";
 import { deny, textValue, valid } from "./rules";
 export interface AccessConfig {
   readonly teamDomain: string;
@@ -62,7 +62,22 @@ export function createAssertionVerifier(
       return null;
     }
   }
-  async function fresh(): Promise<readonly Record<string, unknown>[]> {
+  const throttleKey = `access:jwks-refresh:${issuer}`;
+  let forcedAfter = 0;
+  let inFlight: Promise<readonly Record<string, unknown>[]> | undefined;
+  async function refresh(): Promise<readonly Record<string, unknown>[]> {
+    // KV is eventually consistent: this is an amplification bound, not a global lock.
+    const now = clock.now();
+    if (forcedAfter > now) deny();
+    forcedAfter = now + 30;
+    try {
+      const saved = Number(await kv.get(throttleKey));
+      if (Number.isFinite(saved) && saved > now && saved <= now + 30) deny();
+      await kv.put(throttleKey, String(forcedAfter));
+    } catch (error) {
+      // A stored cooldown must still deny; KV outages leave the local bound intact.
+      if (error instanceof PlatformError && error.code === "forbidden") throw error;
+    }
     const jwks = await load(`${issuer}/cdn-cgi/access/certs`);
     const list = keys(jwks);
     try {
@@ -71,6 +86,13 @@ export function createAssertionVerifier(
       /* Cache availability is not authentication correctness. */
     }
     return list;
+  }
+  function fresh(): Promise<readonly Record<string, unknown>[]> {
+    if (!inFlight)
+      inFlight = refresh().finally(() => {
+        inFlight = undefined;
+      });
+    return inFlight;
   }
   return async (assertion: string): Promise<HumanIdentity> => {
     try {

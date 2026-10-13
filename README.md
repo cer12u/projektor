@@ -1,9 +1,10 @@
 # Projektor — modular rewrite
 
-This branch implements **step 02 / Access part 1** of the approved
+This branch implements **step 02b / Access MCP OAuth** of the approved
 [modular rewrite](docs/architecture/rewrite-plan.md). Access has a tested module API
-for human assertions, machine credentials and workspace membership. Projects,
-Issues, Wiki, MCP OAuth/transport and a product UI are not implemented. Access is
+for human assertions, machine credentials, workspace membership and MCP OAuth
+(discovery, public registration, consent, PKCE, rotating tokens and revocation).
+Projects, Issues, Wiki, MCP transport and a product UI are not implemented. Access is
 not yet wired to HTTP; this is not a usable project manager. `/health` reports `deployable: false`; other Worker routes
 return 404. The static page is a placeholder.
 

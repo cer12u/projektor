@@ -76,7 +76,7 @@
 
 | 時期 | 含めるもの | 意図的な制限 |
 |---|---|---|
-| core | workspace membership、個別 machine credential、project と直接 principal grant、issue（固定状態 todo/in_progress/done/cancelled、担当、優先度、コメント）、project wiki（Markdown、revision、検索）、REST/MCP、Web | project を跨ぐ issue 移動なし。workspace wiki、group ACL、custom field/type/status、epic、sprint、anonymous share、OAuth connector、file attachment は初期必須にしない。workspace/project/issue は archive。hard delete なし |
+| core | workspace membership、個別 machine credential、project と直接 principal grant、issue（固定状態 todo/in_progress/done/cancelled、担当、優先度、コメント）、project wiki（Markdown、revision、検索）、REST/MCP、Web | project を跨ぐ issue 移動なし。workspace wiki、group ACL、custom field/type/status、epic、sprint、anonymous share、外部OAuth connector、file attachment は初期必須にしない。workspace/project/issue は archive。hard delete なし |
 | 後続 | Coordination、Assets、Planning、Insights、Integrations、Lifecycle | 必要になったものだけ順に実装する。plugin の任意コード実行と万能 DB context は復活させない |
 
 core の制限は API 互換性の破壊を伴う。旧 endpoint/tool 名を無条件に模倣しない。旧データの廃棄許可を意味しない。移行対象・既存 client 互換性は §10 で owner 判断とする。
@@ -103,13 +103,13 @@ docs/architecture/           # 本文と採用した変更判断
 
 ## 4. モジュールの所有権と公開面
 
-表の table 名は**新 schema**。旧名を移植する指示ではない。全 business module の table、unique key、cursor に workspace を含める（Access のグローバル principal/credential lookup だけは明示例外）。個々の module が所有する `<prefix>_history`、`<prefix>_operations`、`<prefix>_outbox`、batch の条件検査用 `<prefix>_guards` もその module の private table。consumer には `<prefix>_inbox` / `<prefix>_cursors` を追加できる。これらは共通 global table にしない。
+表の table 名は**新 schema**。旧名を移植する指示ではない。全 business module の table、unique key、cursor に workspace を含める（Access のグローバル principal/client metadata lookup は明示例外）。個々の module が所有する `<prefix>_history`、`<prefix>_operations`、`<prefix>_outbox`、batch の条件検査用 `<prefix>_guards` もその module の private table。consumer には `<prefix>_inbox` / `<prefix>_cursors` を追加できる。これらは共通 global table にしない。
 
 `C` は command、`Q` は query、`E` は永続 event。**依存欄にない呼出しは禁止**。全 module は業務を持たない Platform の primitive にのみ共通依存できる。
 
 | module | 責務 / 排他的所有データ | 公開 interface の最小集合 | 許可する業務依存 |
 |---|---|---|---|
-| **Access** | 人・machine の識別、資格の検証/取消、workspace と所属。core に MCP OAuth 2.1 authorization server（Web と同じ人のアカウントで MCP client がログイン）を含む。`access_principals`, `access_credentials`, `access_workspaces`, `access_memberships`。step 02 は receipt/history-outbox/guard と一回限りの bootstrap latch も所有し、auth attempts は未導入。KV `access:jwks:<issuer>` のみ。membership/role を KV に cache しない | C `bootstrap`（operator capability）, `createWorkspace`, `inviteMember`, `removeMember`, `changeRole`, `provisionMachine`, `issueCredential`, `revokeCredential`, `archiveWorkspace`; Q `authenticate`, `requireMembership`, `authorize`, `getPrincipalSummary`, `getMembership`, `getCredential`, `listWorkspaces`, `readOperation`, `readEvents`; E `WorkspaceCreated`, `MembershipChanged`, `MachineProvisioned`, `CredentialIssued`, `CredentialRevoked`, `WorkspaceArchived` | なし |
+| **Access** | 人・machine の識別、資格の検証/取消、workspace と所属。core に MCP OAuth 2.1 authorization server（Web と同じ人のアカウントで MCP client がログイン）を含む。`access_principals`, `access_credentials`, `access_workspaces`, `access_memberships`。step 02 は receipt/history-outbox/guard と一回限りの bootstrap latch も所有し、auth attempts は未導入。02b は `access_oauth_clients`, `access_oauth_workspace_clients`, `access_oauth_codes`, `access_oauth_families`, `access_oauth_tokens` を追加。KV は `access:jwks:<issuer>` と `access:jwks-refresh:<issuer>`。membership/role を KV に cache しない | C `bootstrap`（operator capability）, `createWorkspace`, `inviteMember`, `removeMember`, `changeRole`, `provisionMachine`, `issueCredential`, `revokeCredential`, `archiveWorkspace`, `registerOAuthClient`, `approveOAuthConsent`, `exchangeOAuthToken`, `revokeOAuthToken`, `revokeOAuthClient`; Q `getAuthorizationServerMetadata`, `getProtectedResourceMetadata`, `getOAuthConsent`, `getOAuthClient`, `authenticate`, `requireMembership`, `authorize`, `getPrincipalSummary`, `getMembership`, `getCredential`, `listWorkspaces`, `readOperation`, `readEvents`; E `WorkspaceCreated`, `MembershipChanged`, `MachineProvisioned`, `CredentialIssued`, `CredentialRevoked`, `WorkspaceArchived`, `OAuthConsentGranted`, `OAuthClientRevoked`, `OAuthTokenIssued`, `OAuthTokenRotated`, `OAuthFamilyRevoked` | なし |
 | **Projects** | project identity、key の一意性、project 参加権限と archive。`projects_projects`, `projects_grants` | C `createProject`, `renameProject`, `grantProjectRole`, `revokeProjectRole`, `archiveProject`; Q `getProject`, `listVisibleProjects`, `authorizeProject`, `readOperation`, `readEvents`; E `ProjectChanged`, `ProjectArchived`, `ProjectGrantChanged` | Access |
 | **Issues** | issue 本体、番号、状態、担当、コメント、履歴、検索を一つの整合性境界にする。`issues_issues`, `issues_counters`, `issues_comments`, `issues_search`（FTS） | C `createIssue`, `editIssue`, `transitionIssue`, `assignIssue`, `addComment`, `archiveIssue`; Q `getIssue`, `listIssues`, `searchIssues`, `getHistory`, `authorizeIssue`, `readOperation`, `readEvents`; E `IssueCreated`, `IssueChanged`, `IssueArchived` | Projects, Access |
 | **Wiki** | project wiki と改訂・slug・検索。`wiki_pages`, `wiki_revisions`, `wiki_search`（FTS） | C `createPage`, `editPage`, `archivePage`; Q `getPage`, `listPages`, `searchPages`, `getRevision`, `authorizePage`, `readOperation`, `readEvents`; E `PageCreated`, `PageChanged`, `PageArchived` | Projects |
@@ -232,6 +232,24 @@ core の archive は Projects/Access が現在の公開可否を直ちに判断�
 
 hard purge は Lifecycle 導入後。親を freeze し、各 owner が自分の storage に frozen marker を保存して新規 write を原子的に拒否し、全 owner の freeze acknowledgement を受けてから各 `purgeScope` を再試行する。遅れて到着した古い command も marker で拒否する。module ごとの完了を記録し、全 child の完了前に親 metadata を消さない。依存先は Lifecycle を import しない。owner 間の delete 順と失敗回復は Lifecycle が所有するが、子 table や SQL は知らない。
 
+### 5.5 Step 02b OAuth の具体化
+
+DCR はログイン・workspace 選択より前に行われるため `access_oauth_clients` の
+登録metadataのみglobal例外とする。登録自体は権限を与えず、同意によるclient binding、
+code、family、tokenはworkspaceごとに所有する。OAuth principalはWebと同じ人で、
+RequestScopeのclientIdで代理clientを区別する。OAuthではAccess管理を許さない。
+
+§5.2のoperationId契約は対話的な同意・client取消に適用する。標準OAuthの登録・
+code/refresh交換・RFC7009取消には独自operationIdを要求しない。hashのみ保存する
+secretを再送で回収することはできないため、code/refreshの消費を原子的に記録し、
+再利用はfamily取消・再認証とする。RFC7009取消は冪等。membership versionの変更は
+旧OAuth資格を無効にし、再同意を要求する。理由・寿命・失敗時とGatewayの正確な
+HTTP/CSRF契約は [Access仕様](access.md#mcp-oauth-02b-protocol-and-identity) に集約する。
+
+02bは公開clientのDCR互換経路を実装する。現行MCPが推奨するClient ID Metadata
+Documentsやconfidential-client認証は広告しない。HTTP routeと実client相互運用は
+06の受入であり、02bの単体試験で完了扱いしない。新規依存・本番bindingは追加しない。
+
 ## 6. 境界を CI で破れなくする
 
 文言上の規則だけでは不十分。scaffolding の最初の MR から以下を必須 job とし、違反は nonzero exit にする。
@@ -345,7 +363,7 @@ owner の利用目的は OpenAI Dots、Codex、Claude Code など複数 agent �
 | 12 `rewrite/12-integrations` | Integrations: まず external ref と feedback→issue | webhook/feedback 重複抑止。issue 作成 API の operationId を同じ値で再試行し、途中失敗が二重 issue を作らない。外部資格を context に広げない |
 | 13 `rewrite/13-lifecycle` | Lifecycle: freeze と purge job | 全 owner freeze 後の遅延 write 拒否。各境界で crash しても resume 可能。R2 GC 完了まで parent 消去を完了扱いしない。他 owner の SQL が一行もない |
 
-Step 08 以降は core 完成の条件ではない。既存機能の単純 port のために追加しない。epic/custom field/workspace wiki/group/OAuth を要求する場合は、そのデータ所有者の公開契約を拡張する独立 MR として再見積もりし、未実装の機能を上表の完了に紛れ込ませない。
+Step 08 以降は core 完成の条件ではない。既存機能の単純 port のために追加しない。epic/custom field/workspace wiki/group を要求する場合は、そのデータ所有者の公開契約を拡張する独立 MR として再見積もりし、未実装の機能を上表の完了に紛れ込ませない。
 
 データ移行と本番切替は別の運用判断。新規 D1/R2 namespace へ owner 別 importer（旧 snapshot を入力し公開 import command を呼ぶ）で dry-run → 件数/参照/履歴検証 → 書込み停止または差分取込み → 切替、とする。実データへの実行計画は Q4 決定後に別 MR で具体化する。新しい意味に合わない状態は勝手に正規化せず report する。旧 DB と release を保持し、切戻し時に新規 write をどう扱うか決まるまで本番公開しない。
 

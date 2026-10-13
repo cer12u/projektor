@@ -1,4 +1,4 @@
-# Access part 1 (step 02)
+# Access (steps 02 and 02b)
 
 Access has no business dependencies; Platform supplies its fixed catalog store,
 `ScopedKV`, clock and IDs. No HTTP route or production binding is introduced.
@@ -17,8 +17,15 @@ subject and email; service-token claims are rejected. The identity key hashes
 `[human, issuer, subject]`, never email. Authentication creates no durable rows.
 Membership commands explicitly register identity records. Public signing keys
 alone are cached as `access:jwks:<issuer>` for 300 seconds, with an embedded expiry
-because Platform's KV port has no TTL option. Unknown kid refreshes once; expired
-cache plus network failure fails closed. KV failures do not reject a signature
+because Platform's KV port has no TTL option. Outbound refresh attempts (including
+unknown kids and failed fetches) have a 30-second issuer cooldown recorded at
+`access:jwks-refresh:<issuer>`. One instance coalesces concurrent fetches and keeps
+a local cooldown even if KV fails. Known cached keys still work during cooldown;
+a new signing key can take up to the cooldown to become usable. KV is eventually
+consistent, so this bounds amplification per instance and propagated KV state,
+not exactly one fetch globally across all isolates/locations. A strict distributed
+quota would require a strongly consistent coordinator, outside this step.
+Expired cache plus network failure fails closed. KV failures do not reject a signature
 that can be checked with fresh keys. Membership and credential status are never
 cached. [Cloudflare's signed JWT and JWKS contract](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/authorization-cookie/validating-json/)
 is the external protocol reference.
@@ -121,7 +128,7 @@ limit)` accepts 1–100, ordered after cursor. Composition may bind an EventRead
 to a named consumer; no reader is issued by default. The factory-local capability
 is specific to that Access producer/consumer pair and intentionally reads even
 archived workspaces for downstream invalidation. Keep it out of HTTP/MCP. There
-is no delivery scheduler, consumer/inbox or OAuth server in step 02.
+is no delivery scheduler or consumer/inbox. Part 2 adds the OAuth events below.
 
 ## Evidence and boundaries
 
@@ -141,6 +148,245 @@ union after already checking all members. That false positive is corrected by
 returning after inspecting every union constituent. Negative fixtures specifically
 hide D1, SQL literal and callback capabilities in unions; no allowlist was added.
 
-02b implements MCP OAuth 2.1 login. Gateway later owns credential extraction,
+Part 2 implements the MCP OAuth module contract below. Gateway later owns credential extraction,
 Origin/CSRF, transport limits, REST/MCP parity and Streamable HTTP interoperability.
 Q4 migration/cutover and Q5 real Cloudflare resources remain owner decisions.
+
+## MCP OAuth (02b): protocol and identity
+
+Composition optionally supplies `oauth: { issuer, resource }` to `createAccess`.
+`issuer` is an exact HTTPS origin without trailing slash; `resource` is the exact
+canonical HTTPS MCP URL without credentials, query or fragment. Neither is taken
+from request Host/forwarded headers. Omission disables OAuth commands with
+`temporarily_unavailable`. All APIs return data; this step adds no HTTP routes,
+login/consent UI, bindings, deployment or client interoperability claim.
+
+References checked 2026-10-13: [MCP authorization 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization),
+[RFC 8414](https://www.rfc-editor.org/rfc/rfc8414.html),
+[RFC 9728](https://www.rfc-editor.org/rfc/rfc9728.html),
+[RFC 7591](https://www.rfc-editor.org/rfc/rfc7591.html),
+[RFC 8252](https://www.rfc-editor.org/rfc/rfc8252.html),
+[RFC 8707](https://www.rfc-editor.org/rfc/rfc8707.html),
+[RFC 7009](https://www.rfc-editor.org/rfc/rfc7009.html),
+[RFC 9700](https://www.rfc-editor.org/rfc/rfc9700.html).
+Current MCP prefers Client ID Metadata Documents and keeps DCR for compatibility.
+This bounded step implements requested DCR/public clients only, does not fetch
+client URLs, and does not advertise CIMD, OIDC, confidential-client auth, implicit,
+password or client-credentials grants. CIMD/other client requirements must be
+assessed during step 06 interoperability, not silently assumed to work.
+
+OAuth authentication uses `authenticate({kind: "oauth", bearer, resource})`.
+The resulting principal is **the same human**, with the same issuer/subject hash
+as their Cloudflare Access Web login. Frozen scopes add `clientId` for attribution;
+the family records the human, client, workspace and resource. `kind` remains
+`human`, so downstream project grants continue to address the human. Consumers
+must retain `scope.clientId` in future activity attribution when present.
+OAuth principals cannot create workspaces, issue credentials, manage Access or
+consent to another client: those surfaces require a live interactive assertion.
+Normal business reads/writes use existing `requireMembership` / `authorize`.
+
+`read` permits reads. `write` includes read, and is normalized to `read write`.
+An omitted authorization scope defaults to read. Registration's omitted scope
+permits requesting read/write later; it grants neither. Membership is still the
+ceiling: a viewer requesting `read write` grants `read`; the token response reports
+that actual scope. Refresh may narrow but never enlarge scope; narrowing is permanent
+for that family and also invalidates held write handles. Protected-resource discovery
+and AS metadata both advertise `read` and `write`. Every token request must contain the exact configured
+resource. Access admission requires that same resource, never the Access JWT
+audience, client ID, URL supplied by a bearer, or a caller-selected audience.
+
+## Registration, consent and tenant ownership
+
+`registerOAuthClient` accepts a name (1–128 characters), 1–10 redirect URIs
+(each at most 2048 characters), supported grant/response types, scope and public
+`token_endpoint_auth_method: none`. The defaults are name `MCP client`, code
+grant only and auth method `none`. Refresh is issued only to clients registering
+`refresh_token`. Unknown optional metadata is ignored, not fetched or echoed.
+The client ID is random and is not a secret. No client secret is generated.
+Registration is atomically capped at 100 per rolling hour and 10,000 total clients
+per installation; exhaustion is `temporarily_unavailable`. Gateway must add a
+per-source abuse limiter before exposure. Caps do not replace that edge control.
+
+HTTPS callbacks match exactly, including query and case. Literal `http://127.0.0.1`
+and `http://[::1]` callbacks may change only their port at authorization time
+(RFC 8252); localhost names, other HTTP, credentials, fragments, whitespace,
+backslashes and wildcard URIs are rejected. Token exchange must repeat the exact
+redirect URI selected at authorization, including its loopback port.
+
+DCR happens before the human chooses a workspace. Therefore
+`access_oauth_clients` is an explicit **global metadata-only exception**: a client
+has no membership or grants. `access_oauth_workspace_clients` is created only by
+consent in a selected, authorized workspace. Its versioned revocation prevents
+that client from obtaining/admitting any tokens in that workspace, without
+revoking an independently consented client binding in another workspace.
+`getOAuthClient` / `revokeOAuthClient` are interactive manager-only; revocation
+accepts `operationId` and `expectedVersion`. There is no re-enable in this step;
+a deliberate future management feature must define that policy.
+
+`getOAuthConsent(principal, request, workspaceScope)` validates the client, redirect, response
+`code`, resource, scopes, S256 challenge and optional state (at most 2048 characters),
+then checks the selected workspace and returns a frozen request-local handle and safe
+display values. `requestedScope` shows the client request; `scope` shows the scope
+the human can grant in that workspace. The challenge
+must be 43 base64url characters; verifier is 43–128 RFC 7636 unreserved characters.
+The handle binds the exact request to that human and selected workspace and expires within 10 minutes
+or their assertion expiry. After explicit user
+approval and workspace selection, obtain a scope from that same human and call
+`approveOAuthConsent(scope, consent, {operationId, codeSecret})`. Approval rechecks
+membership and can narrow the grant further if the role was downgraded. A handle
+from another instance, copy or human is rejected.
+
+Gateway generates the 32-byte random hex `codeSecret`, retains it with the operation
+ID for a request retry, and never accepts it from the OAuth client. Access returns
+`{redirect_uri, code, state?, iss}`; state is passed through unchanged. Identical
+approval retries recover the same unused/unexpired code, receipt and history;
+changed input conflicts. Approval/registration do not provision humans or
+workspaces. Consent must be displayed for every authorization, never inferred
+from an existing client registration or Cloudflare Access login alone.
+
+## Token lifecycle and atomicity
+
+Codes expire after 120 seconds, access tokens after at most 300 seconds. Refresh
+tokens expire after 7 days, limited by a 30-day absolute family lifetime. Tokens
+are opaque random 256-bit secrets with routing prefixes `pc1`, `pa1`, `pr1` and
+workspace ID; routing fields confer no authority. Only SHA-256 of the complete
+code/token is stored. Cleartext is never in receipts, events, KV, logs or errors.
+PKCE and redirect/client/resource are checked before consuming a code.
+
+Code consumption + family creation + access/refresh hashes + event commit in one
+batch. Rotation consumes the refresh exactly once, CAS-increments the family and
+commits new token hashes + event in one batch. Guard constraints roll back zero-row
+consumption or stale family versions. Old refresh hashes remain tombstones.
+Replaying a used refresh revokes the whole family, including current access and
+refresh tokens, even if the old refresh has expired. A correctly bound used code
+also revokes its family, even after code expiry. Wrong clients/verifiers cannot
+use this mechanism to revoke another client's family. Concurrent exchanges have
+one issuance winner, then reuse retires that family; clients must serialize refresh.
+There is no grace replay that returns an old secret.
+
+`revokeOAuthToken({client_id, token, token_type_hint?})` retires the associated
+family for either access or refresh tokens. Hints are advisory. Unknown,
+malformed, already revoked and foreign-client tokens are success without revealing
+existence (a missing/empty token is invalid input). Unknown client IDs are
+`invalid_client`; public clients prove possession of the submitted token, not a
+client secret. Revocation and its event are atomic and repeated revocation is inert.
+
+Every new admission checks D1 membership, active workspace, client binding, family
+and token expiry. No KV authorization cache is used. Codes/families capture the
+membership version: **any role/membership change requires fresh consent**. This
+conservative policy prevents removal/reinvitation from reviving old credentials.
+Q1 still allows an already admitted command to finish; held scopes are rechecked
+on each new operation. A workspace/client revocation cannot revive via refresh.
+
+OAuth wire exchanges deliberately differ from normal command retries: OAuth clients
+supply no `operationId`, and secrets stored only as hashes cannot be recovered.
+Registration retry creates another public client; code/refresh retry is replay and
+fails closed. After response loss, start authorization again. If a lost response
+is detected inside Access after a committed exchange, retire its family. When
+storage/recovery itself is unavailable the HTTP adapter must report a transient
+error, never claim no commit occurred. The consumed code/refresh remains the durable
+single-use marker. Interactive consent and client revocation retain the normal
+idempotent operation/CAS contract. This is an explicit §5.2 protocol exception,
+not relaxed database atomicity.
+
+New tables: `access_oauth_clients` (global), `access_oauth_workspace_clients`,
+`access_oauth_codes`, `access_oauth_families`, `access_oauth_tokens` (all tenant-local
+keys/FKs). Existing receipt/event/guard tables are reused. New schemaVersion-1
+events: `OAuthConsentGranted`, `OAuthClientRevoked`, `OAuthTokenIssued`,
+`OAuthTokenRotated`, `OAuthFamilyRevoked`, with the existing actor-only payload.
+The code hash/family ID is the credential aggregate ID, not a credential secret.
+No other module's schema or new business dependency is used.
+
+## Exact Gateway HTTP contract (step 06; not wired here)
+
+For example issuer `https://projektor.example`, resource
+`https://projektor.example/mcp`:
+
+| HTTP surface | Access API and response |
+|---|---|
+| `GET /.well-known/oauth-authorization-server` | `getAuthorizationServerMetadata()`, 200 JSON |
+| `GET /.well-known/oauth-protected-resource/mcp` | `getProtectedResourceMetadata()`, 200 JSON; derive suffix from resource path, also serve root fallback with identical data |
+| `POST /oauth/register`, JSON | `registerOAuthClient`, 201 JSON; fields as `OAuthClientInput`/`OAuthClient`; no secret/auth cookie required |
+| `GET /oauth/authorize`, query | Cloudflare Access human login, `listWorkspaces`, selected workspace's `requireMembership`, `getOAuthConsent`; render escaped client name, callback host, requested and grantable scopes, explicit workspace selector and approve/deny buttons; update grantable scope when selection changes |
+| `POST /oauth/authorize`, form | Verify browser Origin/CSRF and integrity-bound consent request, reauthenticate assertion, resolve selected workspace with `requireMembership`, call `getOAuthConsent` and `approveOAuthConsent` within this POST request; 303 to returned callback with URL-encoded `code`, unchanged optional `state`, and `iss` |
+| `POST /oauth/token`, form URL encoded | `exchangeOAuthToken`, 200 JSON `access_token`, `token_type: Bearer`, `expires_in`, `scope`, optional `refresh_token`; public `client_id` in body |
+| `POST /oauth/revoke`, form URL encoded | `revokeOAuthToken`, 200 empty body even for unknown token; public `client_id`, required `token`, optional hint |
+| Protected MCP requests | Extract Authorization Bearer on every request; `pa1` maps to `authenticate(kind: oauth, resource: configured URL)`, `pt1` to existing machine path; resolve workspace explicitly and reject URL/header/body/connection disagreement |
+
+Token form for code: `grant_type=authorization_code`, `client_id`, `code`,
+`redirect_uri`, `code_verifier`, `resource`. For rotation: `grant_type=refresh_token`,
+`client_id`, `refresh_token`, `resource`, optional `scope`. Reject duplicate fields,
+multiple resources, unsupported response modes, unsupported auth methods and
+ambiguous credential sources; decode form/query exactly once. Gateway passes only
+these validated fields. Do not expose credential, consent or client-management
+commands as MCP tools. OAuth credentials cannot authorize the management surface.
+
+The GET-to-POST consent binding is mandatory transport work: use a short-lived
+signed/encrypted server envelope bound to the authenticated subject and CSRF cookie,
+containing the original validated request, expiry and unpredictable nonce. Never
+trust hidden form client/scope/redirect values merely because GET validated them.
+No Access handle is serialized or held across requests: its WeakMap provenance is
+request-local. On POST verify the envelope, CSRF token and origin, obtain the selected
+workspace scope from the fresh human login, then call `getOAuthConsent` with the
+original request and `approveOAuthConsent` in the same POST request and Access instance.
+Use an operation ID and code secret tied to that consent attempt for retries;
+any recovered code is usable only once. GET/login by itself must never grant a
+code. Deny redirects only to the validated callback, with `error=access_denied`,
+original state and issuer, and calls no approval command.
+
+`OAuthError.code` is the protocol error, never its internal stack. At authorization,
+`authorizationRedirect` exists only after client and redirect validation: encode
+`error`, `state?`, `iss` onto that exact URI. Without it, render a local 400 and do
+not redirect. On approval failures use the integrity-bound validated callback;
+expired/forged browser state stays local. Consent `PlatformError` forbidden/conflict
+maps to `access_denied`; unknown maps to `temporarily_unavailable`. Interactive
+client-management APIs retain the normal REST 403/404/409/503 mapping. For token/registration errors use 400
+JSON `{error: code}`, except `temporarily_unavailable` uses 503 with Retry-After.
+Public-client `invalid_client` is 400 (no HTTP authentication challenge).
+Unclassified storage errors are sanitized 503; never reinterpret them as successful
+revocation. Browser denial/Access forbidden maps to `access_denied`, not token
+`invalid_grant`. Unsupported grant/response types retain their specific codes.
+
+All token/registration/revocation and authorization responses: `Cache-Control:
+no-store`, `Pragma: no-cache`; consent pages also `Referrer-Policy: no-referrer`,
+frame protection/CSP and no third-party assets. Use URLSearchParams to overwrite
+reserved callback response parameters, removing stale `code`, `error`, `state`,
+`iss` before adding this response. No assertion/token/verifier/authorization query
+in access logs or error telemetry. Apply a 32 KiB request-body limit and rate limits
+per source/client before calling Access. Public endpoints/discovery/token requests
+must not be intercepted by Cloudflare Access browser login redirects: protect the
+interactive authorization UI only, and validate human assertions there. TLS and
+configured-origin validation are required. Public metadata/token/registration/
+revocation may allow noncredentialed CORS for browser MCP clients; consent is
+same-origin and must never allow credentialed wildcard CORS.
+
+Unauthenticated/expired/invalid MCP tokens: 401 with `WWW-Authenticate: Bearer
+resource_metadata="https://projektor.example/.well-known/oauth-protected-resource/mcp",
+scope="read"` (and `error="invalid_token"` for a supplied bad token). Insufficient
+scope: 403 with `WWW-Authenticate: Bearer error="insufficient_scope", scope="read write", resource_metadata="https://projektor.example/.well-known/oauth-protected-resource/mcp"`
+for writes, enabling MCP step-up authorization. Never accept bearer tokens from query strings,
+forward them upstream, or use browser assertion audience as MCP resource. Gateway
+must distinguish scope denial from missing membership without exposing another
+tenant; when Access returns only generic forbidden, use a generic 403 instead of
+claiming that a scope upgrade will fix membership/client revocation.
+
+## Part 2 evidence and remaining work
+
+`tools/access.test.mjs` adds pure URI/PKCE/registration rules, issuer JWKS abuse
+bounds including concurrency/restart/fetch failure, metadata/DCR quota races,
+human identity/client attribution, provider membership contract, hash-only state,
+consent provenance/expiry/retry/fingerprint, incorrect PKCE/redirect/resource,
+code replay/expiry, two-workspace client bindings, interactive-management denial,
+refresh narrowing/expiry/absolute family lifetime/reuse, RFC7009 idempotence,
+client CAS/live membership/archive invalidation, atomic rollback, lost responses,
+and concurrent code/refresh consumption. Tests use only Access migrations and
+Platform's migration ledger on Miniflare; fake clock/IDs/JWKS and storage fault
+ports provide deterministic cases. No new business provider exists to fake.
+
+Step 06 must implement and test the HTTP/CSRF/consent envelope and edge limits,
+then exercise actual Claude Code, claude.ai, Codex and Dots-style clients. That
+acceptance may reveal additional registration/auth method needs. Retention/cleanup
+of expired clients/codes/families/tokens is future Access maintenance: do not delete
+reuse tombstones while a family can still be live. Current caps fail closed rather
+than reclaim client identities automatically. Q4/Q5 and real Cloudflare smoke
+remain open; local tests do not validate deployed D1/JWKS/KV propagation.

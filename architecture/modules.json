@@ -101,10 +101,15 @@
           "access_receipts",
           "access_events",
           "access_guards",
-          "access_bootstrap"
+          "access_bootstrap",
+          "access_oauth_clients",
+          "access_oauth_workspace_clients",
+          "access_oauth_codes",
+          "access_oauth_families",
+          "access_oauth_tokens"
         ],
         "objects": [],
-        "globalTables": ["access_principals", "access_bootstrap"],
+        "globalTables": ["access_principals", "access_bootstrap", "access_oauth_clients"],
         "catalog": "modules/access/storage/queries.ts",
         "migrations": "modules/access/storage/migrations",
         "kvPrefix": "access:",

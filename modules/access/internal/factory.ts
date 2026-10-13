@@ -21,6 +21,8 @@ import type {
 } from "../public";
 import type { queries } from "../storage/queries";
 import { type AccessConfig, createAssertionVerifier, type JwksFetcher } from "./assertions";
+import { type Identity, num, str } from "./identity";
+import { createOAuth, type OAuthConfig } from "./oauth";
 import {
   deny,
   hash,
@@ -37,12 +39,6 @@ import {
 
 type Name = keyof typeof queries;
 type Statement = Call<Name>;
-interface Identity extends PrincipalSummary {
-  readonly expiresAt: number;
-  readonly workspaceId?: string;
-  readonly credentialId?: string;
-  readonly tokenHash?: string;
-}
 interface ScopeIdentity {
   readonly identity: Identity;
   readonly workspaceId: string;
@@ -54,19 +50,10 @@ interface Dependencies {
   readonly clock: Clock;
   readonly ids: IdGenerator;
   readonly config: AccessConfig;
+  readonly oauth?: OAuthConfig;
   readonly fetchJwks?: JwksFetcher;
   readonly enableBootstrap?: boolean;
   readonly eventConsumer?: string;
-}
-function str(row: Row, key: string): string {
-  const v = row[key];
-  if (typeof v !== "string") throw new Error("Invalid Access row");
-  return v;
-}
-function num(row: Row, key: string): number {
-  const v = row[key];
-  if (typeof v !== "number") throw new Error("Invalid Access row");
-  return v;
 }
 function result(row: Row): CommandResult {
   return { id: str(row, "result_id"), version: num(row, "result_version") };
@@ -95,6 +82,7 @@ export function createAccess(deps: Dependencies): {
   };
   async function live(p: Identity): Promise<void> {
     if (p.expiresAt <= clock.now()) deny();
+    if (p.clientId) await oauth.live(p);
     if (p.kind === "machine") {
       const c = await one("credential", [p.workspaceId ?? "", p.credentialId ?? ""]);
       if (
@@ -121,7 +109,7 @@ export function createAccess(deps: Dependencies): {
     if (!member) deny();
     const memberRole = role(member.role);
     if (mode === "write") {
-      if (memberRole === "viewer") deny();
+      if (memberRole === "viewer" || (p.clientId && p.oauthScope !== "write")) deny();
       if (p.kind === "machine") {
         const c = await one("credential", [w, p.credentialId ?? ""]);
         if (c?.scope !== "write" || c.revoked !== 0 || num(c, "expires_at") <= clock.now()) deny();
@@ -133,6 +121,7 @@ export function createAccess(deps: Dependencies): {
       requestId,
       role: memberRole,
       kind: p.kind,
+      ...(p.clientId ? { clientId: p.clientId } : {}),
     }) as RequestScope;
     scopes.set(scope, { identity: p, workspaceId: w, requestId });
     return scope;
@@ -144,7 +133,12 @@ export function createAccess(deps: Dependencies): {
   }
   async function manager(scope: RequestScope): Promise<RequestScope> {
     const current = await authorize(scope, "write");
-    if (current.kind !== "human" || (current.role !== "owner" && current.role !== "admin")) deny();
+    if (
+      current.kind !== "human" ||
+      current.clientId ||
+      (current.role !== "owner" && current.role !== "admin")
+    )
+      deny();
     return current;
   }
   async function replay(
@@ -218,7 +212,7 @@ export function createAccess(deps: Dependencies): {
   ): Promise<CommandResult> {
     const p = identity(principal);
     await live(p);
-    if (p.kind !== "human") deny();
+    if (p.kind !== "human" || p.clientId) deny();
     inputObject(input);
     const w = identifier(input.workspaceId);
     const name = textValue(input.name);
@@ -240,13 +234,37 @@ export function createAccess(deps: Dependencies): {
     );
     return commit(w, p.id, input.operationId, fp, { id: w, version: 1 }, "WorkspaceCreated", calls);
   }
+  const oauth = createOAuth({
+    store,
+    clock,
+    ids,
+    config: deps.oauth,
+    replay,
+    commit,
+    manager,
+    async interactivePrincipal(principal) {
+      const p = identity(principal);
+      await live(p);
+      if (p.kind !== "human" || p.clientId) deny();
+      return p;
+    },
+    async interactiveScope(scope, mode) {
+      const s = await authorize(scope, mode);
+      if (s.kind !== "human" || s.clientId) deny();
+      return s;
+    },
+  });
   const api: AccessApi = {
+    ...oauth.api,
     async authenticate(input) {
       if (typeof input !== "object" || input === null || Array.isArray(input)) deny();
       let p: Identity;
       if (input.kind === "human") {
         const human = await verify(input.assertion);
         p = { id: await humanId(human.issuer, human.subject), kind: "human", ...human };
+      } else if (input.kind === "oauth") {
+        p = await oauth.authenticate(input.bearer, input.resource);
+        await admit(p, p.workspaceId ?? "", "authenticate", "read");
       } else {
         if (
           input.kind !== "machine" ||

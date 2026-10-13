@@ -28,10 +28,12 @@ export interface RequestScope {
   /** Admission snapshot only. Call requireMembership again for every operation. */
   readonly role: Role;
   readonly kind: "human" | "machine";
+  readonly clientId?: string;
 }
 export type Authentication =
   | { readonly kind: "human"; readonly assertion: string }
-  | { readonly kind: "machine"; readonly bearer: string };
+  | { readonly kind: "machine"; readonly bearer: string }
+  | { readonly kind: "oauth"; readonly bearer: string; readonly resource: string };
 export interface Operation {
   readonly operationId: string;
 }
@@ -62,7 +64,12 @@ export type EventType =
   | "MachineProvisioned"
   | "CredentialIssued"
   | "CredentialRevoked"
-  | "WorkspaceArchived";
+  | "WorkspaceArchived"
+  | "OAuthConsentGranted"
+  | "OAuthClientRevoked"
+  | "OAuthTokenIssued"
+  | "OAuthTokenRotated"
+  | "OAuthFamilyRevoked";
 export interface AccessEvent {
   readonly eventId: string;
   readonly source: "access";
@@ -75,7 +82,7 @@ export interface AccessEvent {
   readonly payload: { readonly actorId: string };
   readonly cursor: number;
 }
-export interface AccessApi {
+export interface AccessApi extends OAuthApi {
   authenticate(input: Authentication): Promise<AuthenticatedPrincipal>;
   requireMembership(
     principal: AuthenticatedPrincipal,
@@ -142,4 +149,148 @@ export interface AccessApi {
     cursor: number,
     limit: number,
   ): Promise<readonly AccessEvent[]>;
+}
+
+export type OAuthErrorCode =
+  | "invalid_request"
+  | "invalid_client"
+  | "invalid_client_metadata"
+  | "invalid_redirect_uri"
+  | "invalid_grant"
+  | "invalid_scope"
+  | "invalid_target"
+  | "unsupported_grant_type"
+  | "unsupported_response_type"
+  | "access_denied"
+  | "temporarily_unavailable";
+export class OAuthError extends Error {
+  constructor(
+    readonly code: OAuthErrorCode,
+    readonly authorizationRedirect?: {
+      readonly redirect_uri: string;
+      readonly iss: string;
+      readonly state?: string;
+    },
+  ) {
+    super(code);
+    this.name = "OAuthError";
+  }
+}
+export interface OAuthClientInput {
+  readonly client_name?: string;
+  readonly redirect_uris: readonly string[];
+  readonly token_endpoint_auth_method?: string;
+  readonly grant_types?: readonly string[];
+  readonly response_types?: readonly string[];
+  readonly scope?: string;
+}
+export interface OAuthClient extends OAuthClientInput {
+  readonly client_id: string;
+  readonly client_id_issued_at: number;
+  readonly token_endpoint_auth_method: "none";
+  readonly grant_types: readonly string[];
+  readonly response_types: readonly "code"[];
+  readonly scope: string;
+}
+export interface OAuthAuthorizationRequest {
+  readonly client_id: string;
+  readonly redirect_uri: string;
+  readonly response_type: string;
+  readonly code_challenge: string;
+  readonly code_challenge_method: string;
+  readonly resource: string;
+  readonly scope?: string;
+  readonly state?: string;
+}
+declare const consentBrand: unique symbol;
+/** Request-local handle. Gateway must integrity-bind the displayed request across GET/POST. */
+export interface OAuthConsent {
+  readonly [consentBrand]: true;
+  readonly clientId: string;
+  readonly clientName: string;
+  readonly redirectUri: string;
+  readonly resource: string;
+  readonly requestedScope: string;
+  /** Scope this human can grant in the selected workspace. */
+  readonly scope: string;
+}
+export interface OAuthAuthorizationResponse {
+  readonly redirect_uri: string;
+  readonly code: string;
+  readonly state?: string;
+  readonly iss: string;
+}
+export type OAuthTokenRequest = {
+  readonly client_id: string;
+  readonly resource: string;
+} & (
+  | {
+      readonly grant_type: "authorization_code";
+      readonly code: string;
+      readonly redirect_uri: string;
+      readonly code_verifier: string;
+    }
+  | {
+      readonly grant_type: "refresh_token";
+      readonly refresh_token: string;
+      readonly scope?: string;
+    }
+);
+export interface OAuthTokens {
+  readonly access_token: string;
+  readonly token_type: "Bearer";
+  readonly expires_in: number;
+  readonly refresh_token?: string;
+  readonly scope: string;
+}
+export interface OAuthServerMetadata {
+  readonly issuer: string;
+  readonly authorization_endpoint: string;
+  readonly token_endpoint: string;
+  readonly registration_endpoint: string;
+  readonly revocation_endpoint: string;
+  readonly response_types_supported: readonly "code"[];
+  readonly response_modes_supported: readonly "query"[];
+  readonly grant_types_supported: readonly ("authorization_code" | "refresh_token")[];
+  readonly token_endpoint_auth_methods_supported: readonly "none"[];
+  readonly revocation_endpoint_auth_methods_supported: readonly "none"[];
+  readonly code_challenge_methods_supported: readonly "S256"[];
+  readonly scopes_supported: readonly ("read" | "write")[];
+  readonly authorization_response_iss_parameter_supported: true;
+}
+export interface OAuthResourceMetadata {
+  readonly resource: string;
+  readonly authorization_servers: readonly string[];
+  readonly scopes_supported: readonly ("read" | "write")[];
+  readonly bearer_methods_supported: readonly "header"[];
+}
+export interface OAuthApi {
+  getAuthorizationServerMetadata(): OAuthServerMetadata;
+  getProtectedResourceMetadata(): OAuthResourceMetadata;
+  registerOAuthClient(input: OAuthClientInput): Promise<OAuthClient>;
+  getOAuthConsent(
+    principal: AuthenticatedPrincipal,
+    input: OAuthAuthorizationRequest,
+    workspaceScope: RequestScope,
+  ): Promise<OAuthConsent>;
+  /** Interactive, explicit workspace selection and consent only. Caller retains random secret for retry. */
+  approveOAuthConsent(
+    scope: RequestScope,
+    consent: OAuthConsent,
+    input: Operation & { readonly codeSecret: string },
+  ): Promise<OAuthAuthorizationResponse>;
+  exchangeOAuthToken(input: OAuthTokenRequest): Promise<OAuthTokens>;
+  revokeOAuthToken(input: {
+    readonly client_id: string;
+    readonly token: string;
+    readonly token_type_hint?: string;
+  }): Promise<void>;
+  getOAuthClient(
+    scope: RequestScope,
+    clientId: string,
+  ): Promise<CommandResult & { readonly revoked: boolean }>;
+  revokeOAuthClient(
+    scope: RequestScope,
+    input: VersionedOperation & { readonly clientId: string },
+  ): Promise<CommandResult>;
 }
