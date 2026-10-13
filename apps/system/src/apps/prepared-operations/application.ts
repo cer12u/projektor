@@ -6,7 +6,7 @@ import {OperationError,type Operations,type OperationJournal,type OperationJson,
 import {type WorkContent} from '../../modules/work/public';
 import {type Execution} from '../../modules/execution/public';
 import {decodePreparedCommand,describePreparedCommand} from './commands';
-export function createPreparedOperations(journal:OperationJournal,work:Pick<WorkContent,'changeIssue'|'changeContent'>,execution:Pick<Execution,'change'|'report'>):Operations {
+export function createPreparedOperations(journal:OperationJournal,work:Pick<WorkContent,'changeIssue'|'changeContent'|'changeDirectory'>,execution:Pick<Execution,'change'|'report'>):Operations {
  return {
   decodePreparation:decodePreparedCommand,
   prepare:command=>journal.record(describePreparedCommand(command)),
@@ -28,6 +28,7 @@ export function createPreparedOperations(journal:OperationJournal,work:Pick<Work
     return {...outcome.receipt,source:outcome.source};
    }
    switch(envelope.kind){
+    case 'directory':return {kind:'directory',receipt:await disclose(await work.changeDirectory(envelope.command,fence))};
     case 'issue':return {kind:'issue',receipt:await disclose(await work.changeIssue(envelope.command,fence))};
     case 'content':return {kind:'content',receipt:await disclose(await work.changeContent(envelope.command,fence))};
     case 'execution':return {kind:'execution',receipt:await disclose(await execution.change(envelope.command,fence))};

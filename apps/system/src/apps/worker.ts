@@ -1,5 +1,6 @@
 // @module composition
 // @role server-composition
+import {directoryApi} from './http/directory';
 import {recipientSetupApi} from "./http/recipient-setup";
 import {LOGIN_POLICY} from "../modules/identity/public";
 import {protocolFailure,resultFailureBody} from "./http/outcomes";
@@ -42,6 +43,7 @@ export default {
       const exchange=await browserExchangeApi(request,requests,env.AUTH_ORIGIN);if(exchange)return exchange;
       if(!path.startsWith('/api/auth/')&&!path.startsWith('/api/password-setup')&&!path.startsWith('/api/browser-exchange')){if(await readRequestGate(db)==='importing')throw new ApiError(503,'import_in_progress');}
       const operations=await operationIntentsApi(request,requests,env.AUTH_ORIGIN);if(operations)return operations;
+      const directory=await directoryApi(request,requests,env.AUTH_ORIGIN);if(directory)return directory;
       const model=await modelApi(request,requests);if(model)return model;
       const recipient=await recipientSetupApi(request,requests,env.AUTH_ORIGIN);if(recipient)return recipient;
       const content=await contentApi(request,requests,env.AUTH_ORIGIN);if(content)return content;

@@ -10,6 +10,8 @@ export interface OperationRowExpressions {
  operationKind:Sql;projectId:Sql;targetId:Sql;operationId:Sql;routeJson:Sql;inputJson:Sql;formatVersion:Sql;
 }
 export interface RecoveryPolicy {
+ /** Current trusted authority discriminator; defaults to project. */
+ authority?:Sql;
  supported:Sql;
  /** JSON array of CURRENT domain-required permissions; captured requirements are added by the journal. */
  permissions:Sql;

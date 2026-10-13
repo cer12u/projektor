@@ -19,6 +19,13 @@ export function clientRouteAllowed(path:string,method='GET',query=''){
   return false;
  }
  const s=path.split('/'),operation=/^[A-Za-z0-9_-]{1,128}$/;
+ if(/^\/api\/directory-operations\/[A-Za-z0-9_-]{1,128}$/.test(path))return !query;
+ if(/^\/api\/(projects|workspaces)\/[A-Za-z0-9_-]{1,128}(?:\/history)?$/.test(path)){
+  if(!path.endsWith('/history'))return !query;
+  const params=new URLSearchParams(query);
+  for(const [key,value] of params)if(!['afterRevision','limit'].includes(key)||params.getAll(key).length!==1||!/^(0|[1-9][0-9]*)$/.test(value)||!Number.isSafeInteger(Number(value)))return false;
+  const limit=Number(params.get('limit')??20);return limit>=1&&limit<=50;
+ }
  if(path==='/api/directory'||path==='/api/resolve'||path==='/api/auth/me'||path==='/api/auth/browser-session/tickets')return true;
  if(s[1]!=='api'||!['projects','workspaces'].includes(s[2])||!/^[A-Za-z0-9_-]{1,128}$/.test(s[3]??''))return false;
  if(s.length===7&&s[4]==='source'&&['issues','wiki_pages','issue_comments','projects'].includes(s[5])&&operation.test(s[6]))return true;
@@ -35,7 +42,7 @@ export function clientRouteAllowed(path:string,method='GET',query=''){
 export function requestOperationId(path:string,method:string,body:unknown):string|undefined {
  const saved=path.match(/^\/api\/agent\/operations\/([A-Za-z0-9_-]{1,128})(?:\/execute)?$/);
  if(saved)return saved[1];
- if(method==='GET')return path.match(/\/(?:issue|wiki|comment|execution|execution-report)-operations\/([A-Za-z0-9_-]{1,128})$/)?.[1];
+ if(method==='GET')return path.match(/\/(?:issue|wiki|comment|execution|execution-report|directory)-operations\/([A-Za-z0-9_-]{1,128})$/)?.[1];
  if(path==='/api/agent/operations'&&method==='POST'&&body&&typeof body==='object'&&'input' in body){
   const input=body.input;
   if(input&&typeof input==='object'&&'operationId' in input&&typeof input.operationId==='string'&&/^[A-Za-z0-9_-]{1,128}$/.test(input.operationId))return input.operationId;

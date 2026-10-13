@@ -6,6 +6,9 @@ export function addOperationIntentContract(doc){
  const id={type:'string',pattern:'^[A-Za-z0-9_-]{1,128}$'},scope={type:'string',pattern:'^(?:workspace:)?[A-Za-z0-9_-]{1,128}$'},integer={type:'integer',minimum:0,maximum:Number.MAX_SAFE_INTEGER};
  const contentId=prefix=>({type:'string',pattern:'^(?:'+prefix+'_[a-f0-9]{64}|[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})$'});
  const variants=[];
+ for(const kind of ['project','workspace'])for(const edit of [false,true]){
+  variants.push(obj({route:obj({kind:{const:kind},...(edit?{id}:{})}),input:ref((edit?'Edit':'Create')+kind[0].toUpperCase()+kind.slice(1)+'Input')}));
+ }
  for(const kind of ['issue','wiki','comment'])for(const edit of [false,true]){
   const properties={kind:{const:kind},projectId:kind==='issue'?id:scope,...(edit?{id:contentId(kind==='issue'?'I':kind==='wiki'?'W':'C')}:{})};
   if(kind==='comment')Object.assign(properties,{parentKind:{enum:['issue','wiki']},parentId:{anyOf:[contentId('I'),contentId('W')]}});
@@ -19,8 +22,8 @@ export function addOperationIntentContract(doc){
  S.OperationPreparationInput={oneOf:variants,description:'One closed business route and its domain input, including the caller’s original operationId. Preparation persists input only and does not dispatch the business operation.'};
  const routes=variants.map(v=>v.properties.route),inputs=[...new Set(variants.map(v=>v.properties.input.$ref))].map($ref=>({$ref}));
  S.OperationRoute={anyOf:routes};S.OperationInput={anyOf:inputs};
- S.OperationSnapshot={anyOf:['Issue','BodyDocument','ExecutionAttempt','ExecutionReport','ExecutionReconciliation','ExecutionRestart'].map(ref)};
- S.CurrentDurableOperation=obj({sequence:{...integer,minimum:1},operationId:id,formatVersion:{const:1},recorded:{const:true},inputHash:{type:'string',pattern:'^[a-f0-9]{64}$'},route:ref('OperationRoute'),input:ref('OperationInput'),target:obj({kind:str,targetId:str,projectId:scope}),requiredPermissions:{type:'array',items:{enum:['view','edit','assign','transition','execute']}},preparedAt:integer,result:{oneOf:[obj({status:{const:'unknown'}}),obj({status:{const:'confirmed'},snapshot:ref('OperationSnapshot')})]}});
+ S.OperationSnapshot={anyOf:['Issue','BodyDocument','ExecutionAttempt','ExecutionReport','ExecutionReconciliation','ExecutionRestart','DirectoryEntity'].map(ref)};
+ S.CurrentDurableOperation=obj({sequence:{...integer,minimum:1},operationId:id,formatVersion:{const:1},recorded:{const:true},inputHash:{type:'string',pattern:'^[a-f0-9]{64}$'},route:ref('OperationRoute'),input:ref('OperationInput'),target:obj({kind:str,targetId:str,projectId:scope}),requiredPermissions:{type:'array',items:{enum:['view','edit','assign','transition','execute','manage']}},preparedAt:integer,result:{oneOf:[obj({status:{const:'unknown'}}),obj({status:{const:'confirmed'},snapshot:ref('OperationSnapshot')})]}});
  S.FutureDurableOperation={...structuredClone(S.CurrentDurableOperation),description:'A recognizable retained target with an unsupported future input format. Input is opaque and bounded to65536 UTF-8 bytes; new execution is prohibited. Confirmed canonical receipts remain recoverable.'};
  S.FutureDurableOperation.properties.formatVersion={...integer,minimum:2};
  S.FutureDurableOperation.properties.input={type:'object',additionalProperties:true,'x-max-utf8-bytes':65536};

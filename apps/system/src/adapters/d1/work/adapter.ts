@@ -1,6 +1,8 @@
 // @module work
 // @role private-d1
 /** Concrete actor-bound Work persistence. Atomic prepare/commit/authorized receipt stays below the port. */
+import {prepareDirectory,readDirectoryEntity,readDirectoryHistory,readDirectoryResult} from './directory';
+import type {DirectoryEntity,DirectoryHistory} from '../../../modules/work/public';
 import type {AuthDB} from "../primitives";
 import type {D1OperationDefinition} from "../persistence/transaction";
 import {WORK_KINDS,WORK_INPUT_LIMITS} from "../../../modules/work/rules";
@@ -50,13 +52,18 @@ export function createD1WorkPort(db:AuthDB,auth:Authenticated):WorkContentPort {
    return {operationId:p.command.operationId,snapshot:result.snapshot as unknown as ContentView,source:result.source};
   }),
   contentResult:x=>observeResult<ContentView>(x.operationId,async()=>{const r=await contentResult(db,auth,x.projectId,x.resource,x.operationId);return {operationId:r.operationId,snapshot:r.snapshot as unknown as ContentView};}),
+  commitDirectoryChange:(x,fence)=>observeChange<DirectoryEntity>(x.input.operationId,async()=>{const p=await prepareDirectory(auth,x);const r=await executeMutation(db,auth,p.command,p.adapter,p.policyFor,fence?{valid:intentFenceSql(auth.id,fence,p.command),requiredPermissions:fence.permissions}:undefined);return {operationId:x.input.operationId,snapshot:r.snapshot as unknown as DirectoryEntity,source:r.source};}),
+  directoryEntity:x=>observeRead<DirectoryEntity>(()=>readDirectoryEntity(db,auth,x)),
+  directoryHistory:x=>observeRead<DirectoryHistory>(()=>readDirectoryHistory(db,auth,x)),
+  directoryResult:x=>observeResult<DirectoryEntity>(x.operationId,async()=>{const r=await readDirectoryResult(db,auth,x.operationId);return {operationId:r.operationId,snapshot:r.snapshot as unknown as DirectoryEntity};}),
   directory:()=>observeRead(async()=>await readDirectory(db,auth) as DirectoryView),
   resolveLegacy:x=>observeRead(async()=>await resolveLegacyUrl(db,auth,x) as LegacyResolution),
   importedSource:x=>observeRead(async()=>await readImportedSource(db,auth,x.scopeId,x.kind,x.id,x.page) as ImportedSourcePage)
  };
 }
 
+import {directoryOperationDefinitions} from './directory-recovery';
 /** SQL policies only; command decoding and dispatch belong to the application. */
 export function createD1WorkDefinitions():readonly D1OperationDefinition[]{
- return (['issue','wiki','comment'] as const).map(tag=>({routeTag:tag,operationKinds:WORK_KINDS[tag],recovery:row=>workRecovery(tag,row)}));
+ return [...(['issue','wiki','comment'] as const).map(tag=>({routeTag:tag,operationKinds:WORK_KINDS[tag],recovery:(row:import('../persistence/transaction').OperationRowExpressions)=>workRecovery(tag,row)})),...directoryOperationDefinitions()];
 }

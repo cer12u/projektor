@@ -92,3 +92,21 @@ provided={...provided,credentialId:'B-key',token:'b'.repeat(43)};rotationActive=
 const renewed=await privateAgentClient({...options,credentialId:'B-key',loadCredential,transport});await assert.rejects(oldClient.api('/api/projects/P/issues'),e=>e.status===401);assert.equal(credentialLoads,2);assert.equal((await renewed.api('/api/projects/P/issues')).ok,true);assert.equal(seen.at(-1),'Bearer '+'b'.repeat(43));
 console.log('PASS: existing client keeps its immutable credential binding; explicit new client loads rotation without implicit refresh or a VM/file dependency');
 }finally{globalThis.fetch=originalFetch;}
+
+// Directory writes must use durable preparation too, including global-admin creates
+// whose permission array is intentionally empty, and scoped-management edits.
+const directoryBundle=await build({entryPoints:[candidate+'/src/agent/operations.ts'],bundle:true,write:false,format:'esm',platform:'browser'});
+const {businessOperationRoute,agentOperationClient,verifyPreparedReceipt}=await import('data:text/javascript;base64,'+Buffer.from(directoryBundle.outputFiles[0].text).toString('base64'));
+for(const kind of ['project','workspace'])for(const edit of [false,true]){
+ const id=kind==='project'?'P_'+'8'.repeat(64):'11111111-1111-4111-a111-111111111111',route={kind,...(edit?{id}:{})};
+ assert.deepEqual(businessOperationRoute('/api/'+kind+'s'+(edit?'/'+id:''),edit?'PATCH':'POST'),route);
+ const input={operationId:'directory_'+kind+'_'+edit,name:'Original name',...(edit?{revision:1}:kind==='project'?{workspaceId:'WS',key:'P',slug:'p',description:''}:{})};
+ const target={kind:'directory.'+kind+(edit?'.edit':'.create'),targetId:id,projectId:(kind==='workspace'?'workspace:':'')+id};
+ const saved={sequence:1,operationId:input.operationId,formatVersion:1,recorded:true,inputHash:'a'.repeat(64),route,input,target,requiredPermissions:edit?['manage','view']:[],preparedAt:1,result:{status:'unknown'}};
+ const client=agentOperationClient(async(path,method,body)=>path==='/api/agent/operations'&&method==='POST'?{operation:saved,requestHash:createHash('sha256').update(JSON.stringify(body)).digest('hex')}:saved);
+ assert.deepEqual(await client.prepare({route,input}),saved);assert.deepEqual(await client.get(input.operationId),saved);
+ const snapshot={kind,id,name:'Original name',revision:edit?2:1,...(kind==='workspace'?{scopeId:target.projectId}:{workspaceId:'WS',key:'P',slug:'p',description:''})};
+ verifyPreparedReceipt(saved,{operationId:input.operationId,snapshot,source:'committed'},'A');
+ assert.throws(()=>verifyPreparedReceipt(saved,{operationId:input.operationId,snapshot:{...snapshot,id:'OTHER'},source:'committed'},'A'),/operation_response_mismatch/);
+}
+console.log('PASS: project/workspace create/edit use durable routes, accept typed authority permissions and reject mismatched receipt targets');

@@ -4,22 +4,42 @@ import type {AuthDB} from "../primitives";
 import type {Authenticated} from "../identity/authorization";
 import {guardedBatch} from "./guarded-batch";
 import {MutationError,sql,type Sql} from "./commit";
-import {currentCredentialSql,currentPermissionsSql,currentPermissionSetSql} from "../identity/authorization";
+import {currentCredentialSql,authorityValid} from "../identity/authorization";
 import type {DurableOperation,OperationSummary} from "../../../modules/prepared-operations";
 import type {D1OperationDefinition,OperationRowExpressions,PreparedIntent,StoredIntentFence,MutationCommand} from './transaction';
 const identifier=/^[A-Za-z0-9_-]{1,128}$/;
 const and=(...parts:Sql[]):Sql=>sql(parts.map(p=>`(${p.text})`).join(' AND '),...parts.flatMap(p=>p.values));
-const statement=(db:AuthDB,q:Sql)=>db.prepare(q.text).bind(...q.values);
+// Repeated authority predicates share positional bindings within D1's variable limit.
+const statement=(db:AuthDB,q:Sql)=>{
+ const values:Sql['values'][number][]=[],positions=new Map<string,number>();let cursor=0;
+ const text=q.text.replace(/'(?:''|[^'])*'|"(?:""|[^"])*"|\?/g,token=>{
+  if(token!=='?')return token;
+  const value=q.values[cursor++],key=typeof value+':'+JSON.stringify(value);let position=positions.get(key);
+  if(position===undefined){values.push(value);position=values.length;positions.set(key,position);}
+  return '?'+position;
+ });
+ if(cursor!==q.values.length)throw new MutationError(500,'invalid_journal_bindings');
+ return db.prepare(text).bind(...values);
+};
 const readable=()=>sql("EXISTS(SELECT 1 FROM write_gate WHERE id=1 AND mode IN ('open','stopped'))");
 const writable=()=>sql("EXISTS(SELECT 1 FROM write_gate WHERE id=1 AND mode='open')");
 const row:OperationRowExpressions={operationKind:sql('i.operation_kind'),projectId:sql('i.project_id'),targetId:sql('i.target_id'),operationId:sql('i.operation_id'),routeJson:sql('i.route_json'),inputJson:sql('i.input_json'),formatVersion:sql('i.format_version')};
+function authorityFor(definitions:readonly D1OperationDefinition[],expressions:OperationRowExpressions):Sql {
+ const policies=definitions.map(d=>({kind:sql(`${expressions.operationKind.text} IN (${d.operationKinds.map(()=>'?').join(',')})`,...expressions.operationKind.values,...d.operationKinds),policy:d.recovery(expressions)}));
+ return sql(`CASE ${policies.map(({kind,policy})=>`WHEN (${kind.text}) THEN (${(policy.authority??sql("'project'")).text})`).join(' ')} ELSE NULL END`,...policies.flatMap(({kind,policy})=>[...kind.values,...(policy.authority?.values??[])]));
+}
+function rightsSql(auth:Authenticated,authority:Sql,project:Sql,required:Sql):Sql {
+ const kinds=['project','global-administrator','global-administrator-or-scoped-manager'] as const;
+ const cases=kinds.map(kind=>({kind,rights:authorityValid(auth,kind,project,required)}));
+ return sql(`CASE (${authority.text}) ${cases.map(c=>`WHEN '${c.kind}' THEN (${c.rights.text})`).join(' ')} ELSE 0 END`,...authority.values,...cases.flatMap(c=>c.rights.values));
+}
 function allowedSql(auth:Authenticated,definitions:readonly D1OperationDefinition[]):Sql {
  const policies=definitions.map(d=>({kind:sql(`i.operation_kind IN (${d.operationKinds.map(()=>'?').join(',')})`,...d.operationKinds),policy:d.recovery(row)}));
  const recognized=policies.map(({kind,policy:p})=>and(kind,p.supported,sql(`CASE WHEN r.state='confirmed' THEN (${p.confirmedVisible.text}) ELSE (${p.preparedVisible.text}) END`,...p.confirmedVisible.values,...p.preparedVisible.values)));
  const target=recognized.length?sql(recognized.map(p=>`(${p.text})`).join(' OR '),...recognized.flatMap(p=>p.values)):sql('0');
  const current=sql(`CASE ${policies.map(({kind,policy})=>`WHEN (${kind.text}) THEN (${policy.permissions.text})`).join(' ')} ELSE '[]' END`,...policies.flatMap(({kind,policy})=>[...kind.values,...policy.permissions.values]));
  const required=sql(`(SELECT json_group_array(value) FROM(SELECT value FROM json_each(i.required_permissions) UNION SELECT value FROM json_each(COALESCE(r.required_permissions,'[]')) UNION SELECT value FROM json_each(${current.text})))`,...current.values);
- return and(sql(auth.kind==='agent'?'1':'0'),readable(),currentCredentialSql(auth),currentPermissionSetSql(auth,row.projectId,required),target);
+ return and(sql(auth.kind==='agent'?'1':'0'),readable(),currentCredentialSql(auth),rightsSql(auth,authorityFor(definitions,row),row.projectId,required),target);
 }
 const joins=`FROM operation_intents i LEFT JOIN operation_results r ON r.principal_id=i.principal_id AND r.operation_id=i.operation_id`;
 const payload=`json_object('sequence',i.sequence,'operationId',i.operation_id,'formatVersion',i.format_version,'recorded',json('true'),'inputHash',i.input_hash,'route',json(i.route_json),
@@ -31,7 +51,7 @@ const payload=`json_object('sequence',i.sequence,'operationId',i.operation_id,'f
 const summaryPayload=`json_object('sequence',i.sequence,'operationId',i.operation_id,'formatVersion',i.format_version,'inputHash',i.input_hash,
   'target',json_object('kind',i.operation_kind,'targetId',i.target_id,'projectId',i.project_id),'preparedAt',i.prepared_at,
   'result',json_object('status',CASE WHEN r.state='confirmed' THEN 'confirmed' ELSE 'unknown' END))`;
-const matches=`r.operation_id IS NULL OR (r.operation_kind=i.operation_kind AND r.target_id=i.target_id AND r.project_id=i.project_id AND r.input_hash=i.input_hash AND r.authority_kind='project')`;
+
 
 export function intentFenceSql(principalId:string,fence:StoredIntentFence,command:MutationCommand):Sql {
  if((command.operationId!==fence.operationId||command.kind!==fence.kind||command.targetId!==fence.targetId||command.projectId!==fence.projectId))return sql('0');
@@ -48,22 +68,25 @@ export function createD1IntentStore(db:AuthDB,auth:Authenticated,definitions:rea
   if(found.gate==='importing')throw new MutationError(503,'import_in_progress');
   if(!['open','stopped'].includes(found.gate)||(write&&found.gate!=='open'))throw new MutationError(503,'write_stopped');
  }
- const allowed=allowedSql(auth,definitions);
+ const allowed=allowedSql(auth,definitions),authority=authorityFor(definitions,row);
+ const matchesSql=sql(`r.operation_id IS NULL OR (r.operation_kind=i.operation_kind AND r.target_id=i.target_id AND r.project_id=i.project_id AND r.input_hash=i.input_hash AND r.authority_kind=(${authority.text}))`,...authority.values);
+ const matches=matchesSql.text;
  function preparationPolicy(p:PreparedIntent){
-  const permissions=currentPermissionsSql(auth,p.projectId,p.permissions);
+
   const definition=definitions.find(d=>d.operationKinds.includes(p.kind));
   if(!definition)throw new MutationError(500,'unregistered_mutation_kind');
   const policy=definition.recovery({operationKind:sql('?',p.kind),projectId:sql('?',p.projectId),targetId:sql('?',p.targetId),operationId:sql('?',p.operationId),routeJson:sql('?',p.routeJson),inputJson:sql('?',p.inputJson),formatVersion:sql('1')});
+  const permissions=rightsSql(auth,policy.authority??sql("'project'"),sql('?',p.projectId),sql('?',JSON.stringify(p.permissions)));
   const visible=and(policy.supported,policy.preparedVisible);
   const sameReceipt=sql(`NOT EXISTS(SELECT 1 FROM operation_results WHERE principal_id=? AND operation_id=? AND
-   (operation_kind<>? OR target_id<>? OR project_id<>? OR input_hash<>? OR authority_kind<>'project'))`,auth.id,p.operationId,p.kind,p.targetId,p.projectId,p.hash);
+   (operation_kind<>? OR target_id<>? OR project_id<>? OR input_hash<>? OR authority_kind<>(${(policy.authority??sql("'project'")).text})))`,auth.id,p.operationId,p.kind,p.targetId,p.projectId,p.hash,...(policy.authority?.values??[]));
   return {permissions,visible,sameReceipt};
  }
  return {
   assertBoundary,
   async get(operationId:string){
    if(!identifier.test(operationId))throw new MutationError(400,'invalid_operation_id');
-   const q=sql(`SELECT CASE WHEN ${allowed.text} AND (${matches}) THEN ${payload} ELSE NULL END data,(${matches}) matches ${joins} WHERE i.principal_id=? AND i.operation_id=?`,...allowed.values,auth.id,operationId);
+   const q=sql(`SELECT CASE WHEN ${allowed.text} AND (${matches}) THEN ${payload} ELSE NULL END data,(${matches}) matches ${joins} WHERE i.principal_id=? AND i.operation_id=?`,...allowed.values,...matchesSql.values,...matchesSql.values,auth.id,operationId);
    const found=await statement(db,q).first<{data:string|null;matches:number}>();
    if(!found?.data){await assertBoundary();if(!found)throw new MutationError(404,'operation_intent_not_found');
     const authorized=await statement(db,sql(`SELECT (${allowed.text}) permitted ${joins} WHERE i.principal_id=? AND i.operation_id=?`,...allowed.values,auth.id,operationId)).first<{permitted:number}>();
@@ -76,7 +99,7 @@ export function createD1IntentStore(db:AuthDB,auth:Authenticated,definitions:rea
    const after=options.after??0,limit=options.limit??20;
    if(!Number.isSafeInteger(after)||after<0||!Number.isSafeInteger(limit)||limit<1||limit>50)throw new MutationError(400,'invalid_input');
    await assertBoundary();
-   const q=sql(`SELECT ${summaryPayload} data ${joins} WHERE i.principal_id=? AND i.sequence>? AND (${allowed.text}) AND (${matches}) ORDER BY i.sequence LIMIT ?`,auth.id,after,...allowed.values,limit+1);
+   const q=sql(`SELECT ${summaryPayload} data ${joins} WHERE i.principal_id=? AND i.sequence>? AND (${allowed.text}) AND (${matches}) ORDER BY i.sequence LIMIT ?`,auth.id,after,...allowed.values,...matchesSql.values,limit+1);
    const rows=await statement(db,q).all<{data:string}>();await assertBoundary();
    const operations=rows.results.slice(0,limit).map(r=>JSON.parse(r.data) as OperationSummary);
    return {operations,nextAfter:rows.results.length>limit?operations.at(-1)!.sequence:null};

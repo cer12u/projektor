@@ -3,9 +3,9 @@
 import type {Identity, Permission} from "../../modules/identity/dto";
 export interface Revision {revision:number}
 export interface ManagedPrincipal extends Revision {principalId:string;kind:'human'|'agent';displayName:string;active:0|1;authVersion:number;globalAdministrator:0|1}
-export interface ManagedMembership extends Revision {principalId:string;projectId:string;permissions:Permission[]}
+export interface ManagedMembership extends Revision {principalId:string;projectId:string;permissions:Permission[];relationExists?:false}
 export interface ManagedCredential extends Revision {credentialId:string;principalId:string;expiresAt:number;revokedAt:number|null}
-export interface ManagedScope extends ManagedCredential {projectId:string;permissions:Permission[]}
+export interface ManagedScope extends ManagedCredential {projectId:string;permissions:Permission[];relationExists?:false}
 export type ManagementRecord =
   | {kind:'principal';snapshot:ManagedPrincipal}
   | {kind:'membership';snapshot:ManagedMembership}

@@ -2,20 +2,22 @@
 // @role private-read
 /** Read-only UI projection. Every disclosure is selected behind current authentication and authority. */
 import type { AuthDB,Authenticated } from './db';
-import { managementSnapshot } from './management';
-import {currentCredentialSql,currentPermissionsSql} from "./authorization";
+import { managementSnapshot,managementRelationVisible } from './management';
+import {currentCredentialSql,currentPermissionsSql,authorityValid} from "./authorization";
 import {MutationError,type Json} from "../persistence/public";
 import {sql,type Sql} from "../primitives";
+import {unavailableScopeProjection,type IdentityScopeProjection} from './scope-projection';
+import {managementAuthority} from '../../../modules/identity/rules';
 import { PERMISSIONS } from './permissions';
 export type ManagementRecordKind='principal'|'membership'|'credential'|'scope';
 const kinds:Record<ManagementRecordKind,string>={principal:'management.principal.update',membership:'management.membership.set',credential:'management.credential.revoke',scope:'management.credential.scope'};
 const fields:Record<ManagementRecordKind,string[]>={
  principal:['principalId','kind','displayName','active','authVersion','globalAdministrator','revision'],
- membership:['principalId','projectId','revision','permissions'],
+ membership:['principalId','projectId','revision','permissions','relationExists'],
  credential:['credentialId','principalId','expiresAt','revokedAt','revision'],
- scope:['credentialId','principalId','expiresAt','revokedAt','revision','projectId','permissions'],
+ scope:['credentialId','principalId','expiresAt','revokedAt','revision','projectId','permissions','relationExists'],
 };
-import {managementIdentifier} from "../../../modules/identity/rules";
+import {managementIdentifier,isManagementScopeIdentifier} from "../../../modules/identity/rules";
 export {managementRecordKind,managementIdentifier,managementProject} from "../../../modules/identity/rules";
 /** Never forward arbitrary stored JSON, including historical payloads, to HTTP. */
 function publicSnapshot(kind:ManagementRecordKind,raw:string|null):Json{
@@ -41,12 +43,12 @@ function initialProjects(raw:string):{projectId:string;permissions:string[]}[]{
  return value.map((entry:unknown)=>{
   if(!entry||typeof entry!=='object'||Array.isArray(entry))throw new MutationError(503,'management_unavailable');
   const p=entry as {projectId?:unknown;permissions?:unknown};
-  if(typeof p.projectId!=='string'||!/^[A-Za-z0-9_-]{1,128}$/.test(p.projectId)||!Array.isArray(p.permissions)||p.permissions.length>6||p.permissions.some(v=>typeof v!=='string'||!PERMISSIONS.some(permission=>permission===v)))throw new MutationError(503,'management_unavailable');
+  if(!isManagementScopeIdentifier(p.projectId)||!Array.isArray(p.permissions)||p.permissions.length>6||p.permissions.some(v=>typeof v!=='string'||!PERMISSIONS.some(permission=>permission===v)))throw new MutationError(503,'management_unavailable');
   return{projectId:p.projectId,permissions:p.permissions as string[]};
  });
 }
 function authority(auth:Authenticated,kind:ManagementRecordKind,projectId:string):Sql{
- return kind==='principal'||kind==='credential'?sql('EXISTS(SELECT 1 FROM principal_management WHERE principal_id=? AND global_administrator=1)',auth.id):currentPermissionsSql(auth,projectId,['view','manage']);
+ return authorityValid(auth,managementAuthority(kinds[kind]),projectId,JSON.stringify(['view','manage']));
 }
 function records(kind:ManagementRecordKind,projectId:string):{from:string;id:string;where:Sql}{
  if(kind==='principal')return{from:'principals p JOIN principal_management r ON r.principal_id=p.id',id:'p.id',where:sql('1')};
@@ -74,25 +76,25 @@ export async function managementContext(db:AuthDB,auth:Authenticated){
  const data=JSON.parse(await selected(db,auth,sql('1'),body)) as {globalAdministrator:number;projects:{id:string;permissions:string[]}[]};
  return{...data,globalAdministrator:data.globalAdministrator===1};
 }
-export async function listManagementRecords(db:AuthDB,auth:Authenticated,kind:ManagementRecordKind,projectId:string,after:string|null){
+export async function listManagementRecords(db:AuthDB,auth:Authenticated,kind:ManagementRecordKind,projectId:string,after:string|null,scopes:IdentityScopeProjection=unavailableScopeProjection){
  const r=records(kind,projectId),last=cursor(after);
  const body=sql(`SELECT COALESCE(json_group_array(id),'[]') FROM(SELECT ${r.id} AS id FROM ${r.from} WHERE (${r.where.text}) AND ${r.id}>? ORDER BY ${r.id} LIMIT 51)`,...r.where.values,last);
  // Page IDs are still private data and must be guarded. Snapshot reads recheck authority too.
  const ids=JSON.parse(await selected(db,auth,authority(auth,kind,projectId),body)) as string[];
  const page=ids.slice(0,50),out:Json[]=[];
- for(const id of page)out.push(await readManagementRecord(db,auth,kind,projectId,id));
+ for(const id of page)out.push(await readManagementRecord(db,auth,kind,projectId,id,scopes));
  return{records:out,nextAfter:ids.length>50?page.at(-1)!:null};
 }
-export async function readManagementRecord(db:AuthDB,auth:Authenticated,kind:ManagementRecordKind,projectId:string,targetId:string):Promise<Json>{
+export async function readManagementRecord(db:AuthDB,auth:Authenticated,kind:ManagementRecordKind,projectId:string,targetId:string,scopes:IdentityScopeProjection=unavailableScopeProjection):Promise<Json>{
  managementIdentifier(targetId);
- const r=records(kind,projectId),rights=authority(auth,kind,projectId),relation=sql(`EXISTS(SELECT 1 FROM ${r.from} WHERE (${r.where.text}) AND ${r.id}=?)`,...r.where.values,targetId);
+ const r=records(kind,projectId),rights=authority(auth,kind,projectId),relation=kind==='membership'||kind==='scope'?managementRelationVisible({kind:kinds[kind],projectId,targetId},scopes):sql(`EXISTS(SELECT 1 FROM ${r.from} WHERE (${r.where.text}) AND ${r.id}=?)`,...r.where.values,targetId);
  const raw=await selected(db,auth,sql(`(${rights.text}) AND (${relation.text})`,...rights.values,...relation.values),managementSnapshot({kind:kinds[kind],projectId,targetId}));
  return publicSnapshot(kind,raw);
 }
-export async function readManagementHistory(db:AuthDB,auth:Authenticated,kind:ManagementRecordKind,projectId:string,targetId:string,after:string|null){
+export async function readManagementHistory(db:AuthDB,auth:Authenticated,kind:ManagementRecordKind,projectId:string,targetId:string,after:string|null,scopes:IdentityScopeProjection=unavailableScopeProjection){
  managementIdentifier(targetId);
  if(after!==null&&after!==''&&(!/^[1-9][0-9]{0,14}$/.test(after)||!Number.isSafeInteger(Number(after))))throw new MutationError(400,'invalid_management_cursor');
- const r=records(kind,projectId),rights=authority(auth,kind,projectId),relation=sql(`EXISTS(SELECT 1 FROM ${r.from} WHERE (${r.where.text}) AND ${r.id}=?)`,...r.where.values,targetId);
+ const r=records(kind,projectId),rights=authority(auth,kind,projectId),relation=kind==='membership'||kind==='scope'?managementRelationVisible({kind:kinds[kind],projectId,targetId},scopes):sql(`EXISTS(SELECT 1 FROM ${r.from} WHERE (${r.where.text}) AND ${r.id}=?)`,...r.where.values,targetId);
  const allowed=sql(`(${rights.text}) AND (${relation.text})`,...rights.values,...relation.values);
  const body=sql(`SELECT COALESCE(json_group_array(json(item)),'[]') FROM(SELECT json_object('cursor',a.rowid,'actorId',actor_id,'actorName',actor_display_name,'operationId',operation_id,
  'kind',operation_kind,'beforeRevision',before_revision,'afterRevision',after_revision,'before',before_snapshot,'after',after_snapshot,'recordedAt',recorded_at) AS item

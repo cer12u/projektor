@@ -6,9 +6,9 @@ import type {ChangeOutcome,ReadOutcome,ResultOutcome} from "../change-outcomes";
 export type {Receipt} from "../change-outcomes";
 import type {ManagementCommand,PrincipalRegistration} from './rules';
 export interface PrincipalSnapshot {principalId:string;kind:'human'|'agent';displayName:string;active:number;authVersion:number;globalAdministrator:number;revision:number}
-export interface MembershipSnapshot {principalId:string;projectId:string;revision:number;permissions:import("./dto").Permission[]}
+export interface MembershipSnapshot {principalId:string;projectId:string;revision:number;relationExists?:false;permissions:import("./dto").Permission[]}
 export interface CredentialSnapshot {credentialId:string;principalId:string;expiresAt:number;revokedAt:number|null;revision:number}
-export interface ScopeSnapshot extends CredentialSnapshot {projectId:string;permissions:import("./dto").Permission[]}
+export interface ScopeSnapshot extends CredentialSnapshot {projectId:string;relationExists?:false;permissions:import("./dto").Permission[]}
 export type ManagementSnapshot=PrincipalSnapshot|MembershipSnapshot|CredentialSnapshot|ScopeSnapshot;
 export interface ActorFacts {readonly id:string;readonly kind:'human'|'agent';readonly authentication:'session'|'api'|'federated';readonly csrf_token:string|null;readonly assertion_expires_at?:number}
 export type IdentityFacts=ActorFacts;

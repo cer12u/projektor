@@ -4,7 +4,7 @@ import {IdentityError} from "./outcomes";
 import type {Authenticated} from './model';
 import type {AccessTrust,IdentityEntryPoints,IdentityUseCases,ManagementQuery} from './public';
 import type {IdentityPersistence,IdentityEffects,AssertionVerifier} from "./ports";
-import {requireOwnerBinding,passwordInput,ownerSetupExpiry,managementRecordKind,managementProject,managementIdentifier,BROWSER_EXCHANGE,LOGIN_POLICY,OWNER_CONTEXT_SECONDS,SETUP_SECONDS,RECIPIENT_CONTEXT_SECONDS,confirmRecipientSetup,setupPasswordCount,planSetupManagement,planManagement,browserIssuer,browserProof,browserScope,parseManagementCommand,normalizePrincipalRegistration} from './rules';
+import {requireOwnerBinding,passwordInput,ownerSetupExpiry,managementRecordKind,managementProject,managementIdentifier,managementScopeIdentifier,BROWSER_EXCHANGE,LOGIN_POLICY,OWNER_CONTEXT_SECONDS,SETUP_SECONDS,RECIPIENT_CONTEXT_SECONDS,confirmRecipientSetup,setupPasswordCount,planSetupManagement,planManagement,browserIssuer,browserProof,browserScope,parseManagementCommand,normalizePrincipalRegistration} from './rules';
 import {SESSION_LIFETIME} from './public';
 const tokenPattern=/^[A-Za-z0-9_-]{43}$/;
 function token(value:string|null):string {if(!value||!tokenPattern.test(value))throw new IdentityError('forbidden','owner_setup_unavailable');return value;}
@@ -87,7 +87,7 @@ export function createIdentityApplication(store:IdentityPersistence,crypto:Ident
   managementRecord:q=>store.readManagement(auth,{...query(q),targetId:managementIdentifier(q.targetId)}),
   managementHistory:q=>store.readManagementHistory(auth,{...query(q),targetId:managementIdentifier(q.targetId)}),
   async managementExecute(command){const normalized=parseManagementCommand(command),read=await store.readManagementForChange(auth,normalized);return read.kind==='outcome'?read.outcome:store.commitManagement(auth,planManagement(normalized,read.snapshot));},managementRegister:command=>store.registerPrincipal(auth,normalizePrincipalRegistration(command)),managementResult:id=>store.managementResult(auth,managementIdentifier(id)),
-  displayPrincipal:(projectId,principalId)=>store.displayPrincipal(auth,managementIdentifier(projectId),managementIdentifier(principalId)),
+  displayPrincipal:(projectId,principalId)=>store.displayPrincipal(auth,managementScopeIdentifier(projectId),managementIdentifier(principalId)),
   setupState:target=>store.setupState(auth,managementIdentifier(target)),
   async setupManage(target,id,revision,purpose,recipientRequestId){
    if((purpose!==null&&!['initial','reset'].includes(purpose))||!Number.isSafeInteger(revision)||revision<1||revision>=Number.MAX_SAFE_INTEGER)throw new IdentityError('invalid','invalid_revision');

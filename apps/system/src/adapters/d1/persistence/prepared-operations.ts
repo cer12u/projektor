@@ -22,11 +22,13 @@ export function createD1OperationJournal(db:AuthDB,auth:Authenticated,definition
  async function encode(p:PreparedDescription):Promise<PreparedIntent>{
   const definition=definitions.find(d=>d.routeTag===p.route.kind);
   if(!definition?.operationKinds.includes(p.kind))throw new MutationError(500,'unregistered_mutation_kind');
-  const targetId='id' in p.target?p.target.id:p.target.prefix+await digest(JSON.stringify([auth.id,p.operationId]));
+  const hash=await digest(JSON.stringify([auth.id,p.operationId]));
+  const targetId='id' in p.target?p.target.id:'prefix' in p.target?p.target.prefix+hash:p.target.directory==='project'?'P_'+hash:[hash.slice(0,8),hash.slice(8,12),'4'+hash.slice(13,16),'a'+hash.slice(17,20),hash.slice(20,32)].join('-');
+  const projectId='directory' in p.target?(p.target.directory==='workspace'?'workspace:':'')+targetId:p.projectId;
   const routeJson=canonicalInput(p.route,4096),inputJson=canonicalInput(p.input,65536);
-  const {inputHash}=await fingerprintCommand({kind:p.kind,operationId:p.operationId,targetId,projectId:p.projectId,input:p.mutationInput},p.canonicalInputLimit);
-  return {operationId:p.operationId,kind:p.kind,targetId,projectId:p.projectId,
-   route:p.route,input:p.input,routeJson,inputJson,hash:inputHash,permissions:[...new Set(['view' as const,...p.permissions])].sort()};
+  const {inputHash}=await fingerprintCommand({kind:p.kind,operationId:p.operationId,targetId,projectId,input:p.mutationInput},p.canonicalInputLimit);
+  return {operationId:p.operationId,kind:p.kind,targetId,projectId,
+   route:p.route,input:p.input,routeJson,inputJson,hash:inputHash,permissions:[...new Set(p.kind.startsWith('directory.')?p.permissions:['view' as const,...p.permissions])].sort()};
  }
  return {
   get:operationId=>boundary(operationId,()=>store.get(operationId)),

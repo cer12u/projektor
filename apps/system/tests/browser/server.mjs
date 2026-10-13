@@ -48,8 +48,8 @@ for(const [id,kind,name,login] of [['qa-human','human','Browser Human','qa-human
 const password=await argon2id({password:'Synthetic-Browser-QA-Only!',salt:randomBytes(16),memorySize:19456,iterations:2,parallelism:1,hashLength:32,outputType:'encoded'});
 for(const id of ['qa-human','qa-other'])await db.prepare('INSERT INTO passwords VALUES(?,?)').bind(id,password).run();
 await db.prepare('INSERT INTO auth_settings VALUES(?,?)').bind('dummy_password_hash',password).run();
-await db.prepare("INSERT INTO workspaces VALUES('QA','Browser QA','{}')").run();
-await db.prepare("INSERT INTO projects VALUES('P','QA','QA','browser-qa','Synthetic Browser QA','','{}')").run();
+await db.prepare("INSERT INTO workspaces(id,name,source_json) VALUES('QA','Browser QA','{}')").run();
+await db.prepare("INSERT INTO projects(id,workspace_id,key,slug,name,description,source_json) VALUES('P','QA','QA','browser-qa','Synthetic Browser QA','','{}')").run();
 for(const id of ['qa-human','qa-agent','qa-other'])for(const right of ['view','edit','assign','transition','execute'])await db.prepare('INSERT INTO memberships VALUES(?,?,?)').bind(id,'P',right).run();
 if(setup){
  await db.prepare('INSERT INTO principals VALUES(?,?,?,?,1,1)').bind(owner,'human','Synthetic Browser Owner','qa-owner').run();
