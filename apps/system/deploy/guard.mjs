@@ -71,7 +71,7 @@ export function validateManifestPair(pins,sourceBytes,artifactBytes){
 export function verifyMigrationInventory(migrations,pins){
   validateRecords(migrations);
   const expectedMigrations=byteSort(Object.keys(migrations));
-  if(expectedMigrations.length!==19||!expectedMigrations.at(-1).startsWith('0019_')||treeDigest(migrations)!==pins.canonicalMigrationTreeSha256)fail('MIGRATIONS_NOT_EXACT_RELEASE_19');
+  if(expectedMigrations.length!==21||expectedMigrations.some((name,i)=>!name.startsWith(String(i+1).padStart(4,'0')+'_')||!/^\d{4}_[a-z0-9_]+\.sql$/.test(name))||treeDigest(migrations)!==pins.canonicalMigrationTreeSha256)fail('MIGRATIONS_NOT_EXACT_RELEASE_21');
   const baseline=Object.fromEntries(expectedMigrations.slice(0,17).map(name=>[name,migrations[name]]));
   if(pins.canonicalBaselineMigrationTreeSha256!==CANONICAL_BASELINE_MIGRATION_TREE_SHA256||treeDigest(baseline)!==CANONICAL_BASELINE_MIGRATION_TREE_SHA256)fail('APPLIED_CANONICAL_17_CHANGED');
   return expectedMigrations;
@@ -101,13 +101,13 @@ export async function verifyRelease(candidate,configuration){
   const config=JSON.parse(configBytes),target=configuration.target;
   verifyProductionConfig(candidate,config,configuration);
   const schema=JSON.parse(await readFile(resolve(here,'schema-contract.json')));
-  if(schema.format!==1||schema.migrations?.length!==19||schema.migrations.some(m=>migrations[m.name]?.sha256!==m.sha256))fail('CANONICAL_SCHEMA_SOURCE_CHANGED');
+  if(schema.format!==1||!Array.isArray(schema.migrations)||schema.migrations.length!==21||schema.migrations.some((m,i)=>m.name!==expectedMigrations[i]||migrations[m.name]?.sha256!==m.sha256))fail('CANONICAL_SCHEMA_SOURCE_CHANGED');
   return {releaseId:pins.releaseId,uploadTag:pins.uploadTag,sourceTreeSha256:pins.sourceTreeSha256,
     policy:{prerequisites:{databaseId:config.d1_databases[0].database_id,migrationNames:expectedMigrations,gate:configuration.gate,security:approvedState.security},compatibilityDate:config.compatibility_date,compatibilityFlags:config.compatibility_flags,
       migrationTag:config.migrations.at(-1).tag,assets:{notFoundHandling:config.assets.not_found_handling,runWorkerFirst:config.assets.run_worker_first},
       bindings:[{name:'ASSETS',type:'assets'},{name:'DB',type:'d1',id:config.d1_databases[0].database_id},...Object.entries(config.vars).map(([name,text])=>({name,type:'plain_text',textSha256:sha256(text)}))]},
     account:target.account,worker:target.worker,cliVersion:CLI_VERSION,artifactTreeSha256:pins.artifactTreeSha256,
-    workerSha256:artifacts.artifacts['worker/index.js'].sha256,migrations:19,artifacts:Object.keys(artifacts.artifacts).length};
+    workerSha256:artifacts.artifacts['worker/index.js'].sha256,migrations:21,artifacts:Object.keys(artifacts.artifacts).length};
 }
 
 export function verifyProductionConfig(candidate,config,configuration){

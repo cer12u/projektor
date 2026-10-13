@@ -78,9 +78,72 @@
     {
       "name": "0019_recipient_setup_contexts.sql",
       "sha256": "7228a80662fbe61bf70c28895cb63183e0dace1300542239b2332cd8532464d4"
+    },
+    {
+      "name": "0020_work_directory.sql",
+      "sha256": "d645802ebb702ade2c6e5070ad71638f44b6e1f7cb4b3e8489b92f5d0e892750"
+    },
+    {
+      "name": "0021_directory_operation_intents.sql",
+      "sha256": "dcb77b69b854f047a3bf32f26b0f9a46a7b80af580f48b7fe56ddfeb465b20a4"
     }
   ],
   "objects": [
+    {
+      "type": "table",
+      "name": "directory_history",
+      "sql": "CREATE TABLE directory_history(\n kind TEXT NOT NULL CHECK(kind IN('project','workspace')),\n target_id TEXT NOT NULL,\n revision INTEGER NOT NULL,\n operation_id TEXT NOT NULL,\n actor_id TEXT NOT NULL REFERENCES principals(id),\n recorded_at TEXT NOT NULL,\n before_snapshot TEXT CHECK(before_snapshot IS NULL OR json_valid(before_snapshot)),\n after_snapshot TEXT NOT NULL CHECK(json_valid(after_snapshot)),\n PRIMARY KEY(kind,target_id,revision),\n FOREIGN KEY(actor_id,operation_id) REFERENCES operation_results(principal_id,operation_id)\n)"
+    },
+    {
+      "type": "trigger",
+      "name": "directory_history_no_delete",
+      "sql": "CREATE TRIGGER directory_history_no_delete BEFORE DELETE ON directory_history BEGIN SELECT RAISE(ABORT,'directory history is immutable'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "directory_history_no_update",
+      "sql": "CREATE TRIGGER directory_history_no_update BEFORE UPDATE ON directory_history BEGIN SELECT RAISE(ABORT,'directory history is immutable'); END"
+    },
+    {
+      "type": "table",
+      "name": "operation_intents",
+      "sql": "CREATE TABLE \"operation_intents\" (\n  sequence INTEGER PRIMARY KEY AUTOINCREMENT,\n  principal_id TEXT NOT NULL REFERENCES principals(id),\n  operation_id TEXT NOT NULL CHECK(length(operation_id) BETWEEN 1 AND 128),\n  format_version INTEGER NOT NULL CHECK(format_version>=1),\n  operation_kind TEXT NOT NULL CHECK(operation_kind IN (\n    'issue.create','issue.edit','wiki.create','wiki.edit','comment.create','comment.edit',\n    'execution.acquire','execution.renew','execution.end','execution.interrupt',\n    'execution-report.progress','execution-report.failed','execution-report.completed',\n    'execution-report.reconcile','execution-report.restart',\n    'directory.project.create','directory.project.edit','directory.workspace.create','directory.workspace.edit')),\n  target_id TEXT NOT NULL,\n  project_id TEXT NOT NULL,\n  route_json TEXT NOT NULL CHECK(json_valid(route_json) AND json_type(route_json)='object' AND length(CAST(route_json AS BLOB))<=4096),\n  input_json TEXT NOT NULL CHECK(json_valid(input_json) AND json_type(input_json)='object' AND length(CAST(input_json AS BLOB))<=65536),\n  input_hash TEXT NOT NULL CHECK(length(input_hash)=64),\n  required_permissions TEXT NOT NULL CHECK(json_valid(required_permissions) AND json_type(required_permissions)='array'),\n  prepared_at INTEGER NOT NULL,\n  UNIQUE(principal_id,operation_id)\n)"
+    },
+    {
+      "type": "trigger",
+      "name": "operation_intents_no_delete",
+      "sql": "CREATE TRIGGER operation_intents_no_delete BEFORE DELETE ON operation_intents\nBEGIN SELECT RAISE(ABORT,'operation intent is immutable'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "operation_intents_no_replace",
+      "sql": "CREATE TRIGGER operation_intents_no_replace BEFORE INSERT ON operation_intents\nWHEN EXISTS(SELECT 1 FROM operation_intents WHERE sequence=NEW.sequence OR (principal_id=NEW.principal_id AND operation_id=NEW.operation_id))\nBEGIN SELECT RAISE(ABORT,'operation intent is immutable'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "operation_intents_no_update",
+      "sql": "CREATE TRIGGER operation_intents_no_update BEFORE UPDATE ON operation_intents\nBEGIN SELECT RAISE(ABORT,'operation intent is immutable'); END"
+    },
+    {
+      "type": "index",
+      "name": "operation_intents_principal_sequence",
+      "sql": "CREATE INDEX operation_intents_principal_sequence ON operation_intents(principal_id,sequence)"
+    },
+    {
+      "type": "table",
+      "name": "operation_results",
+      "sql": "CREATE TABLE \"operation_results\" (\n  principal_id TEXT NOT NULL REFERENCES principals(id),\n  operation_id TEXT NOT NULL CHECK(length(operation_id) BETWEEN 1 AND 128),\n  operation_kind TEXT NOT NULL,\n  target_id TEXT NOT NULL,\n  project_id TEXT NOT NULL,\n  input_hash TEXT NOT NULL CHECK(length(input_hash)=64),\n  required_permissions TEXT NOT NULL CHECK(json_valid(required_permissions) AND json_type(required_permissions)='array'),\n  state TEXT NOT NULL CHECK(state IN ('pending','confirmed')),\n  snapshot TEXT,\n  created_at INTEGER NOT NULL,\n  confirmed_at INTEGER,\n  authority_kind TEXT NOT NULL DEFAULT 'project' CHECK(authority_kind IN ('project','global-administrator','global-administrator-or-scoped-manager')),\n  PRIMARY KEY(principal_id,operation_id),\n  CHECK((state='pending' AND snapshot IS NULL AND confirmed_at IS NULL)\n    OR (state='confirmed' AND snapshot IS NOT NULL AND json_valid(snapshot)\n      AND length(CAST(snapshot AS BLOB))<=65536 AND confirmed_at IS NOT NULL))\n)"
+    },
+    {
+      "type": "trigger",
+      "name": "operation_results_immutable",
+      "sql": "CREATE TRIGGER operation_results_immutable BEFORE UPDATE ON operation_results WHEN OLD.state='confirmed'\nBEGIN SELECT RAISE(ABORT,'confirmed operation is immutable'); END"
+    },
+    {
+      "type": "trigger",
+      "name": "operation_results_match_intent",
+      "sql": "CREATE TRIGGER operation_results_match_intent BEFORE INSERT ON operation_results\nWHEN EXISTS(SELECT 1 FROM operation_intents i WHERE i.principal_id=NEW.principal_id AND i.operation_id=NEW.operation_id\n  AND (i.operation_kind<>NEW.operation_kind OR i.target_id<>NEW.target_id OR i.project_id<>NEW.project_id OR i.input_hash<>NEW.input_hash))\nBEGIN SELECT RAISE(ABORT,'operation intent input mismatch'); END"
+    },
     {
       "type": "trigger",
       "name": "owner_setup_context_binding_immutable",
@@ -102,6 +165,11 @@
       "sql": "CREATE UNIQUE INDEX owner_setup_operation ON owner_setup_contexts(owner_id,operation_id) WHERE owner_id IS NOT NULL"
     },
     {
+      "type": "table",
+      "name": "projects",
+      "sql": "CREATE TABLE projects(id TEXT PRIMARY KEY,workspace_id TEXT NOT NULL REFERENCES workspaces(id),key TEXT NOT NULL,slug TEXT NOT NULL,name TEXT NOT NULL,description TEXT NOT NULL,source_json TEXT NOT NULL CHECK(json_valid(source_json)), revision INTEGER NOT NULL DEFAULT 1 CHECK(revision>=1), before_snapshot TEXT,UNIQUE(workspace_id,key),UNIQUE(workspace_id,slug))"
+    },
+    {
       "type": "trigger",
       "name": "recipient_setup_binding_immutable",
       "sql": "CREATE TRIGGER recipient_setup_binding_immutable BEFORE UPDATE ON recipient_setup_contexts\n WHEN NEW.context_hash IS NOT OLD.context_hash OR NEW.request_id IS NOT OLD.request_id OR NEW.replaces_context_hash IS NOT OLD.replaces_context_hash\n OR (OLD.right_id IS NOT NULL AND (NEW.issuer_id IS NOT OLD.issuer_id OR NEW.issuer_display_name IS NOT OLD.issuer_display_name OR NEW.operation_id IS NOT OLD.operation_id OR NEW.principal_id IS NOT OLD.principal_id OR NEW.right_id IS NOT OLD.right_id OR NEW.purpose IS NOT OLD.purpose OR NEW.target_auth_version IS NOT OLD.target_auth_version OR NEW.expires_at IS NOT OLD.expires_at))\n BEGIN SELECT RAISE(ABORT,'recipient setup binding is immutable'); END"
@@ -120,6 +188,11 @@
       "type": "index",
       "name": "recipient_setup_operation",
       "sql": "CREATE UNIQUE INDEX recipient_setup_operation ON recipient_setup_contexts(issuer_id,operation_id) WHERE issuer_id IS NOT NULL"
+    },
+    {
+      "type": "table",
+      "name": "workspaces",
+      "sql": "CREATE TABLE workspaces(id TEXT PRIMARY KEY,name TEXT NOT NULL,source_json TEXT NOT NULL CHECK(json_valid(source_json)), revision INTEGER NOT NULL DEFAULT 1 CHECK(revision>=1), before_snapshot TEXT)"
     }
   ]
 }
