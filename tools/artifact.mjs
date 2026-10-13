@@ -1,0 +1,41 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import { Miniflare } from "miniflare";
+import { collect, hash } from "./catalogs.mjs";
+
+const artifact = JSON.parse(fs.readFileSync("dist/artifact.json", "utf8"));
+const commit =
+  process.env.CI_COMMIT_SHA ??
+  execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+assert.equal(artifact.commit, commit);
+assert.equal(artifact.deployable, false);
+assert.equal(artifact.catalogHash, hash(JSON.stringify(collect(process.cwd()))));
+assert.deepEqual(Object.keys(artifact.files).sort(), [
+  "LICENSE",
+  "assets/index.html",
+  "migrations.json",
+  "worker.js",
+]);
+for (const [file, checksum] of Object.entries(artifact.files))
+  assert.equal(hash(fs.readFileSync(`dist/${file}`)), checksum, file);
+assert(!/fixture_[ab]|D1Database|BOOTSTRAP_SECRET/.test(fs.readFileSync("dist/worker.js", "utf8")));
+assert(!/fixture_[ab]/.test(fs.readFileSync("dist/migrations.json", "utf8")));
+const mf = new Miniflare({
+  modules: true,
+  scriptPath: "dist/worker.js",
+  compatibilityDate: "2026-07-30",
+  assets: { directory: "dist/assets", routerConfig: { has_user_worker: true } },
+});
+try {
+  const response = await mf.dispatchFetch("http://localhost/health");
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { phase: "scaffold", deployable: false });
+  assert.equal((await mf.dispatchFetch("http://localhost/api/issues")).status, 404);
+  const page = await mf.dispatchFetch("http://localhost/");
+  assert.equal(page.status, 200);
+  assert.match(await page.text(), /application is not implemented yet/);
+} finally {
+  await mf.dispose();
+}
+console.log("Artifact checksums, commit, fixture exclusion and workerd/static-assets smoke passed");

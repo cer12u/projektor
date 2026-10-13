@@ -1,28 +1,12 @@
 # Contributing
 
-projektor is a personal project, built and maintained by one person (with AI
-agents). It's open source under the [MIT licence](./LICENSE) - fork it, deploy
-it, modify it, learn from it.
+The upstream Projektor is Thomas Dickson's personal project, built with AI agents
+and released under the [MIT license](LICENSE). This repository is a Fork carrying
+out the modular rewrite described in [the approved plan](docs/architecture/rewrite-plan.md).
+Upstream authorship and history are retained; this Fork's changes and reviews are
+managed in GitLab.
 
-## Issues and pull requests
-
-**Pull requests, issues, and feature requests are all welcome.** projektor is
-maintained by one person (with AI agents), so review happens on their own
-schedule rather than a fixed SLA - but everything is read and considered.
-
-For security issues, follow [SECURITY.md](./SECURITY.md) (report privately, not
-via a public issue).
-
-## Working in the code
-
-If you're modifying a fork, [AGENTS.md](./AGENTS.md) is the source of truth for
-conventions: file layout, the service-layer contract (REST and MCP must stay at
-parity), and how to work in parallel without conflicts. Read it before changing
-anything.
-
-Both checks must be green (CI runs a fuller set - see [AGENTS.md](./AGENTS.md)):
-
-```bash
-pnpm --filter @projektor/api test   # vitest against an in-process Worker + Miniflare D1
-pnpm turbo type-check               # tsc --noEmit across the monorepo
-```
+Use one bounded module branch/MR, follow [AGENTS.md](AGENTS.md), and run
+`pnpm verify` before requesting review. Do not restore the previous implementation
+or claim that this scaffold is a deployable replacement. For vulnerabilities,
+follow [SECURITY.md](SECURITY.md) and report privately.

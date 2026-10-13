@@ -1,1 +1,3 @@
-See [AGENTS.md](./AGENTS.md) for guidance on working in this codebase.
+# Projektor
+
+Read [AGENTS.md](AGENTS.md) for this repository's current development rules.

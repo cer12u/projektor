@@ -1,6 +1,26 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
-  "files": { "includes": ["**", "!!platform/generated", "!!pnpm-lock.yaml", "!!docs"] },
-  "formatter": { "indentStyle": "space", "lineWidth": 100 },
-  "linter": { "rules": { "recommended": true } }
+  "files": {
+    "includes": [
+      "**",
+      "!!platform/generated",
+      "!!pnpm-lock.yaml",
+      "!!docs",
+      "!!.tmp",
+      "!!dist",
+      "!!node_modules",
+      "!!reports",
+      "!!coverage",
+      "!!.pnpm-store"
+    ]
+  },
+  "formatter": {
+    "indentStyle": "space",
+    "lineWidth": 100
+  },
+  "linter": {
+    "rules": {
+      "preset": "recommended"
+    }
+  }
 }

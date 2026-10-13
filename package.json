@@ -1,7 +1,11 @@
 {
-  "name": "projektor", "private": true, "type": "module",
+  "name": "projektor",
+  "private": true,
+  "type": "module",
   "packageManager": "pnpm@10.18.0",
-  "engines": { "node": ">=22.22.1" },
+  "engines": {
+    "node": ">=22.22.1"
+  },
   "scripts": {
     "lint": "biome check .",
     "typecheck": "tsc --noEmit",
@@ -17,9 +21,14 @@
     "smoke:cloudflare": "node tools/disabled.mjs",
     "deploy:artifact": "node tools/disabled.mjs"
   },
-  "dependencies": { "hono": "4.13.13" },
+  "dependencies": {
+    "hono": "4.13.13"
+  },
   "devDependencies": {
-    "@biomejs/biome": "2.5.15", "@cloudflare/workers-types": "5.20261013.1",
-    "esbuild": "0.28.2", "miniflare": "4.20260730.0", "typescript": "5.9.3"
+    "@biomejs/biome": "2.5.15",
+    "@cloudflare/workers-types": "5.20261013.1",
+    "esbuild": "0.28.2",
+    "miniflare": "4.20260730.0",
+    "typescript": "5.9.3"
   }
 }
