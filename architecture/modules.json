@@ -6,12 +6,7 @@
       "root": "apps/worker",
       "public": "apps/worker/index.ts",
       "kind": "composition",
-      "dependencies": [
-        "gateway",
-        "platform",
-        "fixture_a",
-        "fixture_b"
-      ],
+      "dependencies": ["gateway", "platform", "fixture_a", "fixture_b"],
       "external": []
     },
     {
@@ -19,9 +14,7 @@
       "root": "apps/web",
       "public": null,
       "kind": "web",
-      "dependencies": [
-        "gateway"
-      ],
+      "dependencies": ["gateway"],
       "external": []
     },
     {
@@ -30,9 +23,7 @@
       "public": "gateway/public.ts",
       "kind": "gateway",
       "dependencies": [],
-      "external": [
-        "hono"
-      ]
+      "external": ["hono"]
     },
     {
       "id": "platform",
@@ -43,13 +34,9 @@
       "external": [],
       "storage": {
         "prefix": "platform_",
-        "tables": [
-          "platform_schema_versions"
-        ],
+        "tables": ["platform_schema_versions"],
         "objects": [],
-        "globalTables": [
-          "platform_schema_versions"
-        ],
+        "globalTables": ["platform_schema_versions"],
         "catalog": "platform/storage/queries.ts",
         "migrations": "platform/storage/migrations",
         "kvPrefix": null,
@@ -63,17 +50,11 @@
       "factory": "modules/_fixture_a/internal/factory.ts",
       "kind": "module",
       "testOnly": true,
-      "dependencies": [
-        "platform"
-      ],
+      "dependencies": ["platform"],
       "external": [],
       "storage": {
         "prefix": "fixture_a_",
-        "tables": [
-          "fixture_a_items",
-          "fixture_a_guards",
-          "fixture_a_receipts"
-        ],
+        "tables": ["fixture_a_items", "fixture_a_guards", "fixture_a_receipts"],
         "objects": [],
         "globalTables": [],
         "catalog": "modules/_fixture_a/storage/queries.ts",
@@ -89,17 +70,11 @@
       "factory": "modules/_fixture_b/internal/factory.ts",
       "kind": "module",
       "testOnly": true,
-      "dependencies": [
-        "platform"
-      ],
+      "dependencies": ["platform"],
       "external": [],
       "storage": {
         "prefix": "fixture_b_",
-        "tables": [
-          "fixture_b_items",
-          "fixture_b_guards",
-          "fixture_b_receipts"
-        ],
+        "tables": ["fixture_b_items", "fixture_b_guards", "fixture_b_receipts"],
         "objects": [],
         "globalTables": [],
         "catalog": "modules/_fixture_b/storage/queries.ts",
@@ -113,20 +88,8 @@
       "root": "tools",
       "public": null,
       "kind": "tooling",
-      "dependencies": [
-        "composition",
-        "web",
-        "gateway",
-        "platform",
-        "fixture_a",
-        "fixture_b"
-      ],
-      "external": [
-        "node:*",
-        "typescript",
-        "esbuild",
-        "miniflare"
-      ]
+      "dependencies": ["composition", "web", "gateway", "platform", "fixture_a", "fixture_b"],
+      "external": ["node:*", "typescript", "esbuild", "miniflare"]
     }
   ]
 }
