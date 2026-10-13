@@ -1,0 +1,74 @@
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+    - if: '$CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS'
+      when: never
+    - if: '$CI_COMMIT_BRANCH'
+stages: [verify, test, build, smoke, deploy]
+default:
+  image: node:22.22.1-bookworm@sha256:f90672bf4c76dfc077d17be4c115b1ae7731d2e8558b457d86bca42aeb193866
+  before_script:
+    - node --version
+    - python3 --version
+    - npm install --global pnpm@10.18.0 --ignore-scripts
+    - pnpm config set store-dir .pnpm-store
+    - pnpm install --frozen-lockfile
+  cache:
+    key:
+      files: [pnpm-lock.yaml]
+      prefix: $CI_JOB_NAME
+    paths: [.pnpm-store/]
+boundaries:
+  stage: verify
+  script:
+    - pnpm check:boundaries
+    - mkdir -p reports
+    - node --test --test-reporter=spec --test-reporter-destination=stdout --test-reporter=junit --test-reporter-destination=reports/boundaries.xml tools/boundaries.test.mjs
+  artifacts:
+    when: always
+    reports:
+      junit: reports/boundaries.xml
+    paths: [reports/]
+    expire_in: 7 days
+static:
+  stage: verify
+  script:
+    - pnpm lint
+    - pnpm typecheck
+    - pnpm check:contracts
+modules:
+  stage: test
+  script:
+    - pnpm test:modules --coverage
+    - pnpm test:migrations
+  artifacts:
+    when: always
+    reports:
+      junit: reports/platform.xml
+    paths: [reports/]
+    expire_in: 7 days
+# Business transport/recovery/browser suites arrive with their owning module MRs.
+# This step tests only the Worker health/404 contract and placeholder Static Assets.
+build:
+  stage: build
+  script:
+    - pnpm build
+  artifacts:
+    paths: [dist/]
+    expire_in: 7 days
+integration:
+  stage: build
+  needs: [build]
+  script: ["pnpm check:artifact"]
+cloudflare-smoke:
+  stage: smoke
+  rules:
+    - when: never
+  script: ["pnpm smoke:cloudflare"]
+deploy:
+  stage: deploy
+  resource_group: production
+  rules:
+    - when: never
+  script: ["pnpm deploy:artifact"]

@@ -1,8 +1,0 @@
-# PROJ-837: adding an access-guard exception is a security decision.
-/apps/api/src/test/architecture/access-guard-allowlist.ts @TAJD
-/apps/api/src/services/access.ts @TAJD
-
-# Inherited upstream review ownership. Fork agents may edit documentation under
-# AGENTS.md; this comment does not change the reviewer entries or branch rules.
-/README.md @TAJD
-/apps/docs/src/content/docs/philosophy/ @TAJD

@@ -1,85 +1,26 @@
 {
-	"$schema": "https://biomejs.dev/schemas/2.5.8/schema.json",
-	"vcs": {
-		"enabled": true,
-		"clientKind": "git",
-		"defaultBranch": "main"
-	},
-	"files": {
-		"includes": [
-			"apps/api/src/**",
-			"apps/web/src/**",
-			"!apps/web/src/pages/**/*.astro",
-			"!apps/web/src/layouts",
-			"!apps/web/src/styles/global.css",
-			"packages/**"
-		]
-	},
-	"linter": {
-		"enabled": true,
-		"rules": {
-			"preset": "recommended",
-			"correctness": {
-				"noUnusedVariables": "error",
-				"noUnusedImports": "error"
-			},
-			"a11y": {
-				"noLabelWithoutControl": {
-					"level": "error",
-					"options": {
-						"inputComponents": ["Select", "MarkdownEditor"]
-					}
-				}
-			}
-		}
-	},
-	"formatter": {
-		"enabled": true,
-		"indentStyle": "tab",
-		"lineWidth": 100,
-		"lineEnding": "lf"
-	},
-	"javascript": {
-		"formatter": {
-			"trailingCommas": "es5"
-		}
-	},
-	"overrides": [
-		{
-			"includes": ["apps/api/src/test/**"],
-			"linter": {
-				"rules": {
-					"style": {
-						"noNonNullAssertion": "off"
-					}
-				}
-			}
-		},
-		{
-			"includes": ["apps/web/src/islands/IssueList.tsx"],
-			"linter": {
-				"rules": {
-					"a11y": {
-						"noLabelWithoutControl": "off",
-						"noNoninteractiveElementToInteractiveRole": "off",
-						"useFocusableInteractive": "off",
-						"useKeyWithClickEvents": "off",
-						"noStaticElementInteractions": "off"
-					}
-				}
-			}
-		},
-		{
-			"includes": ["apps/web/src/islands/ui/Select.tsx"],
-			"linter": {
-				"rules": {
-					"a11y": {
-						"noNoninteractiveElementToInteractiveRole": "off",
-						"useFocusableInteractive": "off",
-						"useKeyWithClickEvents": "off"
-					}
-				}
-			}
-		}
-	]
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "files": {
+    "includes": [
+      "**",
+      "!!platform/generated",
+      "!!pnpm-lock.yaml",
+      "!!docs",
+      "!!.tmp",
+      "!!dist",
+      "!!node_modules",
+      "!!reports",
+      "!!coverage",
+      "!!.pnpm-store"
+    ]
+  },
+  "formatter": {
+    "indentStyle": "space",
+    "lineWidth": 100
+  },
+  "linter": {
+    "rules": {
+      "preset": "recommended"
+    }
+  }
 }

@@ -1,10 +1,4 @@
-packages:
-  - 'apps/*'
-  - 'packages/*'
-  - 'plugins/*'
-
+packages: []
 onlyBuiltDependencies:
   - esbuild
-  - lefthook
-  - sharp
   - workerd

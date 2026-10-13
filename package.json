@@ -1,38 +1,34 @@
 {
   "name": "projektor",
   "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.18.0",
+  "engines": {
+    "node": ">=22.22.1"
+  },
   "scripts": {
-    "dev": "turbo dev",
-    "build": "turbo build",
-    "type-check": "turbo type-check",
-    "deploy": "turbo deploy",
     "lint": "biome check .",
-    "lint:fix": "biome check --write .",
-    "format": "biome format --write .",
-    "gen:docs": "pnpm --filter @projektor/api gen:catalog && pnpm --filter @projektor/api gen:workflow-spec && pnpm --filter @projektor/api gen:playbooks && tsx scripts/gen-conventions-page.ts && tsx scripts/gen-feedback-example-page.ts",
-    "bundle-budget": "tsx scripts/bundle-budget.ts",
-    "bundle-budget:update": "tsx scripts/bundle-budget.ts --update",
-    "prepare": "lefthook install"
+    "typecheck": "tsc --noEmit",
+    "check:boundaries": "node tools/check-boundaries.mjs",
+    "check:contracts": "node tools/check-boundaries.mjs --rule public-type",
+    "test:boundary-checkers": "node --test tools/boundaries.test.mjs",
+    "test:modules": "node tools/test.mjs",
+    "test:migrations": "node tools/check-boundaries.mjs --rule schema",
+    "build": "node tools/build.mjs",
+    "check:artifact": "node tools/artifact.mjs",
+    "generate": "node tools/generate.mjs",
+    "verify": "pnpm lint && pnpm typecheck && pnpm check:boundaries && pnpm test:boundary-checkers && pnpm test:modules && pnpm test:migrations && pnpm build && pnpm check:artifact",
+    "smoke:cloudflare": "node tools/disabled.mjs",
+    "deploy:artifact": "node tools/disabled.mjs"
+  },
+  "dependencies": {
+    "hono": "4.13.13"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.5.8",
-    "@biomejs/cli-win32-x64": "2.5.8",
-    "@cloudflare/workers-types": "^5.20260813.1",
-    "lefthook": "^2.1.10",
-    "tsx": "^4.23.12",
-    "turbo": "^2.10.9",
-    "typescript": "^6.0.3"
-  },
-  "packageManager": "pnpm@10.18.0",
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "workerd",
-      "sharp"
-    ]
-  },
-  "engines": {
-    "node": ">=22.12",
-    "pnpm": ">=9"
+    "@biomejs/biome": "2.5.15",
+    "@cloudflare/workers-types": "5.20261013.1",
+    "esbuild": "0.28.2",
+    "miniflare": "4.20260730.0",
+    "typescript": "5.9.3"
   }
 }
