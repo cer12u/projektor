@@ -1,0 +1,10 @@
+{
+  "compilerOptions": {
+    "target": "ES2022", "module": "ESNext", "moduleResolution": "Bundler",
+    "lib": ["ES2022"], "types": ["@cloudflare/workers-types"],
+    "strict": true, "noEmit": true, "skipLibCheck": true,
+    "allowImportingTsExtensions": true, "resolveJsonModule": true,
+    "paths": { "@modules/*": ["./modules/*"] }
+  },
+  "include": ["apps/**/*.ts", "modules/**/*.ts", "platform/**/*.ts", "gateway/**/*.ts", "tools/test-entry.ts"]
+}

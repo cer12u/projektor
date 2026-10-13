@@ -1,0 +1,132 @@
+{
+  "version": 1,
+  "owners": [
+    {
+      "id": "composition",
+      "root": "apps/worker",
+      "public": "apps/worker/index.ts",
+      "kind": "composition",
+      "dependencies": [
+        "gateway",
+        "platform",
+        "fixture_a",
+        "fixture_b"
+      ],
+      "external": []
+    },
+    {
+      "id": "web",
+      "root": "apps/web",
+      "public": null,
+      "kind": "web",
+      "dependencies": [
+        "gateway"
+      ],
+      "external": []
+    },
+    {
+      "id": "gateway",
+      "root": "gateway",
+      "public": "gateway/public.ts",
+      "kind": "gateway",
+      "dependencies": [],
+      "external": [
+        "hono"
+      ]
+    },
+    {
+      "id": "platform",
+      "root": "platform",
+      "public": "platform/public.ts",
+      "kind": "platform",
+      "dependencies": [],
+      "external": [],
+      "storage": {
+        "prefix": "platform_",
+        "tables": [
+          "platform_schema_versions"
+        ],
+        "objects": [],
+        "globalTables": [
+          "platform_schema_versions"
+        ],
+        "catalog": "platform/storage/queries.ts",
+        "migrations": "platform/storage/migrations",
+        "kvPrefix": null,
+        "r2Prefix": null
+      }
+    },
+    {
+      "id": "fixture_a",
+      "root": "modules/_fixture_a",
+      "public": "modules/_fixture_a/public.ts",
+      "factory": "modules/_fixture_a/internal/factory.ts",
+      "kind": "module",
+      "testOnly": true,
+      "dependencies": [
+        "platform"
+      ],
+      "external": [],
+      "storage": {
+        "prefix": "fixture_a_",
+        "tables": [
+          "fixture_a_items",
+          "fixture_a_guards",
+          "fixture_a_receipts"
+        ],
+        "objects": [],
+        "globalTables": [],
+        "catalog": "modules/_fixture_a/storage/queries.ts",
+        "migrations": "modules/_fixture_a/storage/migrations",
+        "kvPrefix": "fixture_a:",
+        "r2Prefix": "fixture_a/"
+      }
+    },
+    {
+      "id": "fixture_b",
+      "root": "modules/_fixture_b",
+      "public": "modules/_fixture_b/public.ts",
+      "factory": "modules/_fixture_b/internal/factory.ts",
+      "kind": "module",
+      "testOnly": true,
+      "dependencies": [
+        "platform"
+      ],
+      "external": [],
+      "storage": {
+        "prefix": "fixture_b_",
+        "tables": [
+          "fixture_b_items",
+          "fixture_b_guards",
+          "fixture_b_receipts"
+        ],
+        "objects": [],
+        "globalTables": [],
+        "catalog": "modules/_fixture_b/storage/queries.ts",
+        "migrations": "modules/_fixture_b/storage/migrations",
+        "kvPrefix": "fixture_b:",
+        "r2Prefix": "fixture_b/"
+      }
+    },
+    {
+      "id": "tools",
+      "root": "tools",
+      "public": null,
+      "kind": "tooling",
+      "dependencies": [
+        "composition",
+        "web",
+        "gateway",
+        "platform",
+        "fixture_a",
+        "fixture_b"
+      ],
+      "external": [
+        "node:*",
+        "typescript",
+        "esbuild",
+        "miniflare"
+      ]
+    }
+  ]
+}

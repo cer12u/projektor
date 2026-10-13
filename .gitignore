@@ -1,0 +1,9 @@
+node_modules/
+.pnpm-store/
+dist/
+.tmp/
+coverage/
+reports/
+.dev.vars*
+.env*
+__pycache__/
