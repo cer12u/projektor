@@ -255,6 +255,19 @@ jobs:
         if: ${{ !cancelled() && steps.runtime.outcome == 'success' }}
         working-directory: experiments/product-ui
         run: npm ci --ignore-scripts
+      - name: Integration - shared draft reauthorization and divergent branch protection
+        if: ${{ !cancelled() && steps.ui.outcome == 'success' }}
+        working-directory: experiments/product-ui
+        run: |
+          mkdir -p ../atomic-command-poc/evidence/browser
+          set -o pipefail
+          # IndexedDB-emulator/controller proof, separate from Chromium acceptance.
+          node --test --test-reporter=tap test/draft-revalidation.test.mjs 2>&1 | tee ../atomic-command-poc/evidence/browser/draft-revalidation.tap
+          grep -Eq '^# tests 3$' ../atomic-command-poc/evidence/browser/draft-revalidation.tap
+          grep -Eq '^# pass 3$' ../atomic-command-poc/evidence/browser/draft-revalidation.tap
+          for field in fail cancelled skipped todo; do
+            grep -Eq "^# $field 0$" ../atomic-command-poc/evidence/browser/draft-revalidation.tap
+          done
       - name: Integration - selected real Chromium product boundary scenarios
         if: ${{ !cancelled() && steps.ui.outcome == 'success' && needs.source-integrity.outputs.app_auth != 'true' }}
         timeout-minutes: 5

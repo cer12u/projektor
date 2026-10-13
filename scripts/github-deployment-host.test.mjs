@@ -2,7 +2,7 @@
 // @role deployment-host-test
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validateRequest,validateApproval,bindMeasuredIdentity} from './github-deployment-host.mjs';
+import {validateRequest,validateApproval,bindMeasuredIdentity,assertProtectedEnvironment} from './github-deployment-host.mjs';
 import {readFile} from 'node:fs/promises';
 import {createGitHubJournal,publicCheckpoint} from './github-deployment-journal.mjs';
 const commit='a'.repeat(40),h='b'.repeat(64),artifact='c'.repeat(64),id='11111111-1111-4111-8111-111111111111';
@@ -26,3 +26,13 @@ test('known exact version is observed on a later runner, never guessed or replay
 test('forked history fails closed without provider calls',async()=>{const p=publicCheckpoint({approval,targetFingerprint:h},{phase:'UPLOAD_INTENT',operation:'upload'},99);const f=fixture({existing:[{id:1,sha:commit,payload:p}]});await assert.rejects(f.journal.exclusive(async()=>f.dispatch()),/FORK_OR_GAP/);assert.equal(f.observations.length,0);});
 
 test('CI installs the measured npm independently of the Node distribution',async()=>{for(const name of ['ci.yml','release.yml']){const text=await readFile(new URL('../.github/workflows/'+name,import.meta.url),'utf8');assert.match(text,/npm install --global npm@11\.9\.0 --ignore-scripts/);assert(text.indexOf('npm install --global npm@11.9.0')<text.indexOf('test \"$(npm --version)\"'));}});
+
+test('real environment proof is required before private inputs, with no extra token permissions',async()=>{
+ const good={name:'projektor-production',can_admins_bypass:false,protection_rules:[{type:'required_reviewers',prevent_self_review:false,reviewers:[{type:'User',reviewer:{login:'cer12u'}}]}],deployment_branch_policy:{protected_branches:false,custom_branch_policies:true}};
+ const branches={total_count:1,branch_policies:[{name:'fix/modular-system-integration-20261012',type:'branch'}]};
+ const check=async(policy,rules=branches)=>{const calls=[];const fetcher=async(url,options)=>{calls.push(url);assert.equal(options.method,'GET');assert.equal(options.redirect,'error');assert(url.startsWith('https://api.github.com/repos/cer12u/projektor/environments/projektor-production'));return {ok:true,json:async()=>url.includes('/deployment-branch-policies')?rules:policy};};return assertProtectedEnvironment(env,fetcher);};
+ await check(good);
+ for(const policy of [{...good,name:'other'},{...good,can_admins_bypass:true},{...good,can_admins_bypass:undefined},{...good,protection_rules:[]},{...good,protection_rules:[{type:'required_reviewers',prevent_self_review:false,reviewers:[{type:'User',reviewer:{login:'another-user'}}]}]},{...good,protection_rules:[{type:'required_reviewers',prevent_self_review:true,reviewers:[{}]}]},{...good,deployment_branch_policy:null}])await assert.rejects(check(policy),/PROTECTED_ENVIRONMENT_REQUIRED/);
+ for(const rules of [{total_count:0,branch_policies:[]},{total_count:2,branch_policies:branches.branch_policies},{total_count:1,branch_policies:[{name:'*',type:'branch'}]},{total_count:1,branch_policies:[{name:branches.branch_policies[0].name,type:'tag'}]}])await assert.rejects(check(good,rules),/BRANCH_POLICY_REQUIRED/);
+ await assert.rejects(assertProtectedEnvironment(env,async()=>({ok:false})),/UNVERIFIED/);
+});

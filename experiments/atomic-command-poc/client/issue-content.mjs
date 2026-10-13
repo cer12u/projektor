@@ -191,6 +191,7 @@ export class IssueContentController {
       this.quarantined=true;
       const restored=await this.protection.restore(session,()=>this.current(generation));
       if (!this.current(generation)) return {kind:'stale'};
+      const protectedSnapshot=restored ? canon(restored) : null;
       if (restored) {
         if (!object(restored) || !integer(restored.revision) || !object(restored.drafts) || !Array.isArray(restored.scopeCeiling)) throw fail('DRAFT_INVALID');
         if (session.scopes.some(scope=>!restored.scopeCeiling.includes(scope))) throw fail('SCOPE_EXPANSION');
@@ -203,8 +204,16 @@ export class IssueContentController {
       if (!this.record) this.record={revision:0,baseVersion:this.issue?.version??0,scopeCeiling:copy(session.scopes),active:this.initialMode??(this.projectId?'create':'body'),drafts:{},journal:null};
       const active=this.record.active;
       if (!this.record.drafts[active]) this.record.drafts[active]={mode:active,...this.initial(active),revision:0,ack:0};
-      this.adoptCurrent();this.touch();
-      if ((await this.flush()).kind!=='protected') throw fail('PROTECTION_FAILED');
+      this.adoptCurrent();
+      // Reauthorization is a read when the entire freshly decrypted record is
+      // unchanged. Rewriting it manufactures a new CAS head in every tab and
+      // turns simultaneous session verification into a permanent branch conflict.
+      // Resource changes, journals and unprotected edits still use normal CAS.
+      if (protectedSnapshot!==null && protectedSnapshot===canon(this.record)) this.protectionState='protected';
+      else {
+        this.touch();
+        if ((await this.flush()).kind!=='protected') throw fail('PROTECTION_FAILED');
+      }
       if (!this.current(generation)) return {kind:'stale'};
       this.locked=false;this.phase=Object.values(this.record.drafts).some(draft=>draft.conflict)?'conflict':'ready';this.code=null;
       const lease=Math.min(session.expiresAt,this.protection.expiresAt?.()??session.expiresAt);

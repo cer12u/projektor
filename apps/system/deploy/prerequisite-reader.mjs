@@ -25,11 +25,32 @@ export function assertProxyRuntime({version=process.versions.node,execArgv=proce
   requireValue(version==='24.19.0','READ_RUNTIME_UNREVIEWED');
   requireValue(execArgv.includes('--use-env-proxy')&&!execArgv.includes('--no-use-env-proxy'),'READ_PROXY_STARTUP_REQUIRED');
 }
+function accessTopology(app){
+  requireValue(object(app));
+  const domain=app.domain??null,domains=app.self_hosted_domains??[],destinations=app.destinations??[];
+  requireValue((domain===null||typeof domain==='string')&&Array.isArray(domains)&&domains.every(d=>typeof d==='string')&&Array.isArray(destinations),'INVALID_ACCESS_TOPOLOGY');
+  const normalized=destinations.map(d=>{
+    requireValue(object(d),'INVALID_ACCESS_TOPOLOGY');const type=d.type??'public';
+    requireValue(['public','worker','preview_worker','all_workers','all_preview_workers'].includes(type),'UNREVIEWED_ACCESS_DESTINATION');
+    if(type==='public')requireValue(typeof d.uri==='string'&&d.uri.length>0,'INVALID_ACCESS_TOPOLOGY');
+    if(type==='worker'||type==='preview_worker')requireValue(typeof d.worker_id==='string'&&d.worker_id.length>0,'INVALID_ACCESS_TOPOLOGY');
+    if(d.overrides!==undefined)requireValue(Array.isArray(d.overrides)&&d.overrides.every(o=>object(o)&&o.behavior==='public'&&typeof o.path_pattern==='string'&&o.path_pattern.startsWith('/')),'INVALID_ACCESS_TOPOLOGY');
+    return canonical({...d,type});
+  }).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  return {domain,self_hosted_domains:[...domains].sort(),destinations:normalized};
+}
 function relevantApp(app,hostname){
-  if(typeof app?.domain!=='string')return false;
-  const domain=app.domain.split('/')[0];
-  const pattern=domain.split('*').map(s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('.*');
-  return new RegExp('^'+pattern+'$','i').test(hostname);
+  const topology=accessTopology(app);
+  // Worker/all-Worker destinations can protect this host independently of a
+  // legacy domain. Include all such apps conservatively rather than guessing
+  // the provider's opaque Worker ID mapping or silently omitting protection.
+  if(topology.destinations.some(d=>d.type!=='public'))return true;
+  const routes=[topology.domain,...topology.self_hosted_domains,...topology.destinations.map(d=>d.uri)].filter(v=>v!==null);
+  return routes.some(route=>{
+    const domain=route.replace(/^https?:\/\//,'').split('/')[0];
+    const pattern=domain.split('*').map(s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('.*');
+    return new RegExp('^'+pattern+'$','i').test(hostname);
+  });
 }
 function deployment(result,version){
   requireValue(object(result)&&Array.isArray(result.deployments)&&result.deployments.length>0);
@@ -136,7 +157,7 @@ export function createPrerequisiteReader({candidate,credentials,configuration,fe
         const apps=(await pages('/access/apps')).filter(app=>relevantApp(app,hostname));requireValue(apps.length>0&&apps.length<=5,'ACCESS_TARGET_SET_UNEXPECTED');
         const access=[];
         for(const app of apps){
-          const selected=select(app,APP);requireValue(UUID.test(selected.id||'')&&selected.type==='self_hosted'&&typeof selected.domain==='string'&&typeof selected.session_duration==='string'&&typeof selected.aud==='string'&&Array.isArray(selected.allowed_idps)&&typeof selected.auto_redirect_to_identity==='boolean');
+          const selected={...select({...app,domain:app.domain??null},APP),...accessTopology(app)};requireValue(UUID.test(selected.id||'')&&selected.type==='self_hosted'&&(selected.domain===null||typeof selected.domain==='string')&&typeof selected.session_duration==='string'&&typeof selected.aud==='string'&&Array.isArray(selected.allowed_idps)&&typeof selected.auto_redirect_to_identity==='boolean');
           const policies=await pages('/access/apps/'+selected.id+'/policies');
           requireValue(policies.length>0&&policies.length<=50&&policies.every(p=>object(p)&&typeof p.id==='string'&&typeof p.decision==='string'&&Array.isArray(p.include)&&Array.isArray(p.exclude)&&Array.isArray(p.require)));
           access.push({...selected,policies});

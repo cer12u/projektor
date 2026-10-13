@@ -1,18 +1,23 @@
 {
   "scope": "App-owned password and browser session candidate with native machine session integration",
   "baselineCommit": "03fdbc58e5b186901c93a77e07ecddaf754e5a28",
-  "sourceManifestSHA256": "61ad10f937e5838f6b5d6f9e8ca49b4c1e3ea9e220fa3c209d48b49c722c0b14",
+  "sourceManifestSHA256": "8a854b287a4282568c8483c8851b35d8f1a54f648c93fcad04e61d221e0c9690",
   "verification": {
     "chromiumE2E": {
       "selectedEntries": {
-        "e2e/app-auth.test.mjs": 1
+        "e2e/app-auth.test.mjs": 3
       },
-      "expectedCases": 1,
-      "status": "H01 observation-only run pending exact-head CI; H02/H03 passed at c17e7397d3d13ba8522dd8e55295a8bbc8aa664c",
+      "expectedCases": 3,
+      "status": "Retained draft reauthorization repair; unchanged H01/H02/H03 require exact-head Chromium CI acceptance. The product-source delta also retains the existing broader browser gates.",
       "reusedOwnerEvidence": "https://github.com/cer12u/projektor/actions/runs/37871330589/job/113629939984",
       "reusedHumanEvidence": "https://github.com/cer12u/projektor/actions/runs/37876408774/job/113646006283"
     },
-    "serverEvidence": "Owner-provided focused server/client evidence is separate from browser acceptance"
+    "serverEvidence": "Owner-provided focused server/client evidence is separate from browser acceptance",
+    "draftRevalidation": {
+      "level": "Actual controller/protection/vault with test-only IndexedDB emulator",
+      "cases": 3,
+      "status": "passed locally; same-head reauthorization reproduces a permanent false conflict before repair; genuine divergent writes remain fenced"
+    }
   },
   "publication": "prepared only",
   "productionUpgrade": "not performed",

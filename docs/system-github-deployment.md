@@ -24,7 +24,7 @@ gh workflow run release.yml --repo cer12u/projektor \
 
 ## Required protected setup
 
-A repository administrator must configure environment `projektor-production`, restrict it to the exact work branch, require a reviewer other than the initiator, prevent self-review and disallow bypass where supported. Do this before dispatch: merely naming an environment in YAML does not establish protection.
+A repository administrator must configure environment `projektor-production`, restrict it to the exact work branch, require the verified owner `cer12u` as the sole reviewer, deliberately allow that owner to review a run they initiated (`prevent_self_review:false`), and disable administrator bypass. A second person is not required. The owner must explicitly review the exact commit/run/artifact; no automatic approval is implemented. Do this before dispatch: merely naming an environment in YAML does not establish protection. The host reads the actual fixed environment and exact branch policy using Actions read permission before the private configuration step and again before provider use. A missing/different owner reviewer, a policy that prevents the sole owner from reviewing their initiated run, administrator bypass, a wildcard/extra branch policy, or unavailable policy proof stops execution. It never changes environment settings.
 
 The protected environment has exactly these inputs:
 

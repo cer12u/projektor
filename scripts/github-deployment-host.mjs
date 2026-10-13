@@ -22,6 +22,17 @@ export function validateRequest(env){
  if(env.GITHUB_ACTIONS!=='true'||env.GITHUB_REPOSITORY!=='cer12u/projektor'||!/^[a-f0-9]{40}$/.test(env.GITHUB_SHA||'')||env.DEPLOYMENT_REQUEST!=='deploy:'+env.GITHUB_SHA||env.GITHUB_RUN_ATTEMPT!=='1'||!/^\d+$/.test(env.GITHUB_RUN_ID||''))fail('EXACT_MANUAL_RUN_REQUIRED');
  if(env.GITHUB_EVENT_NAME!=='workflow_dispatch'||env.GITHUB_REF!=='refs/heads/fix/modular-system-integration-20261012')fail('UNAPPROVED_TRIGGER_OR_BRANCH');
 }
+export async function assertProtectedEnvironment(env,fetchImpl=fetch){
+ validateRequest(env);if(!env.GH_TOKEN)fail('GITHUB_TOKEN_REQUIRED');
+ const base='https://api.github.com/repos/cer12u/projektor/environments/projektor-production';
+ async function get(suffix=''){const response=await fetchImpl(base+suffix,{method:'GET',redirect:'error',headers:{Accept:'application/vnd.github+json',Authorization:'Bearer '+env.GH_TOKEN,'X-GitHub-Api-Version':'2022-11-28'}});if(!response.ok)fail('PROTECTED_ENVIRONMENT_UNVERIFIED');return response.json();}
+ const policy=await get(),review=policy.protection_rules?.find(rule=>rule.type==='required_reviewers');
+ if(policy.name!=='projektor-production'||policy.can_admins_bypass!==false||review?.prevent_self_review!==false||!Array.isArray(review.reviewers)||review.reviewers.length!==1||review.reviewers[0]?.type!=='User'||review.reviewers[0]?.reviewer?.login!=='cer12u'||policy.deployment_branch_policy?.custom_branch_policies!==true||policy.deployment_branch_policy?.protected_branches!==false)fail('PROTECTED_ENVIRONMENT_REQUIRED');
+ const rules=await get('/deployment-branch-policies?per_page=100'),rule=rules.branch_policies?.[0];
+ // Older API responses omit type. The exact running ref is independently constrained to this branch.
+ if(rules.total_count!==1||rules.branch_policies?.length!==1||rule.name!=='fix/modular-system-integration-20261012'||(rule.type!==undefined&&rule.type!=='branch'))fail('EXACT_DEPLOYMENT_BRANCH_POLICY_REQUIRED');
+ return {verified:true,environment:'projektor-production'};
+}
 export function validateApproval(value,env){
  validateRequest(env);
  if(!exact(value,['format','commit','runId','operationId','releaseId','sourceTreeSha256','artifactTreeSha256','expectedCurrent','action'])||value.format!==1||value.commit!==env.GITHUB_SHA||String(value.runId)!==env.GITHUB_RUN_ID||!/^projektor-modular-\d{8}$/.test(value.releaseId||''))fail('PROTECTED_APPROVAL_REQUIRED');
@@ -55,6 +66,7 @@ async function prepare(env){
  console.log(JSON.stringify({prepared:true,commit:approved.commit,sourceTreeSha256:approved.sourceTreeSha256,artifactTreeSha256:approved.artifactTreeSha256}));
 }
 async function run(env){
+ await assertProtectedEnvironment(env);
  const approved=await approval(env);if(env.PROJEKTOR_EXPECTED_COMMIT!==approved.commit)fail('APPROVED_CHECKOUT_MISMATCH');
  const config=await loadDeploymentConfig(app),release=await verifyRelease(app,config);
  if(release.sourceTreeSha256!==approved.sourceTreeSha256||release.artifactTreeSha256!==approved.artifactTreeSha256)fail('REVIEWED_BUILD_IDENTITY_MISMATCH');
@@ -69,5 +81,5 @@ async function run(env){
  await writeFile(resolve(app,'.local/deployment-public-result.json'),json(summary));console.log(JSON.stringify(summary));
  if(summary.requiresOperatorReconciliation)process.exitCode=1;
 }
-async function main(){const [action,...extra]=process.argv.slice(2);if(extra.length)fail('UNEXPECTED_ARGUMENTS');if(action==='request'){validateRequest(process.env);return;}if(action==='prepare')return prepare(process.env);if(action==='run')return run(process.env);if(action==='clean')return rm(resolve(app,'.local/deployment'),{recursive:true,force:true});fail('HOST_ACTION_REQUIRED');}
+async function main(){const [action,...extra]=process.argv.slice(2);if(extra.length)fail('UNEXPECTED_ARGUMENTS');if(action==='request'){validateRequest(process.env);return;}if(action==='environment'){console.log(JSON.stringify(await assertProtectedEnvironment(process.env)));return;}if(action==='prepare')return prepare(process.env);if(action==='run')return run(process.env);if(action==='clean')return rm(resolve(app,'.local/deployment'),{recursive:true,force:true});fail('HOST_ACTION_REQUIRED');}
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url))main().catch(async error=>{const code=/^[A-Z_]+$/.test(error.message)?error.message:'LOCAL_OR_PROTOCOL_FAILURE';const result={format:1,status:'STOP',code,requiresOperatorReconciliation:true,privateDetailsWithheld:true};await mkdir(resolve(app,'.local'),{recursive:true});await writeFile(resolve(app,'.local/deployment-public-result.json'),json(result));console.error(JSON.stringify(result));process.exitCode=1;});

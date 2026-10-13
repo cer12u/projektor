@@ -130,6 +130,11 @@ jobs:
           name: deployment-build-${{ github.run_id }}
           path: .local-deployment-build
       - run: tar -xzf .local-deployment-build/deployment-build.tar.gz -C apps/system
+      - name: Verify actual environment reviewer and exact branch restrictions
+        env:
+          DEPLOYMENT_REQUEST: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/github-deployment-host.mjs environment
       - name: Bind approved source, artifacts, target and this single run without a credential
         env:
           DEPLOYMENT_REQUEST: ${{ inputs.version }}

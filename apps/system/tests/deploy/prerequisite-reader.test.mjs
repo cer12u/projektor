@@ -118,3 +118,15 @@ test('legacy service null tags follow exact pinned Wrangler normalization; malfo
   if(tags==='invalid')await assert.rejects(h.reader.inspect(target,version));else{const p=await h.reader.inspect(target,version);assert.deepEqual(p.service.tags,tags??[]);}
  }
 });
+
+
+test('Access destination paths, aliases and overrides participate in current topology proof',async()=>{
+ const inspect=async topology=>{const h=harness(url=>{if(!url.includes('/access/apps?'))return;const rows=body(url.slice(root.length));Object.assign(rows[0],topology);return response(url,rows);});return h.reader.inspect(target,version);};
+ const whole=await inspect({destinations:[{type:'public',uri:'fixture.example.test'}]});
+ const path=await inspect({destinations:[{type:'public',uri:'fixture.example.test/owner/setup'}]});
+ assert.notEqual(whole.security.accessPoliciesHash,path.security.accessPoliciesHash);
+ const override=await inspect({destinations:[{type:'public',uri:'fixture.example.test',overrides:[{behavior:'public',path_pattern:'/api/*'}]}]});assert.notEqual(whole.security.accessPoliciesHash,override.security.accessPoliciesHash);
+ for(const extra of [{domain:'elsewhere.example.test',destinations:[{uri:'fixture.example.test/owner/setup'}]},{domain:null,self_hosted_domains:['fixture.example.test/owner/setup']},{domain:'elsewhere.example.test',destinations:[{type:'all_workers'}]},{domain:null,destinations:[{type:'worker',worker_id:'opaque-provider-id'}]}])assert.equal((await inspect(extra)).currentVersion,version);
+ await assert.rejects(inspect({destinations:[{type:'unknown'}]}),/UNREVIEWED_ACCESS_DESTINATION/);
+ await assert.rejects(inspect({self_hosted_domains:[{invalid:true}]}),/INVALID_ACCESS_TOPOLOGY/);
+});
