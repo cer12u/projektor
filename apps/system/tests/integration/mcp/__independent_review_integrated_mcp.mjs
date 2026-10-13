@@ -44,8 +44,8 @@ try {
  await test('valid unbound assertion cannot initialize',async()=>{assert.equal((await request('/mcp/federated',{method:'POST',headers:{'Cf-Access-Jwt-Assertion':token}})).status,403);});
  await db.prepare("INSERT INTO principals VALUES('A','agent','Transport Agent',NULL,1,1)").run();
  for(const p of ['view','edit','assign','transition','execute','manage'])await db.prepare("INSERT INTO memberships VALUES('A','P',?)").bind(p).run();
- await db.prepare("INSERT INTO workspaces VALUES('W','Shared workspace','{}')").run();
- await db.prepare("INSERT INTO projects VALUES('P','W','PK','project-p','Project P','','{}'),('OTHER','W','OTHER','other-project','Private other project','','{}')").run();
+ await db.prepare("INSERT INTO workspaces(id,name,source_json) VALUES('W','Shared workspace','{}')").run();
+ await db.prepare("INSERT INTO projects(id,workspace_id,key,slug,name,description,source_json) VALUES('P','W','PK','project-p','Project P','','{}'),('OTHER','W','OTHER','other-project','Private other project','','{}')").run();
  await db.prepare("INSERT INTO memberships VALUES('A','OTHER','view'),('A','workspace:W','view')").run();
  for(const [kind,id,scopeId,value] of [['projects','P','P',{title:'Preserved project'}],['task_types','shared-definition','workspace:W',{name:'Shared definition'}],['task_types','private-definition','OTHER',{name:'PRIVATE OTHER'}],['workspace_members','private-member','workspace:W',{name:'PRIVATE WORKSPACE'}]])await db.prepare('INSERT INTO imported_entities VALUES(?,?,?,?,?,?)').bind(kind,id,'W',scopeId,JSON.stringify(value),'fixture').run();
  for(let n=0;n<12;n++)await db.prepare('INSERT INTO imported_entities VALUES(?,?,?,?,?,?)').bind('activity','source-history-'+n,'W','P',JSON.stringify({entity_id:'P',created_at:'2026-10-01T00:00:'+String(n).padStart(2,'0')+'Z'}),'fixture').run();

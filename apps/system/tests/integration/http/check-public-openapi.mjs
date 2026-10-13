@@ -46,7 +46,7 @@ try{
  mf=new Miniflare(convertV4MiniflareOptions({modules,modulesRoot:root,compatibilityDate:'2026-10-09',compatibilityFlags:['nodejs_compat'],...fixture,bindings:{AUTH_ORIGIN:origin},host:'127.0.0.1',port:0,cf:false,logRequests:false}));await mf.ready;db=await mf.getD1Database('DB');
  await verifyCanonicalLedger(db);
  await sql("INSERT INTO principals VALUES('A','agent','Synthetic A',NULL,1,1)");await sql("INSERT INTO api_credentials VALUES('A-key','A',?,unixepoch()+10000,NULL)",hash(token));
- const workspace='11111111-1111-4111-8111-111111111111';await sql("INSERT INTO workspaces VALUES(?,'Synthetic workspace','{}')",workspace);await sql("INSERT INTO projects VALUES('P',?,'P','p','Synthetic project','','{}')",workspace);
+ const workspace='11111111-1111-4111-8111-111111111111';await sql("INSERT INTO workspaces(id,name,source_json) VALUES(?,'Synthetic workspace','{}')",workspace);await sql("INSERT INTO projects(id,workspace_id,key,slug,name,description,source_json) VALUES('P',?,'P','p','Synthetic project','','{}')",workspace);
  for(const scope of ['P','workspace:'+workspace])for(const permission of ['view','edit','assign','transition','execute','manage']){await sql('INSERT INTO memberships VALUES(?,?,?)','A',scope,permission);await sql('INSERT INTO api_grants VALUES(?,?,?)','A-key',scope,permission);}
  await call('/api/health');await call('/api/auth/context','GET',null,{anonymous:true});await call('/api/auth/me');await call('/api/projects/P/access');await call('/api/directory');await call('/api/projects/P/assignees');await call('/api/management/context');
  const refs=[{kind:'link',url:' https://example.invalid/raw '},{kind:'library',libraryFileId:'libfile_synthetic',versionId:'001'}];
@@ -66,7 +66,37 @@ try{
  for(const pp of parentPaths){const op='comment_'+pp.split('/').at(-1).slice(-8),c=await call(pp+'/comments','POST',{operationId:op,body:'comment'},{status:200}),cp=pp+'/comments/'+c.snapshot.id;await call(cp);await call(pp+'/comments');await call(cp,'PATCH',{operationId:op+'_edit',revision:1,body:'changed'},{status:200});await call(cp+'/history');await call(pp+'/comment-operations/'+op);}
  }
  await call('/api/management/records?kind=principal','GET',null,{status:403});
+ // Directory lifecycle is a separate Work use case with explicit current management
+ // authority; create never implicitly enrolls its owner in the new content scope.
+ await call('/api/workspaces','POST',{operationId:'directory_denied_workspace',name:'Denied'}, {status:403});
+ await call('/api/projects','POST',{operationId:'directory_denied_project',workspaceId:workspace,key:'DENIED',slug:'denied',name:'Denied',description:''}, {status:403});
  await sql("UPDATE principal_management SET global_administrator=1 WHERE principal_id='A'");
+ const createdWorkspace=await call('/api/workspaces','POST',{operationId:'directory_workspace_create',name:'Contract workspace'}, {status:200});
+ const managedWorkspace='/api/workspaces/'+createdWorkspace.snapshot.id;
+ assert.equal(createdWorkspace.snapshot.kind,'workspace');assert.equal(createdWorkspace.snapshot.revision,1);
+ assert.equal((await call(managedWorkspace,'GET',null,{status:200})).name,'Contract workspace');
+ const createdProject=await call('/api/projects','POST',{operationId:'directory_project_create',workspaceId:createdWorkspace.snapshot.id,key:'CONTRACT',slug:'contract-project',name:'Contract project',description:'Original'}, {status:200});
+ const managedProject='/api/projects/'+createdProject.snapshot.id;
+ assert.equal(createdProject.snapshot.kind,'project');assert.equal(createdProject.snapshot.revision,1);
+ assert.equal((await call(managedProject,'GET',null,{status:200})).workspaceId,createdWorkspace.snapshot.id);
+ assert.equal(await db.prepare('SELECT count(*) n FROM memberships WHERE project_id IN (?,?)').bind(createdProject.snapshot.id,createdWorkspace.snapshot.scopeId).first('n'),0);
+ const changedWorkspace=await call(managedWorkspace,'PATCH',{operationId:'directory_workspace_edit',revision:1,name:'Renamed workspace'}, {status:200});assert.equal(changedWorkspace.snapshot.revision,2);
+ const changedProject=await call(managedProject,'PATCH',{operationId:'directory_project_edit',revision:1,name:'Renamed project',description:'Updated'}, {status:200});assert.equal(changedProject.snapshot.revision,2);
+ for(const path of [managedWorkspace,managedProject]){const history=await call(path+'/history?afterRevision=0&limit=1','GET',null,{status:200});assert.equal(history.history.length,1);assert.equal(history.history[0].before,null);assert.equal(history.nextAfterRevision,1);assert.equal((await call(path+'/history?afterRevision=1&limit=1','GET',null,{status:200})).history[0].revision,2);}
+ const directoryReceipt=await call('/api/directory-operations/directory_project_edit','GET',null,{status:200});assert.deepEqual(directoryReceipt.snapshot,changedProject.snapshot);
+ const recoveredDirectory=await call(managedProject,'PATCH',{operationId:'directory_project_edit',revision:1,name:'Renamed project',description:'Updated'}, {status:200});assert.equal(recoveredDirectory.source,'recovered');
+ await call(managedProject,'PATCH',{operationId:'directory_stale_revision',revision:1,name:'Stale'}, {status:409});
+ await call(managedProject,'PATCH',{operationId:'directory_project_edit',revision:1,name:'Different'}, {status:409});
+ await call(managedProject,'PATCH',{operationId:'directory_immutable_key',revision:2,key:'CHANGED'}, {status:400});
+ const missingDirectoryReceipt=await call('/api/directory-operations/directory_missing','GET',null,{status:404});assert.equal(missingDirectoryReceipt.application,'unknown');
+ await call(managedWorkspace,'GET',null,{anonymous:true,status:401});
+ await sql("UPDATE principal_management SET global_administrator=0 WHERE principal_id='A'");
+ for(const path of [managedWorkspace,managedProject,managedWorkspace+'/history',managedProject+'/history','/api/directory-operations/directory_project_edit']){const deniedDirectory=await call(path,'GET',null,{status:403});assert.equal(deniedDirectory.snapshot,undefined);assert.equal(deniedDirectory.current,undefined);}
+ await call(managedWorkspace,'PATCH',{operationId:'directory_workspace_revoked',revision:2,name:'Denied'}, {status:403});
+ await call(managedProject,'PATCH',{operationId:'directory_project_revoked',revision:2,name:'Denied'}, {status:403});
+ const revokedDirectory=await call('/api/directory','GET',null,{status:200});assert.equal(revokedDirectory.management.canCreate,false);assert(!revokedDirectory.management.projects.some(p=>p.id===createdProject.snapshot.id));
+ await sql("UPDATE principal_management SET global_administrator=1 WHERE principal_id='A'");
+
  await call('/api/management/records?kind=principal');await call('/api/management/records/A?kind=principal');await call('/api/management/records?kind=membership&projectId=P');await call('/api/management/records?kind=credential');await call('/api/management/records?kind=scope&projectId=P');await call('/api/projects/P/credential-scopes/A-key','PUT',{operationId:'scope_update',revision:1,permissions:['view','edit','assign','transition','execute','manage']},{status:200});
  await call('/api/management/principals','POST',{operationId:'register',principalId:'B',kind:'human',displayName:'Synthetic B',loginId:'synthetic-b',projects:[{projectId:'P',permissions:['view']}]},{status:200});
  await call('/api/management/history?kind=principal&targetId=B');await call('/api/management/operations/register');await call('/api/projects/P/principals/B/display');

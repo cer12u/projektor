@@ -46,7 +46,7 @@ async function runApplicationCredentialChecks(){
   await db.prepare("INSERT INTO api_grants VALUES('api-key','P',?)").bind(permission).run();
  }
  await test('API-only configuration initializes official client without Cloudflare settings or provider requests',async()=>{
-  await connect({},appToken);const tools=await client.listTools();assert.equal(tools.tools.length,29);
+  await connect({},appToken);const tools=await client.listTools();assert.equal(tools.tools.length,36);
   assert(tools.tools.every(t=>!t._meta?.securitySchemes));
   const me=await success('identity_current');assert.equal(me.principal.id,'API_A');assert.equal(me.authentication,'api');assert.equal(report.externalProviderRequests,0);
  });
@@ -123,8 +123,8 @@ try {
  await test('valid unbound assertion cannot initialize',async()=>{assert.equal((await request('/mcp/federated',{method:'POST',headers:{'Cf-Access-Jwt-Assertion':token}})).status,403);});
  await db.prepare("INSERT INTO principals VALUES('A','agent','Transport Agent',NULL,1,1)").run();
  for(const p of ['view','edit','assign','transition','execute','manage'])await db.prepare("INSERT INTO memberships VALUES('A','P',?)").bind(p).run();
- await db.prepare("INSERT INTO workspaces VALUES('W','Shared workspace','{}')").run();
- await db.prepare("INSERT INTO projects VALUES('P','W','PK','project-p','Project P','','{}'),('OTHER','W','OTHER','other-project','Private other project','','{}')").run();
+ await db.prepare("INSERT INTO workspaces(id,name,source_json) VALUES('W','Shared workspace','{}')").run();
+ await db.prepare("INSERT INTO projects(id,workspace_id,key,slug,name,description,source_json) VALUES('P','W','PK','project-p','Project P','','{}'),('OTHER','W','OTHER','other-project','Private other project','','{}')").run();
  await db.prepare("INSERT INTO memberships VALUES('A','OTHER','view'),('A','workspace:W','view')").run();
  for(const [kind,id,scopeId,value] of [['projects','P','P',{title:'Preserved project'}],['task_types','shared-definition','workspace:W',{name:'Shared definition'}],['task_types','private-definition','OTHER',{name:'PRIVATE OTHER'}],['workspace_members','private-member','workspace:W',{name:'PRIVATE WORKSPACE'}]])await db.prepare('INSERT INTO imported_entities VALUES(?,?,?,?,?,?)').bind(kind,id,'W',scopeId,JSON.stringify(value),'fixture').run();
  for(let n=0;n<12;n++)await db.prepare('INSERT INTO imported_entities VALUES(?,?,?,?,?,?)').bind('activity','source-history-'+n,'W','P',JSON.stringify({entity_id:'P',created_at:'2026-10-01T00:00:'+String(n).padStart(2,'0')+'Z'}),'fixture').run();
@@ -132,7 +132,7 @@ try {
  await db.prepare("INSERT INTO federated_credentials(id,binding_id,principal_auth_version,created_at,expires_at) VALUES('transport-credential','transport-binding',1,unixepoch()-100,unixepoch()+3600)").run();
  for(const p of ['view','edit','assign','transition','execute'])await db.prepare("INSERT INTO federated_grants VALUES('transport-credential','P',?)").bind(p).run();
  await test('origin host query and non-POST contract are enforced',async()=>{const headers={'Cf-Access-Jwt-Assertion':token};for(const extra of [{Origin:'https://wrong.invalid'},{'X-Test-Host':'wrong.invalid'}])assert.equal((await request('/mcp/federated',{method:'POST',headers:{...headers,...extra}})).status,403);assert.equal((await request('/mcp/federated?access_token=x',{method:'POST',headers})).status,400);for(const method of ['GET','DELETE'])assert.equal((await request('/mcp/federated',{method,headers})).status,405);assert.equal((await request('/mcp/extra',{headers})).status,404);});
- await test('official initialize notification list and closure-bound identity succeed statelessly',async()=>{await connect();const listed=await client.listTools();assert.equal(listed.tools.length,29);assert(!listed.tools.some(t=>preparedMutations.has(t.name)));assert(wireCatalogues>0);for(const t of listed.tools){assert.equal(t.inputSchema.additionalProperties,false,t.name);assert(t.outputSchema,t.name);assert.deepEqual(t._meta.securitySchemes,[{type:'oauth2',scopes:[]}]);for(const k of ['readOnlyHint','destructiveHint','idempotentHint','openWorldHint'])assert.equal(typeof t.annotations[k],'boolean');}assert(!listed.tools.some(t=>/credential|browser|admin|http|shell/.test(t.name)));const me=await success('identity_current');assert.equal(me.principal.id,'A');assert.equal(me.authentication,'federated');assert.deepEqual(me.projects,[{id:'P',permissions:['assign','edit','execute','transition','view']}]);const directory=await success('directory_get');assert.deepEqual(directory.projects.map(p=>p.id),['P']);assert.deepEqual(directory.workspaces,[]);assert.deepEqual(directory.definitions.map(d=>d.record.name),['Shared definition']);const source=await success('source_get',{scopeId:'P',kind:'projects',id:'P',page:2});assert.equal(source.historyTotal,12);assert.equal(source.history.length,2);assert.equal((await success('legacy_resolve',{path:'/projects/view/project-p'})).id,'P');});
+ await test('official initialize notification list and closure-bound identity succeed statelessly',async()=>{await connect();const listed=await client.listTools();assert.equal(listed.tools.length,36);assert(!listed.tools.some(t=>preparedMutations.has(t.name)));assert(wireCatalogues>0);for(const t of listed.tools){assert.equal(t.inputSchema.additionalProperties,false,t.name);assert(t.outputSchema,t.name);assert.deepEqual(t._meta.securitySchemes,[{type:'oauth2',scopes:[]}]);for(const k of ['readOnlyHint','destructiveHint','idempotentHint','openWorldHint'])assert.equal(typeof t.annotations[k],'boolean');}assert(!listed.tools.some(t=>/credential|browser|admin|http|shell/.test(t.name)));const me=await success('identity_current');assert.equal(me.principal.id,'A');assert.equal(me.authentication,'federated');assert.deepEqual(me.projects,[{id:'P',permissions:['assign','edit','execute','transition','view']}]);const directory=await success('directory_get');assert.deepEqual(directory.projects.map(p=>p.id),['P']);assert.deepEqual(directory.workspaces,[]);assert.deepEqual(directory.definitions.map(d=>d.record.name),['Shared definition']);const source=await success('source_get',{scopeId:'P',kind:'projects',id:'P',page:2});assert.equal(source.historyTotal,12);assert.equal(source.history.length,2);assert.equal((await success('legacy_resolve',{path:'/projects/view/project-p'})).id,'P');});
  await test('oversized body and unknown authority fields never dispatch',async()=>{const r=await request('/mcp/federated',{method:'POST',headers:{'Cf-Access-Jwt-Assertion':token,Accept:'application/json, text/event-stream','Content-Type':'application/json'},body:'x'.repeat(96*1024+1)});assert.equal(r.status,413);const bad=await call('issue_create',{projectId:'P',actor:'OWNER',input:{operationId:'bad',body:'injected'}});assert.equal(bad.isError,true);assert.equal(await db.prepare('SELECT count(*) FROM issues').first('count(*)'),0);});
  await db.prepare("UPDATE write_gate SET mode='stopped' WHERE id=1").run();
  await test('stopped mutations reject but authorized reads continue',async()=>{await success('issue_list',{projectId:'P'});const r=await call('issue_create',{projectId:'P',input:{operationId:'stopped',body:'blocked'}});assert.equal(r.isError,true);assert.equal(r.structuredContent.status,503);assert.equal(r.structuredContent.operationId,'stopped');assert.equal(await db.prepare('SELECT count(*) FROM operation_results').first('count(*)'),0);});
@@ -206,6 +206,28 @@ try {
    assert.equal(await db.prepare('SELECT count(*) FROM operation_results').first('count(*)'),before);assert.equal(await db.prepare('SELECT count(*) FROM issue_execution_reports').first('count(*)'),reports);
    const denied=await call('execution_report_prepare',{projectId:'P',issueId:source.target_id,input:{action:'progress',...input,operationId:'new-'+operationId}});assert.equal(denied.isError,true);
   }
+ });
+ await test('directory MCP prepares separately, recovers originals and hides receipts after current authority revocation',async()=>{
+  await db.prepare("UPDATE principal_management SET global_administrator=1 WHERE principal_id='A'").run();
+  const workspace=await success('workspace_create_prepare',{input:{operationId:'mcp-workspace',name:'MCP workspace'}});
+  assert.equal(workspace.result.status,'unknown');
+  assert.equal(await db.prepare('SELECT count(*) n FROM workspaces WHERE id=?').bind(workspace.target.targetId).first('n'),0);
+  await start();await connect();
+  assert.equal((await success('operation_get',{operationId:'mcp-workspace'})).input.name,'MCP workspace');
+  const created=await success('operation_execute',{operationId:'mcp-workspace'}),workspaceId=created.snapshot.id;
+  const project=await success('project_create_prepare',{input:{operationId:'mcp-project',workspaceId,key:'MCP',slug:'mcp',name:'MCP project',description:''}});
+  const made=await success('operation_execute',{operationId:'mcp-project'});assert.equal(made.snapshot.id,project.target.targetId);
+  await success('project_update_prepare',{id:made.snapshot.id,input:{operationId:'mcp-project-edit',revision:1,name:'Edited MCP project'}});
+  assert.equal((await success('operation_execute',{operationId:'mcp-project-edit'})).snapshot.revision,2);
+  await success('workspace_update_prepare',{id:workspaceId,input:{operationId:'mcp-workspace-edit',revision:1,name:'Edited MCP workspace'}});
+  assert.equal((await success('operation_execute',{operationId:'mcp-workspace-edit'})).snapshot.revision,2);
+  assert.equal((await success('directory_entity_get',{kind:'workspace',id:workspaceId})).entity.revision,2);
+  const history=await success('directory_history',{kind:'workspace',id:workspaceId,limit:1});assert.equal(history.history.length,1);assert.equal(history.nextAfterRevision,1);
+  assert.equal((await success('directory_result',{operationId:'mcp-workspace'})).snapshot.name,'MCP workspace');
+  assert.equal((await success('operation_execute',{operationId:'mcp-workspace'})).source,'recovered');
+  await db.prepare("UPDATE principal_management SET global_administrator=0 WHERE principal_id='A'").run();
+  for(const tool of ['directory_result','operation_get','operation_execute'])assert.equal((await call(tool,{operationId:'mcp-workspace'})).structuredContent.status,403);
+  assert.equal((await success('operation_list',{after:workspace.sequence-1})).operations.some(x=>x.operationId==='mcp-workspace'),false);
  });
  await test('grant ceiling cannot read workspace or other project and importing blocks business reads',async()=>{for(const scopeId of ['OTHER','workspace:OTHER'])assert.equal((await call('wiki_list',{scopeId})).isError,true);await db.prepare("UPDATE write_gate SET mode='importing' WHERE id=1").run();const r=await call('issue_list',{projectId:'P'});assert.equal(r.isError,true);assert.equal(r.structuredContent.error,'import_in_progress');assert.equal((await success('identity_current')).principal.id,'A');});
  await db.prepare("UPDATE write_gate SET mode='open' WHERE id=1").run();

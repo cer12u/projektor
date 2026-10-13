@@ -36,7 +36,7 @@ try{
  const issueP='I_'+'1'.repeat(64),issueQ='I_'+'2'.repeat(64),canonical=x=>JSON.stringify(Object.fromEntries(Object.entries(x).sort(([a],[b])=>a.localeCompare(b))));
  await db.prepare("INSERT INTO import_runs VALUES('original-core',?,'verified','{\"issues\":2}',1)").bind('b'.repeat(64)).run();
  for(const [project,workspace,id]of [['P','W1',issueP],['Q','W2',issueQ]]){
-  await db.prepare('INSERT INTO workspaces VALUES(?,?,?)').bind(workspace,'Synthetic workspace','{}').run();await db.prepare('INSERT INTO projects VALUES(?,?,?,?,?,?,?)').bind(project,workspace,project,project.toLowerCase(),'Synthetic project','','{}').run();
+  await db.prepare('INSERT INTO workspaces(id,name,source_json) VALUES(?,?,?)').bind(workspace,'Synthetic workspace','{}').run();await db.prepare('INSERT INTO projects(id,workspace_id,key,slug,name,description,source_json) VALUES(?,?,?,?,?,?,?)').bind(project,workspace,project,project.toLowerCase(),'Synthetic project','','{}').run();
   const row={id,project_id:project,workspace_id:workspace,body:'Synthetic imported body',created_at:100};const json=canonical(row);
   await db.prepare("INSERT INTO issues(id,project_id,workspace_id,body,revision,created_at,updated_at,metadata_json) VALUES(?,?,?,'Synthetic imported body',1,'2000-01-01T00:00:00Z','2000-01-01T00:00:00Z','{}')").bind(id,project,workspace).run();
   await db.prepare("INSERT INTO imported_entities VALUES('issues',?,?,?,?,?)").bind(id,workspace,project,json,hash(json)).run();await db.prepare("INSERT INTO import_row_receipts VALUES('original-core','issues',?,?)").bind(id,hash(json)).run();

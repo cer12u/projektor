@@ -13,8 +13,8 @@ const bundled=await build({stdin:{contents:`export {assembleWorkContent} from '.
 const {assembleWorkContent,decodeLegacyReference}=await import(pathToFileURL(out+'/work.mjs').href);
 const db=new DatabaseSync(':memory:');for(const p of (await readdir('migrations')).filter(p=>p.endsWith('.sql')).sort())db.exec(await readFile('migrations/'+p,'utf8'));
 // Synthetic values; no account or business record is read.
-db.exec(`INSERT INTO workspaces VALUES('W','Work','{}'),('X','Other','{}');
-INSERT INTO projects VALUES('P','W','PRJ','same','Project','','{}'),('Q','X','PRJ','same','Hidden','','{}');
+db.exec(`INSERT INTO workspaces(id,name,source_json) VALUES('W','Work','{}'),('X','Other','{}');
+INSERT INTO projects(id,workspace_id,key,slug,name,description,source_json) VALUES('P','W','PRJ','same','Project','','{}'),('Q','X','PRJ','same','Hidden','','{}');
 INSERT INTO principals(id,kind,display_name,active,auth_version) VALUES('ACTOR','agent','Actor',1,1);
 INSERT INTO api_credentials(id,principal_id,token_hash,expires_at) VALUES('KEY','ACTOR','synthetic-hash',unixepoch()+3600);
 INSERT INTO memberships VALUES('ACTOR','P','view');INSERT INTO api_grants VALUES('KEY','P','view');`);

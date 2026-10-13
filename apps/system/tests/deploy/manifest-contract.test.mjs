@@ -63,11 +63,16 @@ test('source symlink cannot point outside the reviewed candidate',async t=>{
   await assert.rejects(verifySourceInventory(root,{linked:record('x')}),/RELEASE_SYMLINK/);
 });
 
-test('release19 accepts the immutable applied17 baseline and rejects a forged replacement baseline pin',async()=>{
+test('release21 accepts the immutable applied17 baseline and rejects a forged replacement baseline pin',async()=>{
   const directory=new URL('../../migrations/',import.meta.url),records={};
   for(const name of await readdir(directory)){const bytes=await readFile(new URL(name,directory));records[name]={bytes:bytes.length,sha256:sha256(bytes)};}
   const pins={canonicalMigrationTreeSha256:treeDigest(records),canonicalBaselineMigrationTreeSha256:'0fdaa1e0f79957cdbf8f36ed0d490c59230a409893fa71a381fad14db7c81b71'};
-  assert.equal(verifyMigrationInventory(records,pins).length,19);
+  assert.equal(verifyMigrationInventory(records,pins).length,21);
+  // A caller cannot re-pin an obsolete, extended, or noncontiguous inventory.
+  const entries=Object.entries(records);
+  for(const changed of [Object.fromEntries(entries.slice(0,19)),{...records,'0022_unreviewed.sql':record('extra')},Object.fromEntries(entries.map(([name,value])=>[name.startsWith('0020_')?'0021_duplicate.sql':name,value]))]){
+    assert.throws(()=>verifyMigrationInventory(changed,{...pins,canonicalMigrationTreeSha256:treeDigest(changed)}),/MIGRATIONS_NOT_EXACT_RELEASE_21/);
+  }
   records['0001_auth.sql']={bytes:1,sha256:sha256('x')};pins.canonicalMigrationTreeSha256=treeDigest(records);
   pins.canonicalBaselineMigrationTreeSha256=treeDigest(Object.fromEntries(Object.entries(records).filter(([p])=>Number(p.slice(0,4))<=17)));
   assert.throws(()=>verifyMigrationInventory(records,pins),/APPLIED_CANONICAL_17_CHANGED/);
