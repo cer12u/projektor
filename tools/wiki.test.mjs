@@ -4,6 +4,8 @@ import { after, before, test } from "node:test";
 import { build } from "esbuild";
 import { Miniflare } from "miniflare";
 
+import { projectAuthorizationContract } from "./projects-consumer-contract.mjs";
+
 let platform;
 let mf;
 let counter = 0;
@@ -51,7 +53,13 @@ async function fixture() {
   const db = await mf.getD1Database(`WIKI${counter++}`);
   await platform.migrate(db, ["wiki"]);
   const rawStore = platform.createModuleStore(db, "wiki");
-  const state = { hook: null, denied: new Set(), archived: new Set(), calls: [] };
+  const state = {
+    hook: null,
+    denied: new Set(),
+    viewers: new Set(),
+    archived: new Set(),
+    calls: [],
+  };
   const store = {
     owner: "wiki",
     run: (...args) => rawStore.run(...args),
@@ -78,13 +86,16 @@ async function fixture() {
         state.denied.has(`${scope.workspaceId}:${scope.principalId}:${projectId}`)
       )
         throw new platform.PlatformError("not_found", "Project absent");
+      const viewer = state.viewers.has(`${scope.workspaceId}:${scope.principalId}:${projectId}`);
+      if (viewer && permission === "write")
+        throw new platform.PlatformError("forbidden", "Project read only");
       return {
         id: projectId,
         key: projectId,
         name: projectId,
         version: 1,
         archived: false,
-        role: "editor",
+        role: viewer ? "viewer" : "editor",
       };
     },
   };
@@ -483,4 +494,112 @@ test("case-insensitive slug uniqueness, keyset lists, revision paging and event 
     [1, 2],
   );
   assert.equal((await f.api.readEvents(f.eventReader, "w1", 2, 10)).length, 3);
+});
+
+test("audit every Wiki entry: live project admission, scope provenance and credential/write ceilings", async () => {
+  const f = await fixture();
+  await f.api.createPage(f.human, create("held"));
+  const writes = [
+    (s) => f.api.createPage(s, create("new")),
+    (s) => f.api.editPage(s, edit("held", "edit", 1, "Edit")),
+    (s) => f.api.archivePage(s, { pageId: "held", expectedVersion: 1, operationId: "archive" }),
+    (s) => f.api.authorizePage(s, "held", "write"),
+  ];
+  const reads = [
+    (s) => f.api.getPage(s, { pageId: "held" }),
+    (s) => f.api.getPage(s, { projectId: "p1", slug: "held" }),
+    (s) => f.api.listPages(s, { projectId: "p1" }),
+    (s) => f.api.searchPages(s, { projectId: "p1", text: "Start" }),
+    (s) => f.api.getRevision(s, "held", 1),
+    (s) => f.api.listRevisions(s, "held"),
+    (s) => f.api.authorizePage(s, "held"),
+    (s) => f.api.readOperation(s, "create-held"),
+  ];
+  for (const call of [...reads, ...writes])
+    await assert.rejects(call({ ...f.human }), code("forbidden"));
+  for (const set of [f.state.denied, f.state.archived]) {
+    const key = set === f.state.denied ? "w1:human:p1" : "w1:p1";
+    set.add(key);
+    for (const call of [...reads, ...writes])
+      await assert.rejects(call(f.human), code("not_found"));
+    set.delete(key);
+  }
+  for (const [kind, overrides] of [
+    ["human", { role: "viewer" }],
+    ["machine", { scope: "read" }],
+    ["human", { clientId: "oauth", scope: "read" }],
+  ]) {
+    const s = f.issue("w1", "human", kind, overrides);
+    for (const call of reads) await call(s);
+    for (const call of writes) await assert.rejects(call(s), code("forbidden"));
+  }
+  const projectViewer = f.issue("w1", "human");
+  f.state.viewers.add("w1:human:p1");
+  for (const call of reads) await call(projectViewer);
+  for (const call of writes) await assert.rejects(call(projectViewer), code("forbidden"));
+  f.state.viewers.clear();
+  f.auth.revoke(f.human);
+  for (const call of [...reads, ...writes]) await assert.rejects(call(f.human), code("forbidden"));
+  assert.equal((await f.api.readEvents(f.eventReader, "w1", 0, 100)).length, 1);
+});
+
+test("audit Wiki provider fake executes the shared Projects authorization contract", async () => {
+  const f = await fixture();
+  const viewer = f.issue("w1", "project-viewer");
+  f.state.viewers.add("w1:project-viewer:p1");
+  await projectAuthorizationContract({ api: f.projects, editor: f.human, viewer, projectId: "p1" });
+});
+
+test("audit archive CAS, fingerprint and full tenant revision/event contents", async () => {
+  const f = await fixture();
+  await f.api.createPage(f.human, { ...create("same"), title: "ONE", body: "original-one" });
+  await f.api.createPage(f.other, { ...create("same"), title: "TWO", body: "original-two" });
+  assert.equal((await f.api.getRevision(f.other, "same", 1)).body, "original-two");
+  assert.equal((await f.api.listRevisions(f.other, "same")).revisions[0].title, "TWO");
+  await f.api.editPage(f.human, edit("same", "edited", 1, "Changed", "new-index-token"));
+  await assert.rejects(
+    f.api.editPage(f.human, edit("same", "edited", 1, "Other")),
+    code("conflict"),
+  );
+  await assert.rejects(
+    f.api.archivePage(f.human, {
+      pageId: "same",
+      expectedVersion: 1,
+      operationId: "stale-archive",
+    }),
+    code("conflict"),
+  );
+  assert.equal(await f.api.readOperation(f.human, "stale-archive"), null);
+  assert.equal((await f.api.getRevision(f.other, "same", 1)).body, "original-two");
+  const archive = { pageId: "same", expectedVersion: 2, operationId: "archive-audit" };
+  assert.deepEqual(await f.api.archivePage(f.human, archive), { id: "same", version: 3 });
+  assert.deepEqual(await f.api.archivePage(f.human, archive), { id: "same", version: 3 });
+  await assert.rejects(
+    f.api.archivePage(f.human, { ...archive, expectedVersion: 3 }),
+    code("conflict"),
+  );
+  assert.equal((await f.api.listPages(f.human, { projectId: "p1" })).pages.length, 0);
+  assert.equal(
+    (await f.api.searchPages(f.human, { projectId: "p1", text: "new-index-token" })).length,
+    0,
+  );
+  const events = await f.api.readEvents(f.eventReader, "w1", 0, 100);
+  assert.deepEqual(
+    events.map((e) => [
+      e.type,
+      e.aggregateVersion,
+      e.aggregateId,
+      e.payload.actorId,
+      e.workspaceId,
+    ]),
+    [
+      ["PageCreated", 1, "same", "human", "w1"],
+      ["PageChanged", 2, "same", "human", "w1"],
+      ["PageArchived", 3, "same", "human", "w1"],
+    ],
+  );
+  const foreignReader = platform.createWiki(f.deps).eventReader;
+  await assert.rejects(f.api.readEvents(foreignReader, "w1", 0, 10), code("forbidden"));
+  const disabled = platform.createWiki({ ...f.deps, eventConsumer: undefined }).api;
+  await assert.rejects(disabled.readEvents(f.eventReader, "w1", 0, 10), code("forbidden"));
 });

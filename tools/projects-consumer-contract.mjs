@@ -10,16 +10,23 @@ export async function projectsConsumerContract({
   missingPrincipalId,
 }) {
   const denied = (name) => (error) => error.code === name;
+  await projectAuthorizationContract({ api, editor, viewer, projectId });
   const project = await api.authorizeProject(editor, projectId, "write");
-  assert.equal(project.id, projectId);
   assert.equal((await api.getProject(editor, projectId)).key, project.key);
-  assert.equal((await api.authorizeProject(viewer, projectId, "read")).id, projectId);
-  await assert.rejects(api.authorizeProject(viewer, projectId, "write"), denied("forbidden"));
-  await assert.rejects(api.authorizeProject({ ...editor }, projectId), denied("forbidden"));
-  await assert.rejects(api.authorizeProject(editor, "contract-absent"), denied("not_found"));
   await api.authorizeProjectPrincipal(editor, projectId, assigneeId);
   await assert.rejects(
     api.authorizeProjectPrincipal(editor, projectId, missingPrincipalId),
     denied("not_found"),
   );
+}
+
+/** Minimal Projects public subset consumed by Wiki, also run on the real provider. */
+export async function projectAuthorizationContract({ api, editor, viewer, projectId }) {
+  const denied = (name) => (error) => error.code === name;
+  const project = await api.authorizeProject(editor, projectId, "write");
+  assert.equal(project.id, projectId);
+  assert.equal((await api.authorizeProject(viewer, projectId, "read")).id, projectId);
+  await assert.rejects(api.authorizeProject(viewer, projectId, "write"), denied("forbidden"));
+  await assert.rejects(api.authorizeProject({ ...editor }, projectId), denied("forbidden"));
+  await assert.rejects(api.authorizeProject(editor, "contract-absent"), denied("not_found"));
 }

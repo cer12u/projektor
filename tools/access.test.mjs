@@ -50,7 +50,7 @@ before(async () => {
     modules: true,
     script: "export default { fetch() { return new Response('test'); } }",
     compatibilityDate: "2026-07-30",
-    d1Databases: Array.from({ length: 40 }, (_, i) => `DB${i}`),
+    d1Databases: Array.from({ length: 64 }, (_, i) => `DB${i}`),
     kvNamespaces: ["KV"],
   });
 });
@@ -762,7 +762,13 @@ test("JWKS attacker kids: concurrent misses, restart and failed fetches obey iss
     restarted.authenticate({ kind: "human", assertion: attack[0] }),
     code("forbidden"),
   );
-  assert.equal(f.state.fetches, 2);
+  assert.equal(f.state.fetches, 3); // Cold restart fetches trusted keys, never KV keys.
+  await f.human("alice", restarted);
+  await assert.rejects(
+    restarted.authenticate({ kind: "human", assertion: attack[1] }),
+    code("forbidden"),
+  );
+  assert.equal(f.state.fetches, 3);
   await f.human(); // Known keys remain usable while the cooldown is active.
   f.state.now += 31;
   f.state.published = null;
@@ -774,7 +780,7 @@ test("JWKS attacker kids: concurrent misses, restart and failed fetches obey iss
     f.api.authenticate({ kind: "human", assertion: attack[1] }),
     code("forbidden"),
   );
-  assert.equal(f.state.fetches, 3);
+  assert.equal(f.state.fetches, 4);
 });
 
 test("OAuth metadata, public DCR quota, no confidential secrets and authorization validation", async () => {
@@ -1295,4 +1301,321 @@ test("OAuth refresh rollback and lost responses: no partial rotation, no secret 
   f.state.now += 121;
   await assert.rejects(f.api.exchangeOAuthToken(next.exchange), code("invalid_grant"));
   await assert.rejects(oauthLogin(f, tokens), code("forbidden"));
+});
+
+test("audit JWKS: poisoned KV cannot introduce a signing key, including after restart", async () => {
+  const f = await fixture();
+  await f.kv.put(
+    `access:jwks:${issuer}`,
+    JSON.stringify({
+      expiresAt: f.state.now + 300,
+      jwks: { keys: [keys[1].jwk] },
+    }),
+  );
+  const forged = await f.sign("alice", {}, 1);
+  await assert.rejects(f.api.authenticate({ kind: "human", assertion: forged }), code("forbidden"));
+  await f.human();
+  const restarted = platform.createAccess(f.deps).api;
+  await assert.rejects(
+    restarted.authenticate({ kind: "human", assertion: forged }),
+    code("forbidden"),
+  );
+});
+
+test("audit confinement: machine membership in a second workspace cannot expand its token", async () => {
+  const f = await fixture();
+  const { scope } = await f.owner();
+  await f.owner("w2");
+  const bot = await machine(f, scope);
+  // Defense-in-depth fixture: even an imported/legacy extra membership is not authority.
+  await f.store.run("addMember", ["w2", bot.id, "member", 0]);
+  await assert.rejects(f.api.requireMembership(bot.principal, "w2", "cross"), code("forbidden"));
+  assert.deepEqual(
+    (await f.api.listWorkspaces(bot.principal)).map((w) => w.id),
+    ["w1"],
+  );
+});
+
+test("audit DCR: total cap is atomic across registrations and cannot reset with the hourly window", async () => {
+  const f = await fixture();
+  await f.db
+    .prepare(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<9999)
+    INSERT INTO access_oauth_clients(id,name,redirect_uris,scope,refresh_allowed,created_at)
+    SELECT 'seed-'||i,'seed','["https://client.test/cb"]','read',0,0 FROM n`)
+    .run();
+  const race = await Promise.allSettled([
+    f.api.registerOAuthClient(oauthInput),
+    f.api.registerOAuthClient(oauthInput),
+  ]);
+  assert.equal(race.filter((r) => r.status === "fulfilled").length, 1);
+  assert.equal(race.find((r) => r.status === "rejected").reason.code, "temporarily_unavailable");
+  f.state.now += 3601;
+  await assert.rejects(f.api.registerOAuthClient(oauthInput), code("temporarily_unavailable"));
+  assert.equal(
+    (await f.db.prepare("SELECT COUNT(*) n FROM access_oauth_clients").first()).n,
+    10000,
+  );
+});
+
+test("audit errors: foreign and absent identities, workspaces and credentials have identical public errors", async () => {
+  const f = await fixture();
+  const owner = await f.owner();
+  const other = await f.owner("w2", "bob");
+  const bot = await machine(f, owner.scope);
+  const errorOf = async (call) => {
+    try {
+      await call();
+    } catch (e) {
+      return { code: e.code, message: e.message };
+    }
+    assert.fail("Expected rejection");
+  };
+  for (const [left, right] of [
+    [
+      () => f.api.requireMembership(owner.principal, "w2", "foreign"),
+      () => f.api.requireMembership(owner.principal, "absent", "foreign"),
+    ],
+    [
+      () => f.api.getPrincipalSummary(owner.scope, other.scope.principalId),
+      () => f.api.getPrincipalSummary(owner.scope, "absent"),
+    ],
+    [
+      () => f.api.getMembership(owner.scope, other.scope.principalId),
+      () => f.api.getMembership(owner.scope, "absent"),
+    ],
+    [
+      () => f.api.getCredential(other.scope, "key"),
+      () => f.api.getCredential(other.scope, "absent"),
+    ],
+    [
+      () =>
+        f.api.authenticate({
+          kind: "machine",
+          bearer: bot.bearer.replace(secret, "b2".repeat(32)),
+        }),
+      () =>
+        f.api.authenticate({ kind: "machine", bearer: bot.bearer.replace(".key.", ".absent.") }),
+    ],
+  ])
+    assert.deepEqual(await errorOf(left), await errorOf(right));
+  const client = await f.api.registerOAuthClient(oauthInput);
+  const auth = await authorization(f, owner, client);
+  const tokens = await f.api.exchangeOAuthToken(auth.exchange);
+  await f.api.revokeOAuthToken({ client_id: client.client_id, token: tokens.access_token });
+  assert.deepEqual(
+    await errorOf(() => oauthLogin(f, tokens)),
+    await errorOf(() => oauthLogin(f, { access_token: `pa1.w1.${"b".repeat(64)}` })),
+  );
+  assert.deepEqual(
+    await errorOf(() => f.api.getOAuthClient(other.scope, client.client_id)),
+    await errorOf(() => f.api.getOAuthClient(other.scope, "absent")),
+  );
+});
+
+async function accessSnapshot(f) {
+  const snapshot = {};
+  for (const table of [
+    "principals",
+    "workspaces",
+    "memberships",
+    "credentials",
+    "receipts",
+    "events",
+    "guards",
+    "bootstrap",
+    "oauth_clients",
+    "oauth_workspace_clients",
+    "oauth_codes",
+    "oauth_families",
+    "oauth_tokens",
+  ])
+    snapshot[table] = (
+      await f.db.prepare(`SELECT * FROM access_${table} ORDER BY rowid`).all()
+    ).results;
+  return snapshot;
+}
+for (const command of [
+  "bootstrap",
+  "createWorkspace",
+  "inviteMember",
+  "changeRole",
+  "removeMember",
+  "provisionMachine",
+  "issueCredential",
+  "revokeCredential",
+  "archiveWorkspace",
+  "revokeOAuthClient",
+]) {
+  test(`audit ${command}: complete rollback, CAS, fingerprint and durable lost-response recovery`, async () => {
+    const f = await fixture();
+    const owner = await f.owner();
+    let input = { operationId: "audited" };
+    let expected;
+    let type;
+    if (command === "bootstrap" || command === "createWorkspace") {
+      input = { ...input, workspaceId: "new", name: "New workspace" };
+      expected = { id: "new", version: 1 };
+      type = "WorkspaceCreated";
+    } else if (["inviteMember", "changeRole", "removeMember"].includes(command)) {
+      if (command === "inviteMember") {
+        input = invite("target", "member", "audited");
+        expected = { id: await platform.accessRules.humanId(issuer, "target"), version: 1 };
+      } else {
+        const member =
+          command === "removeMember"
+            ? await machine(f, owner.scope)
+            : await f.api.inviteMember(owner.scope, invite("target"));
+        input = {
+          ...input,
+          principalId: member.id,
+          expectedVersion: 1,
+          ...(command === "changeRole" ? { role: "viewer" } : {}),
+        };
+        expected = { id: member.id, version: 2 };
+      }
+      type = "MembershipChanged";
+    } else if (command === "provisionMachine") {
+      input = { ...machineInput, ...input };
+      expected = {
+        id: `m_${await platform.accessRules.hash(JSON.stringify(["w1", "bot"]))}`,
+        version: 1,
+      };
+      type = "MachineProvisioned";
+    } else if (["issueCredential", "revokeCredential"].includes(command)) {
+      const bot = await machine(f, owner.scope);
+      input =
+        command === "issueCredential"
+          ? { ...bot.input, ...input, credentialId: "new-key", secret: "b2".repeat(32) }
+          : { ...input, credentialId: "key", expectedVersion: 1 };
+      expected = { id: input.credentialId, version: command === "issueCredential" ? 1 : 2 };
+      type = command === "issueCredential" ? "CredentialIssued" : "CredentialRevoked";
+    } else if (command === "revokeOAuthClient") {
+      const client = await f.api.registerOAuthClient(oauthInput);
+      await authorization(f, owner, client);
+      input = { ...input, clientId: client.client_id, expectedVersion: 1 };
+      expected = { id: client.client_id, version: 2 };
+      type = "OAuthClientRevoked";
+    } else {
+      input = { ...input, expectedVersion: 1 };
+      expected = { id: "w1", version: 2 };
+      type = "WorkspaceArchived";
+    }
+    const invoke = (api, principal, scope, value, operator = f.operator) =>
+      command === "bootstrap"
+        ? api.bootstrap(operator, principal, value)
+        : command === "createWorkspace"
+          ? api.createWorkspace(principal, value)
+          : api[command](scope, value);
+    const run = (value = input) => invoke(f.api, owner.principal, owner.scope, value);
+    const before = await accessSnapshot(f);
+    if ("expectedVersion" in input) {
+      await assert.rejects(
+        run({ ...input, expectedVersion: 999, operationId: "stale" }),
+        code("conflict"),
+      );
+      assert.deepEqual(await accessSnapshot(f), before);
+    }
+    f.state.hook = (calls) =>
+      f.store.batch(
+        calls.map((c) => (c.name === "event" ? { ...c, values: [null, ...c.values.slice(1)] } : c)),
+      );
+    await assert.rejects(run(), code("unknown"));
+    assert.deepEqual(await accessSnapshot(f), before);
+    f.state.hook = async (calls) => {
+      await f.store.batch(calls);
+      throw new Error("lost commit response");
+    };
+    assert.deepEqual(await run(), expected);
+    f.state.hook = null;
+    const after = await accessSnapshot(f);
+    assert.equal(after.receipts.length, before.receipts.length + 1);
+    assert.equal(after.events.length, before.events.length + 1);
+    assert.equal(after.events.at(-1).type, type);
+    assert.equal(after.events.at(-1).aggregate_id, expected.id);
+    assert.equal(after.events.at(-1).aggregate_version, expected.version);
+    assert.equal(after.events.at(-1).actor_id, owner.scope.principalId);
+    assert.equal(after.guards.length, 0);
+    if (command === "archiveWorkspace") {
+      await assert.rejects(run(), code("forbidden"));
+      await assert.rejects(f.api.readOperation(owner.scope, "audited"), code("forbidden"));
+    } else {
+      assert.deepEqual(await run(), expected);
+      const changed = { ...input };
+      if ("expectedVersion" in changed) changed.expectedVersion++;
+      else if ("name" in changed) changed.name = "different";
+      else if ("expiresAt" in changed) changed.expiresAt++;
+      else changed.role = "viewer";
+      await assert.rejects(run(changed), code("conflict"));
+      const restarted = platform.createAccess(f.deps);
+      const principal = await f.human("alice", restarted.api);
+      const scope = await restarted.api.requireMembership(
+        principal,
+        input.workspaceId ?? "w1",
+        "restart",
+      );
+      assert.deepEqual(await restarted.api.readOperation(scope, "audited"), expected);
+      assert.deepEqual(
+        await invoke(restarted.api, principal, scope, input, restarted.operator),
+        expected,
+      );
+    }
+    assert.deepEqual(await accessSnapshot(f), after);
+  });
+}
+
+test("audit provenance: copied, inherited, foreign-factory scopes cannot authorize", async () => {
+  const f = await fixture();
+  const { scope } = await f.owner();
+  for (const forged of [{ ...scope }, Object.create(scope)])
+    await assert.rejects(f.api.authorize(forged), code("forbidden"));
+  await assert.rejects(platform.createAccess(f.deps).api.authorize(scope), code("forbidden"));
+});
+
+test("audit management matrix: every manager entry rejects viewer, member, machine, OAuth and copied scopes", async () => {
+  const f = await oauthFixture();
+  const owner = f.ownerIdentity;
+  const bot = await machine(f, owner.scope);
+  const auth = await authorization(f, owner, f.client);
+  const oauthScope = await f.api.requireMembership(
+    await oauthLogin(f, await f.api.exchangeOAuthToken(auth.exchange)),
+    "w1",
+    "oauth",
+  );
+  const denied = [bot.scope, oauthScope, { ...owner.scope }];
+  for (const role of ["viewer", "member"]) {
+    await f.api.inviteMember(owner.scope, invite(role, role));
+    denied.push(await f.api.requireMembership(await f.human(role), "w1", role));
+  }
+  const calls = [
+    (s) => f.api.inviteMember(s, invite("new")),
+    (s) =>
+      f.api.changeRole(s, {
+        principalId: bot.id,
+        role: "viewer",
+        expectedVersion: 1,
+        operationId: "role",
+      }),
+    (s) =>
+      f.api.removeMember(s, { principalId: bot.id, expectedVersion: 1, operationId: "remove" }),
+    (s) => f.api.provisionMachine(s, { ...machineInput, principalId: "another" }),
+    (s) =>
+      f.api.issueCredential(s, { ...bot.input, credentialId: "another", operationId: "another" }),
+    (s) =>
+      f.api.revokeCredential(s, { credentialId: "key", expectedVersion: 1, operationId: "revoke" }),
+    (s) => f.api.archiveWorkspace(s, { expectedVersion: 1, operationId: "archive" }),
+    (s) => f.api.getCredential(s, "key"),
+    (s) => f.api.getOAuthClient(s, f.client.client_id),
+    (s) =>
+      f.api.revokeOAuthClient(s, {
+        clientId: f.client.client_id,
+        expectedVersion: 1,
+        operationId: "revoke-client",
+      }),
+  ];
+  const before = await accessSnapshot(f);
+  for (const scope of denied)
+    for (const call of calls) await assert.rejects(call(scope), code("forbidden"));
+  assert.deepEqual(await accessSnapshot(f), before);
+  const foreign = platform.createAccess(f.deps);
+  await assert.rejects(f.api.readEvents(foreign.eventReader, "w1", 0, 10), code("forbidden"));
 });
