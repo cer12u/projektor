@@ -1,0 +1,15 @@
+{
+  "format": 1,
+  "state": "awaiting-final-build",
+  "releaseId": "projektor-modular-YYYYMMDD",
+  "uploadTag": "BIND_ONLY_AFTER_MEASURED_BUILD",
+  "sourceManifestSha256": "REQUIRED_SHA256",
+  "artifactManifestSha256": "REQUIRED_SHA256",
+  "sourceTreeSha256": "REQUIRED_SHA256",
+  "artifactTreeSha256": "REQUIRED_SHA256",
+  "targetConfigSha256": "REQUIRED_PRIVATE_TARGET_BYTE_SHA256",
+  "productionConfigSha256": "REQUIRED_PRIVATE_WRANGLER_CONFIG_BYTE_SHA256",
+  "approvedStateSha256": "REQUIRED_PRIVATE_SECURITY_BASELINE_BYTE_SHA256",
+  "canonicalMigrationTreeSha256": "REQUIRED_CANONICAL_19_TREE_SHA256",
+  "canonicalBaselineMigrationTreeSha256": "0fdaa1e0f79957cdbf8f36ed0d490c59230a409893fa71a381fad14db7c81b71"
+}

@@ -1,0 +1,3727 @@
+{
+  "paths": {
+    "/api/projects/{projectId}/issues/{issueId}/execution": {
+      "get": {
+        "operationId": "getExecution",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:I_[a-f0-9]{64}|[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})$"
+            }
+          }
+        ],
+        "description": "Requires current view; receipts additionally require saved execute policy and same authenticated operation owner. No query except history after. Same operation ID/input recovers immutable original result; different input conflicts. 300-second lease, renewal at >=60 seconds; completion does not resolve Issue. Reconcile requires interrupted/expired head and evidence; explicit new-attempt restart requires the latest own unconsumed not_performed confirmation, exact current interrupted head/version and no completed/imported result on the prior attempt.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionCurrent"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input/query/mixed authentication",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Current credential invalid; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, visibility or receipt policy denied; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Wrong method",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Write stopped or unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/issues/{issueId}/execution/acquire": {
+      "post": {
+        "operationId": "acquireExecution",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:I_[a-f0-9]{64}|[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})$"
+            }
+          }
+        ],
+        "description": "Requires current view + execute, credential grant intersection, assignment and current attempt conditions in atomic batch. Actor is server-derived; extras rejected. Cookie mutations require Origin and X-CSRF-Token. No automatic external retry. No query except history after. Same operation ID/input recovers immutable original result; different input conflicts. 300-second lease, renewal at >=60 seconds; completion does not resolve Issue. Reconcile requires interrupted/expired head and evidence; explicit new-attempt restart requires the latest own unconsumed not_performed confirmation, exact current interrupted head/version and no completed/imported result on the prior attempt.",
+        "requestBody": {
+          "required": true,
+          "description": "JSON <=4096 bytes.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecutionAcquireInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input/query/mixed authentication",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Current credential invalid; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, visibility or receipt policy denied; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Wrong method",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Input or current precondition conflict; no automatic retry",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "JSON too large (4096 bytes)",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "application/json required",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Atomic mutation failed, rolled back",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Write stopped or unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/issues/{issueId}/execution/renew": {
+      "post": {
+        "operationId": "renewExecution",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:I_[a-f0-9]{64}|[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})$"
+            }
+          }
+        ],
+        "description": "Requires current view + execute, credential grant intersection, assignment and current attempt conditions in atomic batch. Actor is server-derived; extras rejected. Cookie mutations require Origin and X-CSRF-Token. No automatic external retry. No query except history after. Same operation ID/input recovers immutable original result; different input conflicts. 300-second lease, renewal at >=60 seconds; completion does not resolve Issue. Reconcile requires interrupted/expired head and evidence; explicit new-attempt restart requires the latest own unconsumed not_performed confirmation, exact current interrupted head/version and no completed/imported result on the prior attempt.",
+        "requestBody": {
+          "required": true,
+          "description": "JSON <=4096 bytes.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecutionLeaseInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input/query/mixed authentication",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Current credential invalid; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, visibility or receipt policy denied; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Wrong method",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Input or current precondition conflict; no automatic retry",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "JSON too large (4096 bytes)",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "application/json required",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Atomic mutation failed, rolled back",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Write stopped or unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/issues/{issueId}/execution/end": {
+      "post": {
+        "operationId": "endExecution",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:I_[a-f0-9]{64}|[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})$"
+            }
+          }
+        ],
+        "description": "Requires current view + execute, credential grant intersection, assignment and current attempt conditions in atomic batch. Actor is server-derived; extras rejected. Cookie mutations require Origin and X-CSRF-Token. No automatic external retry. No query except history after. Same operation ID/input recovers immutable original result; different input conflicts. 300-second lease, renewal at >=60 seconds; completion does not resolve Issue. Reconcile requires interrupted/expired head and evidence; explicit new-attempt restart requires the latest own unconsumed not_performed confirmation, exact current interrupted head/version and no completed/imported result on the prior attempt.",
+        "requestBody": {
+          "required": true,
+          "description": "JSON <=4096 bytes.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecutionLeaseInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input/query/mixed authentication",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Current credential invalid; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, visibility or receipt policy denied; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Wrong method",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Input or current precondition conflict; no automatic retry",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "JSON too large (4096 bytes)",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "application/json required",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Atomic mutation failed, rolled back",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Write stopped or unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/issues/{issueId}/execution/interrupt": {
+      "post": {
+        "operationId": "interruptExecution",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:I_[a-f0-9]{64}|[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})$"
+            }
+          }
+        ],
+        "description": "Requires current view + execute, credential grant intersection, assignment and current attempt conditions in atomic batch. Actor is server-derived; extras rejected. Cookie mutations require Origin and X-CSRF-Token. No automatic external retry. No query except history after. Same operation ID/input recovers immutable original result; different input conflicts. 300-second lease, renewal at >=60 seconds; completion does not resolve Issue. Reconcile requires interrupted/expired head and evidence; explicit new-attempt restart requires the latest own unconsumed not_performed confirmation, exact current interrupted head/version and no completed/imported result on the prior attempt.",
+        "requestBody": {
+          "required": true,
+          "description": "JSON <=4096 bytes.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecutionLeaseInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input/query/mixed authentication",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Current credential invalid; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, visibility or receipt policy denied; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Wrong method",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Input or current precondition conflict; no automatic retry",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "JSON too large (4096 bytes)",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "application/json required",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Atomic mutation failed, rolled back",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Write stopped or unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/issues/{issueId}/execution-reports": {
+      "get": {
+        "operationId": "getExecutionReports",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:I_[a-f0-9]{64}|[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})$"
+            }
+          }
+        ],
+        "description": "Requires current view; receipts additionally require saved execute policy and same authenticated operation owner. No query except history after. Same operation ID/input recovers immutable original result; different input conflicts. 300-second lease, renewal at >=60 seconds; completion does not resolve Issue. Reconcile requires interrupted/expired head and evidence; explicit new-attempt restart requires the latest own unconsumed not_performed confirmation, exact current interrupted head/version and no completed/imported result on the prior attempt.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionReports"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input/query/mixed authentication",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Current credential invalid; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, visibility or receipt policy denied; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Wrong method",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Write stopped or unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/issues/{issueId}/execution-reports/history": {
+      "get": {
+        "operationId": "getExecutionReportHistory",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:I_[a-f0-9]{64}|[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})$"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991,
+              "default": 0
+            }
+          }
+        ],
+        "description": "Requires current view; receipts additionally require saved execute policy and same authenticated operation owner. No query except history after. Same operation ID/input recovers immutable original result; different input conflicts. 300-second lease, renewal at >=60 seconds; completion does not resolve Issue. Reconcile requires interrupted/expired head and evidence; explicit new-attempt restart requires the latest own unconsumed not_performed confirmation, exact current interrupted head/version and no completed/imported result on the prior attempt.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionReportHistory"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input/query/mixed authentication",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Current credential invalid; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, visibility or receipt policy denied; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Wrong method",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Write stopped or unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/issues/{issueId}/execution-reports/progress": {
+      "post": {
+        "operationId": "progressExecutionReport",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:I_[a-f0-9]{64}|[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})$"
+            }
+          }
+        ],
+        "description": "Requires current view + execute, credential grant intersection, assignment and current attempt conditions in atomic batch. Actor is server-derived; extras rejected. Cookie mutations require Origin and X-CSRF-Token. No automatic external retry. No query except history after. Same operation ID/input recovers immutable original result; different input conflicts. 300-second lease, renewal at >=60 seconds; completion does not resolve Issue. Reconcile requires interrupted/expired head and evidence; explicit new-attempt restart requires the latest own unconsumed not_performed confirmation, exact current interrupted head/version and no completed/imported result on the prior attempt.",
+        "requestBody": {
+          "required": true,
+          "description": "JSON <=16384 bytes.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecutionReportInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProgressMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input/query/mixed authentication",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Current credential invalid; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, visibility or receipt policy denied; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Wrong method",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Input or current precondition conflict; no automatic retry",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "JSON too large (16384 bytes)",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "application/json required",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Atomic mutation failed, rolled back",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Write stopped or unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/issues/{issueId}/execution-reports/failed": {
+      "post": {
+        "operationId": "failedExecutionReport",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:I_[a-f0-9]{64}|[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})$"
+            }
+          }
+        ],
+        "description": "Requires current view + execute, credential grant intersection, assignment and current attempt conditions in atomic batch. Actor is server-derived; extras rejected. Cookie mutations require Origin and X-CSRF-Token. No automatic external retry. No query except history after. Same operation ID/input recovers immutable original result; different input conflicts. 300-second lease, renewal at >=60 seconds; completion does not resolve Issue. Reconcile requires interrupted/expired head and evidence; explicit new-attempt restart requires the latest own unconsumed not_performed confirmation, exact current interrupted head/version and no completed/imported result on the prior attempt.",
+        "requestBody": {
+          "required": true,
+          "description": "JSON <=16384 bytes.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecutionFailedInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProgressMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input/query/mixed authentication",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Current credential invalid; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, visibility or receipt policy denied; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Wrong method",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Input or current precondition conflict; no automatic retry",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "JSON too large (16384 bytes)",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "application/json required",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Atomic mutation failed, rolled back",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Write stopped or unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/issues/{issueId}/execution-reports/completed": {
+      "post": {
+        "operationId": "completedExecutionReport",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:I_[a-f0-9]{64}|[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})$"
+            }
+          }
+        ],
+        "description": "Requires current view + execute, credential grant intersection, assignment and current attempt conditions in atomic batch. Actor is server-derived; extras rejected. Cookie mutations require Origin and X-CSRF-Token. No automatic external retry. No query except history after. Same operation ID/input recovers immutable original result; different input conflicts. 300-second lease, renewal at >=60 seconds; completion does not resolve Issue. Reconcile requires interrupted/expired head and evidence; explicit new-attempt restart requires the latest own unconsumed not_performed confirmation, exact current interrupted head/version and no completed/imported result on the prior attempt.",
+        "requestBody": {
+          "required": true,
+          "description": "JSON <=16384 bytes.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecutionReportInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProgressMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input/query/mixed authentication",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Current credential invalid; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, visibility or receipt policy denied; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Wrong method",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Input or current precondition conflict; no automatic retry",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "JSON too large (16384 bytes)",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "application/json required",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Atomic mutation failed, rolled back",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Write stopped or unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/issues/{issueId}/execution-reports/reconcile": {
+      "post": {
+        "operationId": "reconcileExecutionReport",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:I_[a-f0-9]{64}|[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})$"
+            }
+          }
+        ],
+        "description": "Requires current view + execute, credential grant intersection, assignment and current attempt conditions in atomic batch. Actor is server-derived; extras rejected. Cookie mutations require Origin and X-CSRF-Token. No automatic external retry. No query except history after. Same operation ID/input recovers immutable original result; different input conflicts. 300-second lease, renewal at >=60 seconds; completion does not resolve Issue. Reconcile requires interrupted/expired head and evidence; explicit new-attempt restart requires the latest own unconsumed not_performed confirmation, exact current interrupted head/version and no completed/imported result on the prior attempt.",
+        "requestBody": {
+          "required": true,
+          "description": "JSON <=16384 bytes.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecutionReconcileInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReconciliationMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input/query/mixed authentication",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Current credential invalid; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, visibility or receipt policy denied; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Wrong method",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Input or current precondition conflict; no automatic retry",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "JSON too large (16384 bytes)",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "application/json required",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Atomic mutation failed, rolled back",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Write stopped or unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/issues/{issueId}/execution-reports/restart": {
+      "post": {
+        "operationId": "restartExecutionReport",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "issueId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^(?:I_[a-f0-9]{64}|[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})$"
+            }
+          }
+        ],
+        "description": "Requires current view + execute, credential grant intersection, assignment and current attempt conditions in atomic batch. Actor is server-derived; extras rejected. Cookie mutations require Origin and X-CSRF-Token. No automatic external retry. No query except history after. Same operation ID/input recovers immutable original result; different input conflicts. 300-second lease, renewal at >=60 seconds; completion does not resolve Issue. Reconcile requires interrupted/expired head and evidence; explicit new-attempt restart requires the latest own unconsumed not_performed confirmation, exact current interrupted head/version and no completed/imported result on the prior attempt.",
+        "requestBody": {
+          "required": true,
+          "description": "JSON <=16384 bytes.",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExecutionRestartInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RestartMutationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input/query/mixed authentication",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Current credential invalid; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, visibility or receipt policy denied; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Wrong method",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Input or current precondition conflict; no automatic retry",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "JSON too large (16384 bytes)",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "application/json required",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Atomic mutation failed, rolled back",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Write stopped or unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/execution-operations/{operationId}": {
+      "get": {
+        "operationId": "getExecutionReceipt",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "operationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          }
+        ],
+        "description": "Requires current view; receipts additionally require saved execute policy and same authenticated operation owner. Historical receipt is not current execution authority. Query current separately. No query except history after. Same operation ID/input recovers immutable original result; different input conflicts. 300-second lease, renewal at >=60 seconds; completion does not resolve Issue. Reconcile requires interrupted/expired head and evidence; explicit new-attempt restart requires the latest own unconsumed not_performed confirmation, exact current interrupted head/version and no completed/imported result on the prior attempt.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input/query/mixed authentication",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Current credential invalid; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, visibility or receipt policy denied; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Owned operation absent",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Wrong method",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Write stopped or unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{projectId}/execution-report-operations/{operationId}": {
+      "get": {
+        "operationId": "getExecutionReportReceipt",
+        "security": [
+          {
+            "sessionCookie": []
+          },
+          {
+            "individualApiBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          },
+          {
+            "name": "operationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9_-]{1,128}$"
+            }
+          }
+        ],
+        "description": "Requires current view; receipts additionally require saved execute policy and same authenticated operation owner. Historical receipt is not current execution authority. Query current separately. No query except history after. Same operation ID/input recovers immutable original result; different input conflicts. 300-second lease, renewal at >=60 seconds; completion does not resolve Issue. Reconcile requires interrupted/expired head and evidence; explicit new-attempt restart requires the latest own unconsumed not_performed confirmation, exact current interrupted head/version and no completed/imported result on the prior attempt.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionReportReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid input/query/mixed authentication",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Current credential invalid; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Permission, visibility or receipt policy denied; no current or snapshot",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Owned operation absent",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "405": {
+            "description": "Wrong method",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Write stopped or unavailable",
+            "headers": {
+              "Cache-Control": {
+                "schema": {
+                  "const": "no-store"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutionApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ExecutionContentReference": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "link"
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Original URL <=2048 UTF-8 bytes; never fetched or normalized."
+              },
+              "label": {
+                "type": "string",
+                "description": "Original label <=512 UTF-8 bytes."
+              }
+            },
+            "required": [
+              "kind",
+              "url"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "library"
+              },
+              "libraryFileId": {
+                "type": "string",
+                "pattern": "^libfile_[A-Za-z0-9_-]+$",
+                "maxLength": 256
+              },
+              "versionId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "maxLength": 128
+              },
+              "fileId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_.:-]+$",
+                "maxLength": 256
+              },
+              "url": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Original URL <=2048 UTF-8 bytes."
+              },
+              "label": {
+                "type": "string",
+                "description": "Original label <=512 UTF-8 bytes."
+              }
+            },
+            "required": [
+              "kind",
+              "libraryFileId",
+              "versionId"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "ExecutionAttempt": {
+        "type": "object",
+        "properties": {
+          "attemptId": {
+            "type": "string",
+            "pattern": "^A_[a-f0-9]{64}$"
+          },
+          "issueId": {
+            "type": "string",
+            "pattern": "^(?:I_[a-f0-9]{64}|[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})$"
+          },
+          "projectId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "principalId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "startOperationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "startedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "updatedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "expiresAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "leaseVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "storedState": {
+            "type": "string",
+            "enum": [
+              "running",
+              "ended",
+              "interrupted"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "running",
+              "ended",
+              "interrupted"
+            ]
+          },
+          "endedAt": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "endReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "released",
+                  "disconnected",
+                  "expired"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "renewIntervalSeconds": {
+            "const": 60
+          },
+          "leaseSeconds": {
+            "const": 300
+          }
+        },
+        "required": [
+          "attemptId",
+          "issueId",
+          "projectId",
+          "principalId",
+          "startOperationId",
+          "startedAt",
+          "updatedAt",
+          "expiresAt",
+          "leaseVersion",
+          "storedState",
+          "state",
+          "endedAt",
+          "endReason",
+          "renewIntervalSeconds",
+          "leaseSeconds"
+        ],
+        "additionalProperties": false
+      },
+      "ExecutionAcquireInput": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          }
+        },
+        "required": [
+          "operationId"
+        ],
+        "additionalProperties": false
+      },
+      "ExecutionLeaseInput": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "attemptId": {
+            "type": "string",
+            "pattern": "^A_[a-f0-9]{64}$"
+          },
+          "leaseVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740990
+          }
+        },
+        "required": [
+          "operationId",
+          "attemptId",
+          "leaseVersion"
+        ],
+        "additionalProperties": false
+      },
+      "ExecutionReportInput": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "attemptId": {
+            "type": "string",
+            "pattern": "^A_[a-f0-9]{64}$"
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Nonblank original Unicode; no NUL/unpaired surrogate; <=4096 UTF-8 bytes."
+          },
+          "references": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/ExecutionContentReference"
+            },
+            "description": "Ordered array; JSON encoding <=4096 UTF-8 bytes; omitted input becomes []."
+          }
+        },
+        "required": [
+          "operationId",
+          "attemptId",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "ExecutionFailedInput": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "attemptId": {
+            "type": "string",
+            "pattern": "^A_[a-f0-9]{64}$"
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Nonblank original Unicode; no NUL/unpaired surrogate; <=4096 UTF-8 bytes."
+          },
+          "references": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/ExecutionContentReference"
+            },
+            "description": "Ordered array; JSON encoding <=4096 UTF-8 bytes; omitted input becomes []."
+          },
+          "failureReason": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Nonblank original Unicode; no NUL/unpaired surrogate; <=2048 UTF-8 bytes."
+          }
+        },
+        "required": [
+          "operationId",
+          "attemptId",
+          "message",
+          "failureReason"
+        ],
+        "additionalProperties": false
+      },
+      "ExecutionReconcileInput": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "attemptId": {
+            "type": "string",
+            "pattern": "^A_[a-f0-9]{64}$"
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Nonblank original Unicode; no NUL/unpaired surrogate; <=4096 UTF-8 bytes."
+          },
+          "references": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/ExecutionContentReference"
+            },
+            "description": "Ordered array; JSON encoding <=4096 UTF-8 bytes; omitted input becomes []."
+          },
+          "leaseVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740990
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "not_performed",
+              "applied"
+            ]
+          },
+          "externalOperationId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Nonblank original Unicode; no NUL/unpaired surrogate; <=256 UTF-8 bytes."
+          }
+        },
+        "required": [
+          "operationId",
+          "attemptId",
+          "message",
+          "leaseVersion",
+          "outcome"
+        ],
+        "additionalProperties": false,
+        "allOf": [
+          {
+            "anyOf": [
+              {
+                "required": [
+                  "externalOperationId"
+                ]
+              },
+              {
+                "required": [
+                  "references"
+                ],
+                "properties": {
+                  "references": {
+                    "minItems": 1
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "if": {
+              "properties": {
+                "outcome": {
+                  "const": "applied"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "references"
+              ],
+              "properties": {
+                "references": {
+                  "minItems": 1
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ExecutionRestartInput": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "attemptId": {
+            "type": "string",
+            "pattern": "^A_[a-f0-9]{64}$"
+          },
+          "leaseVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740990
+          },
+          "confirmationOperationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          }
+        },
+        "required": [
+          "operationId",
+          "attemptId",
+          "leaseVersion",
+          "confirmationOperationId"
+        ],
+        "additionalProperties": false
+      },
+      "ExecutionReport": {
+        "type": "object",
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "principalId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "issueId": {
+            "type": "string",
+            "pattern": "^(?:I_[a-f0-9]{64}|[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})$"
+          },
+          "projectId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "attemptId": {
+            "type": "string",
+            "pattern": "^A_[a-f0-9]{64}$"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "progress",
+              "failed",
+              "completed",
+              "imported"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Nonblank original Unicode; no NUL/unpaired surrogate; <=4096 UTF-8 bytes."
+          },
+          "failureReason": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "description": "Nonblank original Unicode; no NUL/unpaired surrogate; <=2048 UTF-8 bytes."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "references": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/ExecutionContentReference"
+            },
+            "description": "Ordered array; JSON encoding <=4096 UTF-8 bytes; omitted input becomes []."
+          },
+          "recordedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "sequence",
+          "principalId",
+          "operationId",
+          "issueId",
+          "projectId",
+          "attemptId",
+          "kind",
+          "message",
+          "failureReason",
+          "references",
+          "recordedAt"
+        ],
+        "additionalProperties": false
+      },
+      "ExecutionConfirmation": {
+        "type": "object",
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "principalId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "issueId": {
+            "type": "string",
+            "pattern": "^(?:I_[a-f0-9]{64}|[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})$"
+          },
+          "projectId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "attemptId": {
+            "type": "string",
+            "pattern": "^A_[a-f0-9]{64}$"
+          },
+          "leaseVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "not_performed",
+              "applied"
+            ]
+          },
+          "externalOperationId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "description": "Nonblank original Unicode; no NUL/unpaired surrogate; <=256 UTF-8 bytes."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "references": {
+            "type": "array",
+            "maxItems": 32,
+            "items": {
+              "$ref": "#/components/schemas/ExecutionContentReference"
+            },
+            "description": "Ordered array; JSON encoding <=4096 UTF-8 bytes; omitted input becomes []."
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Nonblank original Unicode; no NUL/unpaired surrogate; <=4096 UTF-8 bytes."
+          },
+          "recordedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "newAttemptId": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^A_[a-f0-9]{64}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "sequence",
+          "principalId",
+          "operationId",
+          "issueId",
+          "projectId",
+          "attemptId",
+          "leaseVersion",
+          "outcome",
+          "externalOperationId",
+          "references",
+          "message",
+          "recordedAt",
+          "newAttemptId"
+        ],
+        "additionalProperties": false
+      },
+      "ExecutionReconciliation": {
+        "type": "object",
+        "properties": {
+          "confirmation": {
+            "$ref": "#/components/schemas/ExecutionConfirmation"
+          },
+          "importedReport": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExecutionReport"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "nextAction": {
+            "type": "string",
+            "enum": [
+              "remain_interrupted",
+              "restart",
+              "existing_result_imported"
+            ]
+          },
+          "execution": {
+            "$ref": "#/components/schemas/ExecutionAttempt"
+          }
+        },
+        "required": [
+          "confirmation",
+          "importedReport",
+          "nextAction",
+          "execution"
+        ],
+        "additionalProperties": false
+      },
+      "ExecutionRestart": {
+        "type": "object",
+        "properties": {
+          "attempt": {
+            "$ref": "#/components/schemas/ExecutionAttempt"
+          },
+          "confirmation": {
+            "$ref": "#/components/schemas/ExecutionConfirmation"
+          },
+          "nextAction": {
+            "const": "execute_new_attempt"
+          }
+        },
+        "required": [
+          "attempt",
+          "confirmation",
+          "nextAction"
+        ],
+        "additionalProperties": false
+      },
+      "ExecutionReportSnapshot": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ExecutionReport"
+          },
+          {
+            "$ref": "#/components/schemas/ExecutionReconciliation"
+          },
+          {
+            "$ref": "#/components/schemas/ExecutionRestart"
+          }
+        ]
+      },
+      "ExecutionReceipt": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/ExecutionAttempt"
+          }
+        },
+        "required": [
+          "operationId",
+          "snapshot"
+        ],
+        "additionalProperties": false
+      },
+      "ExecutionMutationResult": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/ExecutionAttempt"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "committed",
+              "recovered"
+            ]
+          }
+        },
+        "required": [
+          "operationId",
+          "snapshot",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "ExecutionReportReceipt": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/ExecutionReportSnapshot"
+          }
+        },
+        "required": [
+          "operationId",
+          "snapshot"
+        ],
+        "additionalProperties": false
+      },
+      "ExecutionReportMutationResult": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/ExecutionReportSnapshot"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "committed",
+              "recovered"
+            ]
+          }
+        },
+        "required": [
+          "operationId",
+          "snapshot",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "ProgressReceipt": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/ExecutionReport"
+          }
+        },
+        "required": [
+          "operationId",
+          "snapshot"
+        ],
+        "additionalProperties": false
+      },
+      "ProgressMutationResult": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/ExecutionReport"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "committed",
+              "recovered"
+            ]
+          }
+        },
+        "required": [
+          "operationId",
+          "snapshot",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "ReconciliationReceipt": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/ExecutionReconciliation"
+          }
+        },
+        "required": [
+          "operationId",
+          "snapshot"
+        ],
+        "additionalProperties": false
+      },
+      "ReconciliationMutationResult": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/ExecutionReconciliation"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "committed",
+              "recovered"
+            ]
+          }
+        },
+        "required": [
+          "operationId",
+          "snapshot",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "RestartReceipt": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/ExecutionRestart"
+          }
+        },
+        "required": [
+          "operationId",
+          "snapshot"
+        ],
+        "additionalProperties": false
+      },
+      "RestartMutationResult": {
+        "type": "object",
+        "properties": {
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/ExecutionRestart"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "committed",
+              "recovered"
+            ]
+          }
+        },
+        "required": [
+          "operationId",
+          "snapshot",
+          "source"
+        ],
+        "additionalProperties": false
+      },
+      "ExecutionCurrent": {
+        "type": "object",
+        "properties": {
+          "execution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExecutionAttempt"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "execution"
+        ],
+        "additionalProperties": false
+      },
+      "ExecutionReports": {
+        "type": "object",
+        "properties": {
+          "execution": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExecutionAttempt"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reports": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "$ref": "#/components/schemas/ExecutionReport"
+            }
+          },
+          "confirmations": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "$ref": "#/components/schemas/ExecutionConfirmation"
+            }
+          }
+        },
+        "required": [
+          "execution",
+          "reports",
+          "confirmations"
+        ],
+        "additionalProperties": false
+      },
+      "ExecutionReportHistory": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "object",
+              "properties": {
+                "sequence": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "principalId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                },
+                "operationId": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                },
+                "attemptId": {
+                  "type": "string",
+                  "pattern": "^A_[a-f0-9]{64}$"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "execution-report.progress",
+                    "execution-report.failed",
+                    "execution-report.completed",
+                    "execution-report.reconcile",
+                    "execution-report.restart"
+                  ]
+                },
+                "recordedAt": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "snapshot": {
+                  "$ref": "#/components/schemas/ExecutionReportSnapshot"
+                }
+              },
+              "required": [
+                "sequence",
+                "principalId",
+                "operationId",
+                "attemptId",
+                "kind",
+                "recordedAt",
+                "snapshot"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextAfter": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "events",
+          "nextAfter"
+        ],
+        "additionalProperties": false
+      },
+      "ExecutionApiError": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "fields": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
+          "reason": {
+            "type": "string"
+          },
+          "current": {
+            "description": "Present only on authorized precondition conflict: current attempt or current reports; never a lease grant.",
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExecutionAttempt"
+              },
+              {
+                "$ref": "#/components/schemas/ExecutionReports"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "additionalProperties": false
+      }
+    }
+  }
+}

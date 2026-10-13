@@ -1,0 +1,8 @@
+{
+  "format": 1,
+  "account": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "worker": "replace-with-existing-worker",
+  "databaseId": "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+  "hostname": "replace.example.invalid",
+  "gate": {"mode": "stopped", "epoch": 0}
+}
