@@ -402,3 +402,8 @@ of expired clients/codes/families/tokens is future Access maintenance: do not de
 reuse tombstones while a family can still be live. Current caps fail closed rather
 than reclaim client identities automatically. Q4/Q5 and real Cloudflare smoke
 remain open; local tests do not validate deployed D1/JWKS/KV propagation.
+
+Step 06a corrected JWKS fetch from `redirect: "error"` to `manual`: workerd
+rejects the former option before network I/O. The verifier continues to reject
+3xx and any other non-2xx response, and Gateway integration now tests a signed
+human assertion through the real Worker.
