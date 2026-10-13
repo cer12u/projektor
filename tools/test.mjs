@@ -1,0 +1,20 @@
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+
+fs.mkdirSync("reports", { recursive: true });
+const args = [
+  "--test",
+  "--test-reporter=spec",
+  "--test-reporter-destination=stdout",
+  "--test-reporter=junit",
+  "--test-reporter-destination=reports/platform.xml",
+];
+if (process.argv.includes("--coverage"))
+  args.push(
+    "--experimental-test-coverage",
+    "--test-reporter=lcov",
+    "--test-reporter-destination=reports/platform.lcov",
+  );
+args.push("tools/runtime.test.mjs");
+const result = spawnSync(process.execPath, args, { stdio: "inherit" });
+process.exitCode = result.status ?? 1;
