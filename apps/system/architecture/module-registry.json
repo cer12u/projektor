@@ -5128,6 +5128,18 @@
       "role": "operation-regression"
     },
     {
+      "path": "tests/integration/d1/check-primary-authorization-runtime.mjs",
+      "module": "verification",
+      "role": "primary-authorization-regression",
+      "kind": "authored"
+    },
+    {
+      "path": "tests/integration/d1/check-setup-disclosure-runtime.mjs",
+      "module": "verification",
+      "role": "setup-disclosure-runtime",
+      "kind": "authored"
+    },
+    {
       "path": "tests/integration/d1/fetch-runtime-probe.mjs",
       "module": "verification",
       "kind": "authored",

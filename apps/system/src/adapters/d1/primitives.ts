@@ -1,6 +1,6 @@
 // @module platform.d1
 // @role transaction-contract
-export type AuthDB = ReturnType<D1Database['withSession']>;
+export type AuthDB = Pick<D1Database, 'prepare' | 'batch'>;
 export type SqlValue = string | number | null;
 /** SQL text is trusted adapter code. Every request value belongs in values. */
 export interface Sql { readonly text: string; readonly values: readonly SqlValue[] }

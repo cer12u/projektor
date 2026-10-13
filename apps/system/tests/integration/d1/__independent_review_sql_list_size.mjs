@@ -9,11 +9,12 @@ import {Client,StreamableHTTPClientTransport} from '@modelcontextprotocol/client
 import {CfWorkerJsonSchemaValidator} from '@modelcontextprotocol/client/validators/cf-worker';
 import {generateKeyPair,exportJWK,SignJWT} from 'jose';
 import {createHash} from 'node:crypto';
-import {mkdtemp,readFile,writeFile,rm} from 'node:fs/promises';
+import {mkdtemp,mkdir,readFile,writeFile,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join,basename} from 'node:path';
 import {prepareLocalD1,verifyCanonicalLedger} from "../../support/local-d1-fixture.mjs";
 const root=await mkdtemp(join(tmpdir(),'projektor-list-review-'));
+await mkdir('.local/evidence',{recursive:true});
 const report={scope:'SQL-summary MCP list and full input recovery; isolated workerd/D1',operationIntentsHash:createHash('sha256').update(await readFile('src/adapters/d1/persistence/prepared-operations.ts')).digest('hex'),productionActions:0,sourceHash:createHash('sha256').update(await readFile('src/apps/mcp/tools.ts')).digest('hex'),results:[]};
 const origin='https://projektor.example.invalid',issuer='https://synthetic-owner.cloudflareaccess.com',aud='a'.repeat(64),subject='list-review';
 const pair=await generateKeyPair('RS256',{extractable:true}),jwk={...await exportJWK(pair.publicKey),kid:'list-review',alg:'RS256',use:'sig'};
@@ -23,7 +24,7 @@ async function start(){
  mf=new Miniflare(convertV4MiniflareOptions({name:'list-size-review',modules:[{type:'ESModule',path:root+'/worker.mjs',contents:await readFile(root+'/worker.mjs','utf8')},...await Promise.all(['argon2.wasm','blake2b.wasm'].map(async name=>({type:'CompiledWasm',path:root+'/'+name,contents:await readFile('src/adapters/crypto/generated/'+name)})))],modulesRoot:root,compatibilityDate:'2026-10-09',compatibilityFlags:['nodejs_compat'],...fixture,bindings:{AUTH_ORIGIN:origin,MCP_ENABLED:'true',MCP_ACCESS_ISSUER:issuer,MCP_ACCESS_AUDIENCE:aud,MCP_RESOURCE_METADATA_URL:origin+'/.well-known/cloudflare-access-protected-resource/'},serviceBindings:{ASSETS:()=>new Response('SPA')},outboundService:r=>{assert.equal(r.url,issuer+'/cdn-cgi/access/certs');return Response.json({keys:[jwk]});},host:'127.0.0.1',port:0,cf:false,logRequests:false}));
  await mf.ready;db=await mf.getD1Database('DB');worker=await mf.getWorker();
 }
-async function connect(who=subject){if(client)await client.close();const now=Math.floor(Date.now()/1000),token=await new SignJWT({iss:issuer,aud:[aud],sub:who,type:'app',iat:now,nbf:now,exp:now+600}).setProtectedHeader({alg:'RS256',kid:jwk.kid}).sign(pair.privateKey);client=new Client({name:'independent-list-review',version:'1.0.0'},{jsonSchemaValidator:new CfWorkerJsonSchemaValidator()});await client.connect(new StreamableHTTPClientTransport(new URL(origin+'/mcp'),{requestInit:{headers:{Host:new URL(origin).host,'Cf-Access-Jwt-Assertion':token},redirect:'error'},fetch:async(url,init)=>{const response=await worker.fetch(String(url),init);maxD1ListResultBytes=Math.max(maxD1ListResultBytes,Number(response.headers.get('X-Review-List-Result-Bytes')));maxD1ListResultRows=Math.max(maxD1ListResultRows,Number(response.headers.get('X-Review-List-Result-Rows')));return response;}}));}
+async function connect(who=subject){if(client)await client.close();const now=Math.floor(Date.now()/1000),token=await new SignJWT({iss:issuer,aud:[aud],sub:who,type:'app',iat:now,nbf:now,exp:now+600}).setProtectedHeader({alg:'RS256',kid:jwk.kid}).sign(pair.privateKey);client=new Client({name:'independent-list-review',version:'1.0.0'},{jsonSchemaValidator:new CfWorkerJsonSchemaValidator()});await client.connect(new StreamableHTTPClientTransport(new URL(origin+'/mcp/federated'),{requestInit:{headers:{Host:new URL(origin).host,'Cf-Access-Jwt-Assertion':token},redirect:'error'},fetch:async(url,init)=>{const response=await worker.fetch(String(url),init);maxD1ListResultBytes=Math.max(maxD1ListResultBytes,Number(response.headers.get('X-Review-List-Result-Bytes')));maxD1ListResultRows=Math.max(maxD1ListResultRows,Number(response.headers.get('X-Review-List-Result-Rows')));return response;}}));}
 async function call(name,args={}){const result=await client.callTool({name,arguments:args});assert.equal(result.isError,undefined,JSON.stringify(result));return result;}
 try{
  await build({entryPoints:['tests/integration/d1/__independent_list_sql_fixture.ts'],outfile:root+'/worker.mjs',bundle:true,format:'esm',platform:'neutral',conditions:['workerd','worker','browser'],mainFields:['module','main'],external:['node:*','cloudflare:*'],plugins:[{name:'wasm',setup(b){b.onResolve({filter:/\.wasm$/},a=>({path:'./'+basename(a.path),external:true}));}}]});
@@ -64,5 +65,5 @@ try{
  const firstPage=await call('operation_list',{limit:50});assert.deepEqual(firstPage.structuredContent.operations,[]);
  assert.equal(maxD1ListResultRows,51);assert(maxD1ListResultBytes<30000,'Internal D1 result '+maxD1ListResultBytes+' bytes');report.results.push({name:'D1 list serializes only bounded summaries including pagination probe row',passed:true,maxD1ListResultBytes,maxD1ListResultRows});
  report.passed=true;
-}catch(error){report.passed=false;report.failure=String(error);throw error;}finally{if(client)await client.close();if(mf)await mf.dispose();await rm(root,{recursive:true,force:true});await writeFile('../../mcp-contract-review/independent-sql-list-size.json',JSON.stringify(report,null,2)+'\n');}
+}catch(error){report.passed=false;report.failure=String(error);throw error;}finally{if(client)await client.close();if(mf)await mf.dispose();await rm(root,{recursive:true,force:true});await writeFile('.local/evidence/independent-sql-list-size.json',JSON.stringify(report,null,2)+'\n');}
 console.log(JSON.stringify(report));

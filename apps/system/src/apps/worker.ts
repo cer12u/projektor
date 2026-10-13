@@ -29,9 +29,11 @@ export default {
     const path = new URL(request.url).pathname;
     const resultOperationId=request.method==='GET'?resultLookupOperationId(path):request.method==='POST'?preparedExecuteOperationId(path):undefined;
     const failureJson=(body:Record<string,unknown>,status:number)=>json(resultFailureBody(body,resultOperationId),status);
-    if (isMcpPath(path)) return mcpApi(request,createRequestServices(env.DB.withSession('first-primary'),Math.floor(Date.now()/1000)),env);
+    // Current authorization must observe other requests' revocations. A D1 session
+    // pins only its first query to primary; use the primary-only binding throughout.
+    if (isMcpPath(path)) return mcpApi(request,createRequestServices(env.DB,Math.floor(Date.now()/1000)),env);
     if (!path.startsWith('/api/')) return env.ASSETS.fetch(request);
-    const now=Math.floor(Date.now()/1000), db=env.DB.withSession('first-primary'),requests=createRequestServices(db,now);
+    const now=Math.floor(Date.now()/1000), db=env.DB,requests=createRequestServices(db,now);
     try {
       if(path==='/api/health'&&request.method==='GET'){ await readDatabaseHealth(db); return json({phase:'P1a',database:'ok'}); }
       const authentication=await authApi(request,requests,env.AUTH_ORIGIN);if(authentication)return authentication;

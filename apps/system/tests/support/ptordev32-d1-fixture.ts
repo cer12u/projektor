@@ -78,7 +78,7 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   return Response.json({row,live,current:await getExecution(db,auth,'P',q.issueId)});
  }
  const pause=request.headers.get('X-32-Pause-Batch'),before=request.headers.get('X-32-Before-Batch'),after=request.headers.get('X-32-After-Batch');
- const wrappedEnv=(pause||before||after)?{...env,DB:new Proxy(env.DB,{get(target,key){if(key==='withSession')return (...args:Parameters<D1Database['withSession']>)=>wrap(target.withSession(...args),{pause:pause??undefined,before:before?[before]:[],after:after?[after]:[]},[]);const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;}})}:env;
+ const wrappedEnv=(pause||before||after)?{...env,DB:wrap(env.DB,{pause:pause??undefined,before:before?[before]:[],after:after?[after]:[]},[]) as D1Database}:env;
  const response=await product.fetch(request,wrappedEnv);
  const hold=request.headers.get('X-32-Hold-Response');
  if(hold)await paused(hold,'after_product_response',{status:response.status});

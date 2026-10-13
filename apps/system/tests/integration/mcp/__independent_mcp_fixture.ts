@@ -9,15 +9,15 @@ export default {fetch(request:Request,env:Env){
  headers.set('Host',headers.get('X-Test-Host')??new URL(request.url).host);
  headers.delete('X-Test-Host');headers.delete('X-Test-Race');
  const DB:D1Database={
-  prepare:q=>env.DB.prepare(q),batch:s=>env.DB.batch(s),exec:q=>env.DB.exec(q),dump:()=>env.DB.dump(),
-  withSession(constraint){
-   const session=env.DB.withSession(constraint);let injected=false;
+  ...env.DB,exec:q=>env.DB.exec(q),dump:()=>env.DB.dump(),withSession:c=>env.DB.withSession(c),
+  ...(()=>{
+   const session=env.DB;let injected=false;
    return {
     async batch(s){
      if(race==='grant-batch')await session.prepare("DELETE FROM federated_grants WHERE credential_id='transport-credential' AND permission='edit'").run();
      if(race==='expire-batch')await new Promise(resolve=>setTimeout(resolve,2200));
      return session.batch(s);
-    },getBookmark:()=>session.getBookmark(),
+    },
     prepare(query){
      const statement=session.prepare(query);
      if(!race||query!=='SELECT mode FROM write_gate WHERE id=1'||injected)return statement;
@@ -31,7 +31,7 @@ export default {fetch(request:Request,env:Env){
      };
     }
    };
-  }
+  })()
  };
  return worker.fetch(new Request(request,{headers}),{...env,DB});
 }};

@@ -36,13 +36,7 @@ export default {async fetch(request:Request,env:Env):Promise<Response> {
   }
   let batches=0;
   const DB=new Proxy(env.DB,{get(target,key) {
-    if(key==='withSession')return (...args:Parameters<D1Database['withSession']>)=> {
-      const session=target.withSession(...args);
-      return new Proxy(session,{get(raw,member) {
-        if(member==='batch')return async(statements:D1PreparedStatement[])=>{batches++;return raw.batch(statements);};
-        const value=Reflect.get(raw,member);return typeof value==='function'?value.bind(raw):value;
-      }});
-    };
+    if(key==='batch')return async(statements:D1PreparedStatement[])=>{batches++;return target.batch(statements);};
     const value=Reflect.get(target,key);return typeof value==='function'?value.bind(target):value;
   }});
   const input=(request.method==='POST'||request.method==='PATCH'?await request.clone().json().catch(()=>null):null) as {input?:{operationId?:unknown};operationId?:unknown}|null;

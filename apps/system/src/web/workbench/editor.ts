@@ -140,7 +140,11 @@ export class IssueEditor{
     if(e instanceof HttpError&&e.status===401){this.change(r=>{r.status='reauth';r.message='再認証が必要です。入力と進行中操作を保持しています。';if(r.pending&&r.pending.phase!=='rejected')r.pending.phase='auth';});this.draft();this.reauth();return true;}
     if(e instanceof HttpError&&e.status===403){this.change(r=>{r.status='blocked';r.message='操作または結果照会を拒否されました。不在結果を未確定とみなさず、自動再送を停止しています。';if(r.pending&&r.pending.phase!=='rejected')r.pending.phase='auth';});this.draft();return true;}
     if(e instanceof HttpError&&e.status===409){this.change(r=>{r.status='conflict';r.latest=e.current&&this.api.valid(e.current)?e.current:null;r.message='競合しています。最新版と手入力を比較して明示的に解決してください。';});this.draft();if(!e.current)void this.refresh();return true;}
-    if(e instanceof HttpError&&[400,413,415].includes(e.status)){const op=this.view.record.pending;this.change(r=>{r.status='invalid';r.fields=e.fields??{body:e.code};r.message='入力を確認してください。自動再送しません。';if(mutation)r.pending=null;});this.draft();if(op&&mutation&&this.view.storageAvailable)void this.persist(()=>this.store.mark({...op,phase:'rejected'}));return true;}
+    if(e instanceof HttpError&&[400,413,415].includes(e.status)){
+      // A rejected request is not proof that earlier or concurrent attempts of this ID did not commit.
+      // Keep the recoverable command; only an explicit correlated nonapplication proof may retire it.
+      clearTimeout(this.timer);this.change(r=>{r.status='invalid';r.fields=e.fields??{body:e.code};r.message=r.pending?'入力の確認が必要です。操作の反映は未確認のため、操作IDと送信内容を保持しています。操作結果を確認してください。自動再送しません。':'入力を確認してください。自動再送しません。';if(mutation&&r.pending&&r.pending.phase!=='rejected')r.pending.phase='unknown';});this.draft();return true;
+    }
     return false;
   }
   async resolve(useLatest:boolean){if(this.view.record.pending){this.change(r=>{r.message='操作結果が未確認です。先に操作結果を確認するか、未確定操作を保留して最新版で続けてください。';});this.draft();return;}const latest=this.view.record.latest;if(!latest)return;clearTimeout(this.timer);

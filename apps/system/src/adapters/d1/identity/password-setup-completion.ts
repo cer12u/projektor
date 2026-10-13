@@ -28,12 +28,19 @@ export async function setupCompletionResultByHash(db:AuthDB,tokenHash:string,ope
 }
 export async function passwordSetupPhase(db:AuthDB,tokenHash:string,operationId:string,inputHash:string):Promise<'ready'|'completed'>{
  const r=await rightByHash(db,tokenHash);
- if(r.consumed_at!==null){if(r.completed_operation_id!==operationId)throw new ApiError(403,'setup_right_unavailable');if(r.input_hash!==inputHash)throw new ApiError(409,'operation_input_mismatch');await setupCompletionResultByHash(db,tokenHash,operationId);return 'completed';}
+ if(r.consumed_at!==null){
+  // Input equality is receipt information: disclose it only after current authority.
+  await setupCompletionResultByHash(db,tokenHash,operationId);
+  if(r.input_hash!==inputHash)throw new ApiError(409,'operation_input_mismatch');return 'completed';
+ }
  const current=unconsumedGuard(r),legacy=legacyBearer(tokenHash);if(!await permitted(db,sql(`(${current.text}) AND (${legacy.text})`,...current.values,...legacy.values)))throw new ApiError(403,'setup_right_unavailable');return 'ready';
 }
 export async function preparePasswordSetupValue(db:AuthDB,tokenHash:string,operationId:string,inputHash:string,encoded:string,bound:Sql=legacyBearer(tokenHash)){
  const r=await rightByHash(db,tokenHash);
- if(r.consumed_at!==null){if(r.completed_operation_id!==operationId)throw new ApiError(403,'setup_right_unavailable');if(r.input_hash!==inputHash)throw new ApiError(409,'operation_input_mismatch');return{recovered:await setupCompletionResultByHash(db,tokenHash,operationId,bound)};}
+ if(r.consumed_at!==null){
+  const recovered=await setupCompletionResultByHash(db,tokenHash,operationId,bound);
+  if(r.input_hash!==inputHash)throw new ApiError(409,'operation_input_mismatch');return{recovered};
+ }
  const current=unconsumedGuard(r),guard=sql(`(${current.text}) AND (${bound.text})`,...current.values,...bound.values);
  if(!await permitted(db,guard))throw new ApiError(403,'setup_right_unavailable');
  const stateSnapshot=setupSnapshot(r.principal_id);

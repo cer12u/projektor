@@ -85,6 +85,31 @@ try{
  }
  pass('generic403, mismatched proof, result403/404 and postflight revocation keep original ID; no new POST');
  const race=await creation('marked',{race:true});assert.equal(race.posts.length,1);assert.equal(race.editor.snapshot().record.pending.operationId,race.originalId);race.editor.dispose();pass('a second journal attempt prevents retiring original operation');
+ // A later rejected attempt cannot disprove an earlier committed request with a lost response.
+ for(const status of [400,413,415]){
+  const store=new MemoryStore();let receipt,posts=0,allowResult=false;
+  invalidateIdentityObservations();globalThis.fetch=async(path,options={})=>{
+   if(path==='/api/auth/me')return Response.json(full);
+   if(path.includes('/issue-operations/'))return allowResult?Response.json(receipt):Response.json({error:'forbidden'},{status:403});
+   if(path==='/api/projects/PROJECT/issues'&&options.method==='POST'){
+    const body=JSON.parse(options.body);posts++;
+    if(posts===1){receipt={operationId:body.operationId,snapshot:{id:await target(body),projectId:'PROJECT',body:body.body,title:body.title,references:body.references,revision:1,createdAt:'2026-10-12T00:00:00Z',updatedAt:'2026-10-12T00:00:00Z'}};throw Error('committed response lost');}
+    return Response.json({error:'validation_failed'},{status});
+   }
+   throw Error('Unexpected '+path);
+  };
+  const editor=new IssueEditor(store,new IssueApi('OWNER',()=>{}),'PROJECT','new:PROJECT','validation-'+status,()=>{},()=>{});editors.push(editor);
+  await editor.init();editor.input('original');await editor.flush();await editor.save();await editor.recover();
+  const operationId=receipt.operationId;await editor.retrySameOperation();await editor.flush();
+  assert.equal(editor.snapshot().record.pending?.operationId,operationId,'validation response must retain unresolved operation');
+  assert.notEqual(store.journals.get(operationId).phase,'rejected');
+  editor.input('later unsaved input');await editor.save();await editor.flush();assert.equal(posts,2,'unresolved validation response must not mint a new operation');
+  editor.dispose();
+  const restored=new IssueEditor(store,new IssueApi('OWNER',()=>{}),'PROJECT','new:PROJECT','validation-'+status,()=>{},()=>{});editors.push(restored);await restored.init();
+  assert.equal(restored.snapshot().record.pending?.operationId,operationId);allowResult=true;await restored.recover();await restored.flush();
+  assert.equal(posts,2);assert.equal(restored.snapshot().record.pending,null);assert.equal(restored.snapshot().record.base.body,'original');assert.equal(restored.snapshot().record.text,'later unsaved input');assert.equal(store.journals.get(operationId).phase,'confirmed');restored.dispose();
+ }
+ pass('400/413/415 after lost commit preserve operation across reload, block new IDs, and recover the original receipt');
  // Exercise actual EditStore methods with an asynchronous transaction-shaped adapter.
  // This validates decisions, not browser IndexedDB transaction isolation or persistence.
  function database(rows){return{transaction(){const transaction={};const complete=()=>setTimeout(()=>transaction.oncomplete?.(),0);return Object.assign(transaction,{objectStore:()=>({get:k=>{const request={};setTimeout(()=>{request.result=structuredClone(rows.get(JSON.stringify(k)));request.onsuccess?.();complete();},0);return request;},put:r=>{rows.set(JSON.stringify([r.owner,r.operationId]),structuredClone(r));complete();}})});}};}

@@ -6,10 +6,10 @@ export default {async fetch(request:Request,env:Env){
  const headers=new Headers(request.headers);headers.set('Host',new URL(request.url).host);
  let listResultBytes=0,listResultRows=0;
  const DB:D1Database={
-  prepare:q=>env.DB.prepare(q),batch:s=>env.DB.batch(s),exec:q=>env.DB.exec(q),dump:()=>env.DB.dump(),
-  withSession(constraint){
-   const session=env.DB.withSession(constraint);
-   return {batch:s=>session.batch(s),getBookmark:()=>session.getBookmark(),prepare(query){
+  ...env.DB,exec:q=>env.DB.exec(q),dump:()=>env.DB.dump(),withSession:c=>env.DB.withSession(c),
+  ...(()=>{
+   const session=env.DB;
+   return {batch:s=>session.batch(s),prepare(query){
     const measure=query.includes('FROM operation_intents i')&&query.includes('ORDER BY i.sequence LIMIT');
     const wrap=(statement:D1PreparedStatement):D1PreparedStatement=>new Proxy(statement,{get(target,key){
      if(key==='bind')return (...values:unknown[])=>wrap(target.bind(...values));
@@ -18,7 +18,7 @@ export default {async fetch(request:Request,env:Env){
     }});
     return wrap(session.prepare(query));
    }};
-  }
+  })()
  };
  const response=await worker.fetch(new Request(request,{headers}),{...env,DB});
  response.headers.set('X-Review-List-Result-Bytes',String(listResultBytes));response.headers.set('X-Review-List-Result-Rows',String(listResultRows));return response;

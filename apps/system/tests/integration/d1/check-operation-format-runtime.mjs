@@ -44,7 +44,7 @@ export default {async fetch(request,env,ctx){
   }
   return raw.batch(statements);
  }};
- return worker.fetch(request,{...env,DB:{withSession:()=>wrapped}},ctx);
+ return worker.fetch(request,{...env,DB:wrapped},ctx);
 }};`;
 let mf;
 await mkdir(resolve(candidate,'.local/evidence'),{recursive:true});

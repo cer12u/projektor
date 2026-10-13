@@ -9,11 +9,11 @@ export default {fetch(request:Request,env:Env){
  headers.set('Host',headers.get('X-Test-Host')??new URL(request.url).host);
  headers.delete('X-Test-Host');headers.delete('X-Test-Race');
  const DB:D1Database={
-  prepare:q=>env.DB.prepare(q),batch:s=>env.DB.batch(s),exec:q=>env.DB.exec(q),dump:()=>env.DB.dump(),
-  withSession(constraint){
-   const session=env.DB.withSession(constraint);let injected=false;
+  ...env.DB,exec:q=>env.DB.exec(q),dump:()=>env.DB.dump(),withSession:c=>env.DB.withSession(c),
+  ...(()=>{
+   const session=env.DB;let injected=false;
    return {
-    batch:s=>session.batch(s),getBookmark:()=>session.getBookmark(),
+    batch:s=>session.batch(s),
     prepare(query){
      const statement=session.prepare(query);
      if(!race||query!=='SELECT mode FROM write_gate WHERE id=1'||injected)return statement;
@@ -28,7 +28,7 @@ export default {fetch(request:Request,env:Env){
      };
     }
    };
-  }
+  })()
  };
  return worker.fetch(new Request(request,{headers}),{...env,DB});
 }};
