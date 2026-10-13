@@ -6,7 +6,7 @@
       "root": "apps/worker",
       "public": "apps/worker/index.ts",
       "kind": "composition",
-      "dependencies": ["gateway", "platform", "fixture_a", "fixture_b"],
+      "dependencies": ["gateway", "platform", "fixture_a", "fixture_b", "access"],
       "external": []
     },
     {
@@ -84,11 +84,47 @@
       }
     },
     {
+      "id": "access",
+      "root": "modules/access",
+      "public": "modules/access/public.ts",
+      "factory": "modules/access/internal/factory.ts",
+      "kind": "module",
+      "dependencies": ["platform"],
+      "external": [],
+      "storage": {
+        "prefix": "access_",
+        "tables": [
+          "access_principals",
+          "access_workspaces",
+          "access_memberships",
+          "access_credentials",
+          "access_receipts",
+          "access_events",
+          "access_guards",
+          "access_bootstrap"
+        ],
+        "objects": [],
+        "globalTables": ["access_principals", "access_bootstrap"],
+        "catalog": "modules/access/storage/queries.ts",
+        "migrations": "modules/access/storage/migrations",
+        "kvPrefix": "access:",
+        "r2Prefix": null
+      }
+    },
+    {
       "id": "tools",
       "root": "tools",
       "public": null,
       "kind": "tooling",
-      "dependencies": ["composition", "web", "gateway", "platform", "fixture_a", "fixture_b"],
+      "dependencies": [
+        "composition",
+        "web",
+        "gateway",
+        "platform",
+        "fixture_a",
+        "fixture_b",
+        "access"
+      ],
       "external": ["node:*", "typescript", "esbuild", "miniflare"]
     }
   ]

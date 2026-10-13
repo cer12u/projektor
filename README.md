@@ -1,9 +1,10 @@
-# Projektor — rewrite foundation
+# Projektor — modular rewrite
 
-This branch implements **Phase 1 / step 01** of the approved
-[modular rewrite](docs/architecture/rewrite-plan.md). It is a scaffold, not a usable
-project manager. Access, Projects, Issues, Wiki, authentication, MCP and a product
-UI are not implemented. `/health` reports `deployable: false`; other Worker routes
+This branch implements **step 02 / Access part 1** of the approved
+[modular rewrite](docs/architecture/rewrite-plan.md). Access has a tested module API
+for human assertions, machine credentials and workspace membership. Projects,
+Issues, Wiki, MCP OAuth/transport and a product UI are not implemented. Access is
+not yet wired to HTTP; this is not a usable project manager. `/health` reports `deployable: false`; other Worker routes
 return 404. The static page is a placeholder.
 
 The upstream Projektor was created by **Thomas Dickson**. This Fork retains the
@@ -14,6 +15,7 @@ Removing source does not migrate or delete any deployed data.
 ```text
 apps/worker/                 Worker composition entry
 apps/web/                    static placeholder
+modules/access/               authentication, membership, credentials and outbox
 modules/_fixture_{a,b}/       test-only owners: public, internal, storage
 platform/                    clock/IDs/errors, scoped stores, migration ledger
   generated/                 checked static catalogs (pnpm generate)
@@ -51,6 +53,6 @@ migration package, and a commit/checksum manifest. Fixture schemas and factories
 are excluded. `pnpm check:artifact` checks hashes and runs the built Worker plus
 Static Assets in workerd. This is not a real Cloudflare smoke or deployment approval.
 
-See [AGENTS.md](AGENTS.md) for boundaries and how to add a module,
+See [Access contracts and setup](docs/architecture/access.md), [AGENTS.md](AGENTS.md) for boundaries and how to add a module,
 [scaffold details](docs/architecture/scaffold.md) for enforcement and test limits,
 and [SECURITY.md](SECURITY.md) for private reporting.

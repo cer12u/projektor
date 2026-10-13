@@ -283,7 +283,12 @@ export function check(root = process.cwd(), onlyRule, { freshness = true } = {})
         report("public-type", `${owner.id}: ${trail} leaks ${name}`);
       if (type.flags & ts.TypeFlags.Any) report("public-type", `${owner.id}: ${trail} leaks any`);
       if (owner.kind === "gateway" && ["Request", "Response"].includes(name)) return;
-      if (type.isUnionOrIntersection()) for (const part of type.types) inspect(part, trail);
+      if (type.isUnionOrIntersection()) {
+        for (const part of type.types) inspect(part, trail);
+        // Every union constituent was checked. Traversing the union's merged
+        // properties again visits ambient String methods for literal unions.
+        if (type.isUnion()) return;
+      }
       for (const argument of type.aliasTypeArguments ?? []) inspect(argument, trail);
       if (type.objectFlags & ts.ObjectFlags.Reference)
         for (const argument of checker.getTypeArguments(type)) inspect(argument, trail);
