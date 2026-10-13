@@ -28090,6 +28090,11 @@
             "type": "string",
             "pattern": "^A_[a-f0-9]{64}$"
           },
+          "leaseVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740990
+          },
           "message": {
             "type": "string",
             "minLength": 1,
@@ -28107,6 +28112,7 @@
         "required": [
           "operationId",
           "attemptId",
+          "leaseVersion",
           "message"
         ],
         "additionalProperties": false
@@ -28121,6 +28127,11 @@
           "attemptId": {
             "type": "string",
             "pattern": "^A_[a-f0-9]{64}$"
+          },
+          "leaseVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740990
           },
           "message": {
             "type": "string",
@@ -28144,6 +28155,7 @@
         "required": [
           "operationId",
           "attemptId",
+          "leaseVersion",
           "message",
           "failureReason"
         ],
@@ -28160,6 +28172,11 @@
             "type": "string",
             "pattern": "^A_[a-f0-9]{64}$"
           },
+          "leaseVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740990
+          },
           "message": {
             "type": "string",
             "minLength": 1,
@@ -28172,11 +28189,6 @@
               "$ref": "#/components/schemas/ExecutionContentReference"
             },
             "description": "Ordered array; JSON encoding <=4096 UTF-8 bytes; omitted input becomes []."
-          },
-          "leaseVersion": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 9007199254740990
           },
           "outcome": {
             "type": "string",
@@ -30219,10 +30231,226 @@
         "additionalProperties": false,
         "description": "A recognizable retained target with an unsupported future input format. Input is opaque and bounded to65536 UTF-8 bytes; new execution is prohibited. Confirmed canonical receipts remain recoverable."
       },
+      "RetainedUnversionedReportOperation": {
+        "type": "object",
+        "properties": {
+          "sequence": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "operationId": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{1,128}$"
+          },
+          "formatVersion": {
+            "const": 1
+          },
+          "recorded": {
+            "const": true
+          },
+          "inputHash": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "route": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "report"
+              },
+              "projectId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]{1,128}$"
+              },
+              "issueId": {
+                "type": "string",
+                "pattern": "^(?:I_[a-f0-9]{64}|[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12})$"
+              },
+              "action": {
+                "enum": [
+                  "progress",
+                  "failed",
+                  "completed"
+                ]
+              }
+            },
+            "required": [
+              "kind",
+              "projectId",
+              "issueId",
+              "action"
+            ],
+            "additionalProperties": false
+          },
+          "input": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "operationId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                  },
+                  "attemptId": {
+                    "type": "string",
+                    "pattern": "^A_[a-f0-9]{64}$"
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Nonblank original Unicode; no NUL/unpaired surrogate; <=4096 UTF-8 bytes."
+                  },
+                  "references": {
+                    "type": "array",
+                    "maxItems": 32,
+                    "items": {
+                      "$ref": "#/components/schemas/ExecutionContentReference"
+                    },
+                    "description": "Ordered array; JSON encoding <=4096 UTF-8 bytes; omitted input becomes []."
+                  }
+                },
+                "required": [
+                  "operationId",
+                  "attemptId",
+                  "message"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "operationId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{1,128}$"
+                  },
+                  "attemptId": {
+                    "type": "string",
+                    "pattern": "^A_[a-f0-9]{64}$"
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Nonblank original Unicode; no NUL/unpaired surrogate; <=4096 UTF-8 bytes."
+                  },
+                  "references": {
+                    "type": "array",
+                    "maxItems": 32,
+                    "items": {
+                      "$ref": "#/components/schemas/ExecutionContentReference"
+                    },
+                    "description": "Ordered array; JSON encoding <=4096 UTF-8 bytes; omitted input becomes []."
+                  },
+                  "failureReason": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Nonblank original Unicode; no NUL/unpaired surrogate; <=2048 UTF-8 bytes."
+                  }
+                },
+                "required": [
+                  "operationId",
+                  "attemptId",
+                  "message",
+                  "failureReason"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          },
+          "target": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "targetId": {
+                "type": "string"
+              },
+              "projectId": {
+                "type": "string",
+                "pattern": "^(?:workspace:)?[A-Za-z0-9_-]{1,128}$"
+              }
+            },
+            "required": [
+              "kind",
+              "targetId",
+              "projectId"
+            ],
+            "additionalProperties": false
+          },
+          "requiredPermissions": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "view",
+                "edit",
+                "assign",
+                "transition",
+                "execute"
+              ]
+            }
+          },
+          "preparedAt": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          },
+          "result": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "const": "unknown"
+                  }
+                },
+                "required": [
+                  "status"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "status": {
+                    "const": "confirmed"
+                  },
+                  "snapshot": {
+                    "$ref": "#/components/schemas/OperationSnapshot"
+                  }
+                },
+                "required": [
+                  "status",
+                  "snapshot"
+                ],
+                "additionalProperties": false
+              }
+            ]
+          }
+        },
+        "required": [
+          "sequence",
+          "operationId",
+          "formatVersion",
+          "recorded",
+          "inputHash",
+          "route",
+          "input",
+          "target",
+          "requiredPermissions",
+          "preparedAt",
+          "result"
+        ],
+        "additionalProperties": false,
+        "description": "Previously persisted report input without a lease version. Authorized reads and confirmed receipt recovery only; new preparation or unconfirmed execution is rejected."
+      },
       "DurableOperation": {
         "oneOf": [
           {
             "$ref": "#/components/schemas/CurrentDurableOperation"
+          },
+          {
+            "$ref": "#/components/schemas/RetainedUnversionedReportOperation"
           },
           {
             "$ref": "#/components/schemas/FutureDurableOperation"
