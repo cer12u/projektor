@@ -57,3 +57,5 @@ Static Assets in workerd. This is not a real Cloudflare smoke or deployment appr
 See [Access contracts and setup](docs/architecture/access.md), [AGENTS.md](AGENTS.md) for boundaries and how to add a module,
 [scaffold details](docs/architecture/scaffold.md) for enforcement and test limits,
 and [SECURITY.md](SECURITY.md) for private reporting.
+
+Projects: [contracts](docs/architecture/projects.md).
