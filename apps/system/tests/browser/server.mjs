@@ -71,6 +71,7 @@ const drops=new Map([['owner-initial',ownerBase],['owner-complete',ownerBase+'/c
 const server=createServer(async(req,res)=>{try{
  if(req.headers.host!==`localhost:${port}`){res.writeHead(400);res.end('local QA host only');return;}
  const path=new URL(req.url,origin).pathname;
+ if(path==='/__qa/owner-route-marker'){res.writeHead(200,{'Content-Type':'text/html','Cache-Control':'no-store'});res.end('<!doctype html><meta charset="utf-8"><title>Local owner route QA</title><script>localStorage.setItem("projektor-owner-initial-operation-v1","00000000-0000-4000-8000-000000000001")</script><p>Installed only a nonsecret synthetic owner operation marker. No capability or grant created.</p><a href="/password/setup">Open ordinary recipient setup</a>');return;}
  if(path==='/__qa/storage-control.js'){res.writeHead(200,{'Content-Type':'text/javascript','Cache-Control':'no-store'});res.end(storageFaultBytes);return;}
  if(path==='/__qa/storage'){res.writeHead(200,{'Content-Type':'text/html','Cache-Control':'no-store'});res.end('<!doctype html><html><head><meta charset="utf-8"><title>Projektor local storage QA</title>'+appStyles.map(href=>'<link rel="stylesheet" href="'+href+'">').join('')+'</head><body><div id="root"></div><script src="/__qa/storage-control.js"></script><script type="module" src="'+appScript+'"></script></body></html>');return;}
  if(path==='/__qa/expire'){await db.prepare('UPDATE sessions SET revoked_at=unixepoch() WHERE revoked_at IS NULL').run();res.setHeader('Content-Type','text/html');res.end('<p>expired synthetic sessions</p>');return;}

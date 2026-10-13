@@ -2216,6 +2216,12 @@
       "kind": "documentation"
     },
     {
+      "path": "docs/database-migrations.md",
+      "module": "project.documentation",
+      "role": "documentation",
+      "kind": "documentation"
+    },
+    {
       "path": "docs/deployment.md",
       "module": "project.documentation",
       "role": "deployment-guide",
@@ -4765,6 +4771,24 @@
       ]
     },
     {
+      "path": "tests/client/web/check-setup-entry-routing.mjs",
+      "module": "verification",
+      "role": "browser-regression",
+      "kind": "authored",
+      "dynamicDependencies": [
+        {
+          "expression": "pathToFileURL(outfile).href+'?route='+encodeURIComponent(pathname)",
+          "specifiers": [
+            {
+              "specifier": "../../../src/web/main.tsx",
+              "names": []
+            }
+          ],
+          "reason": "Actual main route composition is bundled for side effects with controlled host; exact owner-approved regression entry."
+        }
+      ]
+    },
+    {
       "path": "tests/client/web/check-workspace-handlers.mjs",
       "module": "verification",
       "role": "browser-regression",
@@ -5968,12 +5992,6 @@
       "module": "tooling.build",
       "role": "configuration-template",
       "kind": "data"
-    },
-    {
-      "path": "docs/database-migrations.md",
-      "module": "project.documentation",
-      "role": "documentation",
-      "kind": "documentation"
     }
   ],
   "interfaces": [
@@ -6998,7 +7016,8 @@
       "exports": [
         "Management",
         "PasswordSetup",
-        "ManagementProps"
+        "ManagementProps",
+        "OwnerPasswordSetup"
       ],
       "consumers": [
         {
@@ -9762,6 +9781,24 @@
         }
       ],
       "reason": "Callable private operator assembly. No production operator host is installed; a future authorized host must be separately registered with this explicit composition role."
+    },
+    {
+      "path": "src/web/main.tsx",
+      "module": "composition",
+      "kind": "test",
+      "exports": [],
+      "allowSideEffects": true,
+      "consumers": [
+        {
+          "module": "verification",
+          "roles": [
+            "browser-regression"
+          ],
+          "paths": [
+            "tests/client/web/check-setup-entry-routing.mjs"
+          ]
+        }
+      ]
     }
   ],
   "generatedTrees": [

@@ -2,6 +2,12 @@
 
 New administrator-issued setup uses a recipient-established protected browser context. No new issuance returns a password-setup bearer. The legacy holder endpoints remain solely to consume previously issued, unbound grants; they reject owner- or recipient-bound grants.
 
+## Browser entry separation
+
+`/password/setup` mounts only recipient setup. `/password/setup/legacy` mounts only the migration holder flow. Both offer a plain same-origin link to `/password/setup/owner`; neither mounts the owner controller or calls the owner bootstrap API, including when a prior owner operation ID remains in browser storage.
+
+`/password/setup/owner` is the dedicated top-level owner entry. If external admission is configured, protect this owner page and the exact `/api/auth/password-setup/owner-initial` API family together, keeping ordinary recipient pages and recipient APIs outside that owner-only admission scope. Following the link permits interactive admission before JavaScript issues scoped requests. Setup fetches retain `redirect:error`; do not make them forward a password or capability through a login redirect. This routing change does not create or modify provider security settings.
+
 ## State and authority
 
 1. The recipient explicitly begins at `/password/setup`. A fresh same-origin login challenge creates a random, Secure, HttpOnly, host-only cookie and a nonsecret `requestId`. Only the capability hash is persisted. The request ID can be shared with the administrator; it never authorizes setup or recovery.
