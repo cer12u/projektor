@@ -12,8 +12,8 @@ export interface Restart {attempt:Attempt;confirmation:Confirmation;nextAction:'
 export interface Receipt<T> {operationId:string;snapshot:T}
 export interface MutationReceipt<T> extends Receipt<T> {source:'committed'|'recovered'}
 export interface LeaseInput {operationId:string;attemptId:string;leaseVersion:number}
-export interface ReportInput {operationId:string;attemptId:string;message:string;references?:ContentReference[]}
-export interface ReconcileInput extends ReportInput {leaseVersion:number;outcome:Confirmation['outcome'];externalOperationId?:string}
+export interface ReportInput {operationId:string;attemptId:string;leaseVersion:number;message:string;references?:ContentReference[]}
+export interface ReconcileInput extends ReportInput {outcome:Confirmation['outcome'];externalOperationId?:string}
 export type ReportSnapshot=ExecutionReport|Reconciliation|Restart;
 export interface Reports {execution:Attempt|null;reports:ExecutionReport[];confirmations:Confirmation[]}
 export interface ReportHistory {events:{sequence:number;principalId:string;operationId:string;attemptId:string;kind:string;recordedAt:number;snapshot:ReportSnapshot}[];nextAfter:number|null}

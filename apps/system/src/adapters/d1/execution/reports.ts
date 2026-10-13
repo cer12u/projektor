@@ -47,7 +47,7 @@ const insertReport=(auth:Authenticated,project:string,issue:string,attempt:strin
 /** Encode the already selected domain transition with transaction-time guards. */
 export async function compileReport(auth:Authenticated,commandInput:ReportCommand,plan:ReportPlan) {
   const {projectId,issueId,action,input}=commandInput;
-  if(plan.action!==action)throw new Error('report_plan_mismatch');
+  if(plan.action!==action||plan.expectedHead.leaseVersion!==input.leaseVersion)throw new Error('report_plan_mismatch');
   const command:MutationCommand={operationId:input.operationId,kind:'execution-report.'+action,targetId:issueId,projectId,input:input as unknown as Json};
   const policyFor=reportPolicies(projectId);
   if(action==='restart'&&plan.action==='restart'){

@@ -2915,6 +2915,11 @@
             "type": "string",
             "pattern": "^A_[a-f0-9]{64}$"
           },
+          "leaseVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740990
+          },
           "message": {
             "type": "string",
             "minLength": 1,
@@ -2932,6 +2937,7 @@
         "required": [
           "operationId",
           "attemptId",
+          "leaseVersion",
           "message"
         ],
         "additionalProperties": false
@@ -2946,6 +2952,11 @@
           "attemptId": {
             "type": "string",
             "pattern": "^A_[a-f0-9]{64}$"
+          },
+          "leaseVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740990
           },
           "message": {
             "type": "string",
@@ -2969,6 +2980,7 @@
         "required": [
           "operationId",
           "attemptId",
+          "leaseVersion",
           "message",
           "failureReason"
         ],
@@ -2985,6 +2997,11 @@
             "type": "string",
             "pattern": "^A_[a-f0-9]{64}$"
           },
+          "leaseVersion": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740990
+          },
           "message": {
             "type": "string",
             "minLength": 1,
@@ -2997,11 +3014,6 @@
               "$ref": "#/components/schemas/ExecutionContentReference"
             },
             "description": "Ordered array; JSON encoding <=4096 UTF-8 bytes; omitted input becomes []."
-          },
-          "leaseVersion": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 9007199254740990
           },
           "outcome": {
             "type": "string",

@@ -43,6 +43,12 @@ jobs:
         run: npm ci --include=dev --include=optional
       - name: Verify active source, boundaries and built API
         run: npm run verify:ci
+      - name: Verify execution fencing and MCP recovery
+        env:
+          PTORDEV32_SELECT: '^live report lease fencing survives renewal, prepared recovery and batch races$'
+        run: |
+          node tests/client/agent/ptordev33-client-check.mjs
+          npm run test:mcp-transport
       - name: Check generated public API freshness
         run: npm run docs:generate && git diff --exit-code -- docs/openapi.json
       - name: Check root release selects only this app

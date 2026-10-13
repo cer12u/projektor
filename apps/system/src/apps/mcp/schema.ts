@@ -76,12 +76,12 @@ export const executionChange=z.discriminatedUnion('action',[
   z.strictObject({action:z.literal('acquire'),operationId:identifier}),
   ...(['renew','end','interrupt'] as const).map(action=>z.strictObject({action:z.literal(action),operationId:identifier,attemptId,leaseVersion:revision}))
 ]);
-export const reportInput={operationId:identifier,attemptId,message:text.min(1).max(4096),references:references.optional()};
+export const reportInput={operationId:identifier,attemptId,leaseVersion:revision,message:text.min(1).max(4096),references:references.optional()};
 export const executionReport=z.discriminatedUnion('action',[
   z.strictObject({action:z.literal('progress'),...reportInput}),
   z.strictObject({action:z.literal('completed'),...reportInput}),
   z.strictObject({action:z.literal('failed'),...reportInput,failureReason:text.min(1).max(2048)}),
-  z.strictObject({action:z.literal('reconcile'),...reportInput,leaseVersion:revision,outcome:z.enum(['not_performed','applied','unknown']),externalOperationId:text.min(1).max(256).optional()}),
+  z.strictObject({action:z.literal('reconcile'),...reportInput,outcome:z.enum(['not_performed','applied','unknown']),externalOperationId:text.min(1).max(256).optional()}),
   z.strictObject({action:z.literal('restart'),operationId:identifier,attemptId,leaseVersion:revision,confirmationOperationId:identifier})
 ]);
 export const operationResource=z.discriminatedUnion('kind',[
@@ -105,7 +105,7 @@ export const storedInput=z.union([
   z.strictObject({operationId:identifier,attemptId,leaseVersion:revision}),
   z.strictObject(reportInput),
   z.strictObject({...reportInput,failureReason:text.min(1).max(2048)}),
-  z.strictObject({...reportInput,leaseVersion:revision,outcome:z.enum(['not_performed','applied','unknown']),externalOperationId:text.min(1).max(256).optional()}),
+  z.strictObject({...reportInput,outcome:z.enum(['not_performed','applied','unknown']),externalOperationId:text.min(1).max(256).optional()}),
   z.strictObject({operationId:identifier,attemptId,leaseVersion:revision,confirmationOperationId:identifier})
 ]);
 const durableFields={sequence:revision,operationId:identifier,recorded:z.literal(true),
@@ -113,9 +113,13 @@ const durableFields={sequence:revision,operationId:identifier,recorded:z.literal
   target:z.strictObject({kind:text,targetId:text,projectId:scope}),requiredPermissions:z.array(z.enum(['view','edit','assign','transition','execute'])),
   preparedAt:natural,result:z.discriminatedUnion('status',[z.strictObject({status:z.literal('unknown')}),z.strictObject({status:z.literal('confirmed'),snapshot})])};
 
-/** Current preparations are strict; future retained inputs are opaque JSON objects, never executed. */
+/** Preparation remains strict. Retained pre-fencing reports are readable data, never new commands. */
+const retainedReportInput={operationId:identifier,attemptId,message:text.min(1).max(4096),references:references.optional()};
+const retainedUnversionedReport=z.strictObject({...durableFields,formatVersion:z.literal(1),
+ route:z.strictObject({kind:z.literal('report'),projectId:identifier,issueId,action:z.enum(['progress','failed','completed'])}),
+ input:z.union([z.strictObject(retainedReportInput),z.strictObject({...retainedReportInput,failureReason:text.min(1).max(2048)})])});
 export const currentDurableOperation=z.strictObject({...durableFields,formatVersion:z.literal(1),input:storedInput});
-export const durableOperation=z.union([currentDurableOperation,z.strictObject({...durableFields,
+export const durableOperation=z.union([currentDurableOperation,retainedUnversionedReport,z.strictObject({...durableFields,
  formatVersion:z.number().int().min(2).max(Number.MAX_SAFE_INTEGER),input:record.refine(value=>new TextEncoder().encode(JSON.stringify(value)).byteLength<=65536,'stored input exceeds 65536 UTF-8 bytes')})]);
 
 export const operationSummary=z.strictObject({sequence:revision,operationId:identifier,formatVersion:z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),inputHash:text.regex(/^[a-f0-9]{64}$/),

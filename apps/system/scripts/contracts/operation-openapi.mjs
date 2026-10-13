@@ -24,7 +24,12 @@ export function addOperationIntentContract(doc){
  S.FutureDurableOperation={...structuredClone(S.CurrentDurableOperation),description:'A recognizable retained target with an unsupported future input format. Input is opaque and bounded to65536 UTF-8 bytes; new execution is prohibited. Confirmed canonical receipts remain recoverable.'};
  S.FutureDurableOperation.properties.formatVersion={...integer,minimum:2};
  S.FutureDurableOperation.properties.input={type:'object',additionalProperties:true,'x-max-utf8-bytes':65536};
- S.DurableOperation={oneOf:[ref('CurrentDurableOperation'),ref('FutureDurableOperation')]};
+ // Read-only retained data: never referenced by preparation input or acknowledgement schemas.
+ const retainedReportInputs=['ExecutionReportInput','ExecutionFailedInput'].map(name=>{const schema=structuredClone(S[name]);delete schema.properties.leaseVersion;schema.required=schema.required.filter(key=>key!=='leaseVersion');return schema;});
+ S.RetainedUnversionedReportOperation={...structuredClone(S.CurrentDurableOperation),description:'Previously persisted report input without a lease version. Authorized reads and confirmed receipt recovery only; new preparation or unconfirmed execution is rejected.'};
+ S.RetainedUnversionedReportOperation.properties.route=obj({kind:{const:'report'},projectId:id,issueId:contentId('I'),action:{enum:['progress','failed','completed']}});
+ S.RetainedUnversionedReportOperation.properties.input={oneOf:retainedReportInputs};
+ S.DurableOperation={oneOf:[ref('CurrentDurableOperation'),ref('RetainedUnversionedReportOperation'),ref('FutureDurableOperation')]};
  S.OperationPreparationAck=obj({operation:ref('CurrentDurableOperation'),requestHash:{type:'string',pattern:'^[a-f0-9]{64}$'}});
  S.OperationSummary=obj({sequence:{...integer,minimum:1},operationId:id,formatVersion:{...integer,minimum:1},inputHash:{type:'string',pattern:'^[a-f0-9]{64}$'},target:obj({kind:str,targetId:str,projectId:scope}),preparedAt:integer,result:obj({status:{enum:['unknown','confirmed']}})});
  S.OperationSummaryPage=obj({operations:{type:'array',maxItems:50,items:ref('OperationSummary')},nextAfter:{anyOf:[integer,{type:'null'}]}});
