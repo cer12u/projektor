@@ -1,6 +1,0 @@
-pre-commit:
-  commands:
-    type-check:
-      run: pnpm turbo type-check
-    lint:
-      run: pnpm biome check --changed --no-errors-on-unmatched
