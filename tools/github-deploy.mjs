@@ -23,8 +23,12 @@ assert.deepEqual(
     "rateIds",
     "r2Name",
     "worker",
+    "oauthEnabled",
+    "integrationsEnabled",
   ].sort(),
 );
+assert.equal(typeof installation.oauthEnabled, "boolean");
+assert.equal(typeof installation.integrationsEnabled, "boolean");
 assert.match(installation.worker, /^[a-z0-9-]{1,63}$/);
 assert.match(installation.d1Id, /^[0-9a-f-]{36}$/);
 assert(
@@ -78,10 +82,16 @@ const config = {
   vars: {
     ACCESS_TEAM_DOMAIN: installation.accessTeamDomain,
     ACCESS_AUDIENCE: installation.accessAudience,
-    OAUTH_ISSUER: origin.origin,
-    OAUTH_RESOURCE: `${origin.origin}/mcp`,
+    ...(installation.oauthEnabled
+      ? { OAUTH_ISSUER: origin.origin, OAUTH_RESOURCE: `${origin.origin}/mcp` }
+      : {}),
   },
-  secrets: { required: ["INTEGRATIONS_KEY", "OAUTH_FORM_SECRET"] },
+  secrets: {
+    required: [
+      ...(installation.integrationsEnabled ? ["INTEGRATIONS_KEY"] : []),
+      ...(installation.oauthEnabled ? ["OAUTH_FORM_SECRET"] : []),
+    ],
+  },
 };
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), "projektor-code-deploy-"));
 const file = path.join(temp, "wrangler.json");
@@ -122,13 +132,22 @@ try {
       secrets.some((x) => x.name === key),
       `Missing Worker secret ${key}`,
     );
+  for (const [enabled, key] of [
+    [installation.oauthEnabled, "OAUTH_FORM_SECRET"],
+    [installation.integrationsEnabled, "INTEGRATIONS_KEY"],
+  ])
+    if (!enabled)
+      assert(
+        !secrets.some((x) => x.name === key),
+        `${key} already enables the feature; review configuration instead of silently disabling it`,
+      );
   run(["kv", "namespace", "list"]).includes(installation.kvId) ||
     assert.fail("Approved KV missing");
   run(["r2", "bucket", "info", installation.r2Name]);
   for (const [url, status] of [
     ["/health", 200],
     ["/api/me", 403],
-    ["/.well-known/oauth-protected-resource/mcp", 200],
+    ...(installation.oauthEnabled ? [["/.well-known/oauth-protected-resource/mcp", 200]] : []),
   ]) {
     const response = await fetch(`${origin.origin}${url}`, { redirect: "manual" });
     assert.equal(response.status, status, `Access/runtime readiness failed for ${url}`);

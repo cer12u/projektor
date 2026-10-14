@@ -29,6 +29,8 @@ test("a preserved database cannot be used for automatic deployment", () => {
       CF_PRESERVED_D1_IDS: d1Id,
       CF_DEPLOY_CONFIG: JSON.stringify({
         worker: "projektor",
+        oauthEnabled: false,
+        integrationsEnabled: false,
         d1Id,
         d1Name: "new-db",
         kvId: "placeholder",
