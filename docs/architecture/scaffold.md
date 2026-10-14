@@ -123,3 +123,11 @@ connections use autocommit to prevent Python sqlite3 from injecting BEGIN while
 validating a data-rebuild migration; explicit transaction statements remain
 forbidden. The healthy Issues upgrade exercises DROP/rebuild, and negative
 fixtures cover explicit data_version/BEGIN and foreign/runtime FTS DROP.
+
+## Step 11a combined-schema FTS probe
+
+New post-FTS ALTER migrations invalidate FTS’s cached connection in the combined schema. The checker-generated `SELECT *` probe for an exact owned registered virtual table may therefore trigger SQLite-internal `data_version`. That generated probe now uses the existing internal introspection permission. Catalog statements do not receive it; explicit PRAGMA and foreign virtual/shadow access still fail the negative fixtures. No ownership rule or runtime SQL allowance changes.
+
+### 11a CI SQLite compatibility
+
+The first MR pipeline exposed another FTS reconnect callback on CI’s Python 3.11.2 / SQLite 3.40.1 (local SQLite is 3.46.1): preparing the generated FTS SELECT compiles FTS’s private table declaration and reports `sqlite_master` UPDATE callbacks for `type`, `name`, `tbl_name`, `rootpage`, `sql`, plus a ROWID read. Reproduced using the cached Bookworm container with the same Python/SQLite versions. Only the checker-generated SELECT for an exact registered owned virtual table accepts these declaration callbacks. Catalog statements and view/trigger probes do not; two additional negative fixtures explicitly reject schema reads by an FTS owner’s catalog and view. This changes no runtime SQL permission.

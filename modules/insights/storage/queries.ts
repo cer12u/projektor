@@ -1,6 +1,4 @@
 export const queries = {
-  knownWorkspaces:
-    "SELECT DISTINCT workspace_id FROM insights_cursors ORDER BY workspace_id LIMIT ?",
   cursor: "SELECT sequence,consumed_at FROM insights_cursors WHERE workspace_id=? AND source=?",
   cursors:
     "SELECT source,sequence,consumed_at FROM insights_cursors WHERE workspace_id=? ORDER BY source",

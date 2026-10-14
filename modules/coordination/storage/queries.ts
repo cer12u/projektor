@@ -59,11 +59,11 @@ export const queries = {
   readReceipt:
     "SELECT fingerprint,result_json FROM coord_receipts WHERE workspace_id=? AND principal_id=? AND operation_id=?",
   event:
-    "INSERT INTO coord_events(workspace_id,sequence,event_id,type,subject_id,actor_id,other_session_id,occurred_at) VALUES(?,(SELECT COALESCE(MAX(sequence),0)+1 FROM coord_events WHERE workspace_id=?),?,?,?,?,?,?)",
+    "INSERT INTO coord_events(workspace_id,sequence,event_id,type,subject_id,actor_id,other_session_id,occurred_at,client_id,schema_version,issue_id,project_id) VALUES(?,(SELECT COALESCE(MAX(sequence),0)+1 FROM coord_events WHERE workspace_id=?),?,?,?,?,?,?,?,2,?,?)",
   agentEvents:
-    "SELECT sequence,event_id,type,subject_id,actor_id,other_session_id,occurred_at FROM coord_events WHERE workspace_id=? AND sequence>? AND (actor_id=? OR other_session_id IN (SELECT id FROM coord_sessions WHERE workspace_id=? AND principal_id=?)) ORDER BY sequence LIMIT ?",
+    "SELECT sequence,event_id,type,subject_id,actor_id,other_session_id,occurred_at,client_id,schema_version,issue_id,project_id FROM coord_events WHERE workspace_id=? AND sequence>? AND (actor_id=? OR other_session_id IN (SELECT id FROM coord_sessions WHERE workspace_id=? AND principal_id=?)) ORDER BY sequence LIMIT ?",
   events:
-    "SELECT sequence,event_id,type,subject_id,actor_id,other_session_id,occurred_at FROM coord_events WHERE workspace_id=? AND sequence>? ORDER BY sequence LIMIT ?",
+    "SELECT sequence,event_id,type,subject_id,actor_id,other_session_id,occurred_at,client_id,schema_version,issue_id,project_id FROM coord_events WHERE workspace_id=? AND sequence>? ORDER BY sequence LIMIT ?",
   guard: "INSERT INTO coord_guards(workspace_id,id,changed) VALUES(?,?,changes())",
   clearGuard: "DELETE FROM coord_guards WHERE workspace_id=? AND id=?",
 } as const;

@@ -64,6 +64,12 @@ export function createAccess(deps: Dependencies): {
   api: AccessApi;
   operator?: OperatorCapability;
   eventReader?: EventReader;
+  background: {
+    listActiveWorkspaceIds(
+      cursor?: string,
+      limit?: number,
+    ): Promise<{ workspaceIds: readonly string[]; nextCursor: string | null }>;
+  };
 } {
   const { store, kv, clock, ids } = deps;
   if (store.owner !== "access") deny();
@@ -683,5 +689,21 @@ export function createAccess(deps: Dependencies): {
       }));
     },
   };
-  return { api: Object.freeze(api), operator, eventReader };
+  return {
+    api: Object.freeze(api),
+    operator,
+    eventReader,
+    background: Object.freeze({
+      async listActiveWorkspaceIds(cursor = "", limit = 100) {
+        if (cursor !== "") identifier(cursor);
+        valid(Number.isSafeInteger(limit) && limit >= 1 && limit <= 100);
+        const rows = (await store.run("activeWorkspaceIds", [cursor, limit + 1])).rows;
+        const workspaceIds = rows.slice(0, limit).map((r) => str(r, "workspace_id"));
+        return {
+          workspaceIds,
+          nextCursor: rows.length > limit ? workspaceIds[workspaceIds.length - 1] : null,
+        };
+      },
+    }),
+  };
 }

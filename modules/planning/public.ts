@@ -21,13 +21,14 @@ export interface PlanningResult {
 export interface PlanningEvent {
   readonly eventId: string;
   readonly source: "planning";
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 1 | 2;
   readonly workspaceId: string;
   readonly aggregateId: string;
   readonly aggregateVersion: number;
   readonly type: "SprintChanged" | "IssueScheduled";
   readonly issueId: string | null;
   readonly actorId: string;
+  readonly payload: { readonly actorId: string; readonly clientId: string | null };
   readonly occurredAt: number;
   readonly cursor: number;
 }

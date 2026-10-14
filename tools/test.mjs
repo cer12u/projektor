@@ -26,6 +26,7 @@ args.push(
   "tools/assets.test.mjs",
   "tools/planning.test.mjs",
   "tools/insights.test.mjs",
+  "tools/insights-scheduled.test.mjs",
 );
 const result = spawnSync(process.execPath, args, { stdio: "inherit" });
 process.exitCode = result.status ?? 1;

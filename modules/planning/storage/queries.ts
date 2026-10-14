@@ -24,7 +24,7 @@ export const queries = {
   readReceipt:
     "SELECT fingerprint,result_id,result_version FROM planning_receipts WHERE workspace_id=? AND principal_id=? AND operation_id=?",
   event:
-    "INSERT INTO planning_events(workspace_id,sequence,event_id,aggregate_id,aggregate_version,type,issue_id,actor_id,occurred_at) VALUES(?,(SELECT COALESCE(MAX(sequence),0)+1 FROM planning_events WHERE workspace_id=?),?,?,?,?,?,?,?)",
+    "INSERT INTO planning_events(workspace_id,sequence,event_id,aggregate_id,aggregate_version,type,issue_id,actor_id,occurred_at,client_id,schema_version) VALUES(?,(SELECT COALESCE(MAX(sequence),0)+1 FROM planning_events WHERE workspace_id=?),?,?,?,?,?,?,?,?,2)",
   events:
-    "SELECT sequence,event_id,aggregate_id,aggregate_version,type,issue_id,actor_id,occurred_at FROM planning_events WHERE workspace_id=? AND sequence>? ORDER BY sequence LIMIT ?",
+    "SELECT sequence,event_id,aggregate_id,aggregate_version,type,issue_id,actor_id,occurred_at,client_id,schema_version FROM planning_events WHERE workspace_id=? AND sequence>? ORDER BY sequence LIMIT ?",
 } as const;

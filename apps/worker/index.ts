@@ -39,7 +39,7 @@ function compose(env: Env) {
       !env.OAUTH_TOKEN_LIMIT)
   )
     throw new Error("Incomplete OAuth configuration");
-  const access = createAccess({
+  const accessModule = createAccess({
     store: createModuleStore(env.DB, "access"),
     kv: createScopedKV(env.KV, "access"),
     clock: systemClock,
@@ -48,7 +48,8 @@ function compose(env: Env) {
     ...(env.OAUTH_ISSUER && env.OAUTH_RESOURCE
       ? { oauth: { issuer: env.OAUTH_ISSUER, resource: env.OAUTH_RESOURCE } }
       : {}),
-  }).api;
+  });
+  const access = accessModule.api;
   const projectModule = createProjects({
     store: createModuleStore(env.DB, "projects"),
     access,
@@ -115,7 +116,7 @@ function compose(env: Env) {
     !planningModule.eventReader
   )
     throw new Error("Insights event capabilities unavailable");
-  const insights = createInsights({
+  const insightsModule = createInsights({
     store: createModuleStore(env.DB, "insights"),
     access,
     projects,
@@ -134,7 +135,8 @@ function compose(env: Env) {
     },
     clock: systemClock,
     ids: randomIds,
-  }).api;
+  });
+  const insights = insightsModule.api;
   const oauthHttp =
     env.OAUTH_ISSUER &&
     env.OAUTH_RESOURCE &&
@@ -154,17 +156,32 @@ function compose(env: Env) {
         )
       : undefined;
   return {
-    access,
-    projects,
-    issues,
-    wiki,
-    coordination,
-    assets,
-    planning,
-    insights,
-    oauthHttp,
-    oauthOrigin: env.OAUTH_ISSUER,
+    background: { access: accessModule.background, insights: insightsModule.background },
+    gateway: {
+      access,
+      projects,
+      issues,
+      wiki,
+      coordination,
+      assets,
+      planning,
+      insights,
+      oauthHttp,
+      oauthOrigin: env.OAUTH_ISSUER,
+    },
   };
+}
+
+export async function consumeActiveWorkspaces(
+  discovery: ReturnType<typeof createAccess>["background"],
+  consumer: ReturnType<typeof createInsights>["background"],
+): Promise<void> {
+  let cursor: string | undefined;
+  do {
+    const page = await discovery.listActiveWorkspaceIds(cursor, 100);
+    for (const workspaceId of page.workspaceIds) await consumer.consumeEvents(workspaceId, 100);
+    cursor = page.nextCursor ?? undefined;
+  } while (cursor);
 }
 
 // One composition per isolate keeps the verifier’s bounded trusted JWKS cache.
@@ -172,11 +189,11 @@ let services: ReturnType<typeof compose> | undefined;
 export default {
   fetch(request: Request, env: Env): Promise<Response> {
     services ??= compose(env);
-    return handleHttp(request, services);
+    return handleHttp(request, services.gateway);
   },
   async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
     services ??= compose(env);
-    await services.assets.drainGc();
-    await services.insights.drainKnownWorkspaces();
+    await services.gateway.assets.drainGc();
+    await consumeActiveWorkspaces(services.background.access, services.background.insights);
   },
 };

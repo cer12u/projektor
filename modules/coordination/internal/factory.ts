@@ -173,6 +173,8 @@ export function createCoordination(d: Dependencies): {
       type: CoordinationEvent["type"];
       subject: string;
       other?: string | null;
+      issueId?: string | null;
+      projectId?: string | null;
     }[] = [],
   ): Promise<T> {
     const at = clock.now();
@@ -191,6 +193,9 @@ export function createCoordination(d: Dependencies): {
             actor(scope),
             e.other ?? null,
             at,
+            scope.clientId ?? null,
+            e.issueId ?? null,
+            e.projectId ?? null,
           ],
         })),
       ]);
@@ -528,10 +533,12 @@ export function createCoordination(d: Dependencies): {
       const forced = input.force === true;
       if (input.force !== undefined && typeof input.force !== "boolean")
         fail("validation", "Invalid force");
+      let forcedProject: string | null = null;
       if (forced) {
         if (!linked) fail("validation", "Force requires lease");
         const lease = await fenced(scope, sid, linked, input.fencingToken ?? 0);
         await projects.authorizeProject(scope, lease.projectId, "manage");
+        forcedProject = lease.projectId;
       }
       const fingerprint = await fp("claim", input.operationId, [
         sid,
@@ -592,6 +599,8 @@ export function createCoordination(d: Dependencies): {
         contention.map((c) => ({
           type: "FileClaimForced",
           subject: `${repository}/${c.path}`,
+          issueId: linked,
+          projectId: forcedProject,
           other: c.holder,
         })),
       );
@@ -739,11 +748,17 @@ export function createCoordination(d: Dependencies): {
       return rows.map((r) => ({
         eventId: field(r, "event_id"),
         source: "coordination" as const,
-        schemaVersion: 1 as const,
+        schemaVersion: num(r, "schema_version") as 1 | 2,
         workspaceId,
         type: field(r, "type") as CoordinationEvent["type"],
         subjectId: field(r, "subject_id"),
         actorId: field(r, "actor_id"),
+        payload: {
+          actorId: field(r, "actor_id"),
+          clientId: r.client_id === null ? null : field(r, "client_id"),
+        },
+        issueId: nullable(r, "issue_id"),
+        projectId: nullable(r, "project_id"),
         otherSessionId: nullable(r, "other_session_id"),
         occurredAt: num(r, "occurred_at"),
         cursor: num(r, "sequence"),
@@ -756,11 +771,17 @@ export function createCoordination(d: Dependencies): {
       return rows.map((r) => ({
         eventId: field(r, "event_id"),
         source: "coordination" as const,
-        schemaVersion: 1 as const,
+        schemaVersion: num(r, "schema_version") as 1 | 2,
         workspaceId: wId,
         type: field(r, "type") as CoordinationEvent["type"],
         subjectId: field(r, "subject_id"),
         actorId: field(r, "actor_id"),
+        payload: {
+          actorId: field(r, "actor_id"),
+          clientId: r.client_id === null ? null : field(r, "client_id"),
+        },
+        issueId: nullable(r, "issue_id"),
+        projectId: nullable(r, "project_id"),
         otherSessionId: nullable(r, "other_session_id"),
         occurredAt: num(r, "occurred_at"),
         cursor: num(r, "sequence"),

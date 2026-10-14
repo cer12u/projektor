@@ -10,7 +10,7 @@ Projects owns project identity, direct principal grants, archive state, operatio
 - `getProject` and `authorizeProject` return `not_found` for a nonparticipant, foreign tenant, or archived project. `listVisibleProjects` uses project ID as a keyset cursor and returns at most 100 active projects per page. An explicitly supplied cursor must be a string. It performs Access admission on each call. `readOperation` checks current project visibility before returning a receipt. Event reads require the composition-held reader capability.
 - Every command has an operation ID unique per `(workspace, principal)`. A retry with the same input returns its stored result after live admission; reuse with different input is a conflict. Business update, CAS guard, receipt, and versioned outbox/history event share one D1 batch. An unrecoverable batch result is `unknown`; retry the same operation ID.
 
-`ProjectChanged`, `ProjectArchived`, and `ProjectGrantChanged` are schema version 1 events. A grant event uses the project as aggregate, so its `aggregateVersion` is the new project version. The outbox has no consumer state in this step.
+`ProjectChanged`, `ProjectArchived`, and `ProjectGrantChanged` now emit schema version 2 with nullable `payload.clientId` from RequestScope. Existing schema version 1 events remain readable with null attribution. A grant event uses the project as aggregate, so its `aggregateVersion` is the new project version. The outbox has no consumer state in this step.
 
 ## Limits and later integration
 

@@ -137,7 +137,20 @@ export function createAssets(d: Dependencies): { api: AssetsApi; eventReader?: A
         ...calls,
         { name: "history", values: [action, actor(scope), at, ws, assetId] },
         { name: "receipt", values: [ws, actor(scope), op, fp, ws, assetId] },
-        { name: "event", values: [ws, ws, ids.next(), assetId, next, action, at, actor(scope)] },
+        {
+          name: "event",
+          values: [
+            ws,
+            ws,
+            ids.next(),
+            assetId,
+            next,
+            action,
+            at,
+            actor(scope),
+            scope.clientId ?? null,
+          ],
+        },
       ]);
     } catch (e) {
       try {
@@ -355,13 +368,16 @@ export function createAssets(d: Dependencies): { api: AssetsApi; eventReader?: A
       return (await store.run("events", [id(workspaceId), cursor, limit])).rows.map((r) => ({
         eventId: string(r, "event_id"),
         source: "assets" as const,
-        schemaVersion: 1 as const,
+        schemaVersion: number(r, "schema_version") as 1 | 2,
         workspaceId,
         aggregateId: string(r, "aggregate_id"),
         aggregateVersion: number(r, "aggregate_version"),
         type: string(r, "type") as AssetEvent["type"],
         occurredAt: number(r, "occurred_at"),
-        payload: { actorId: string(r, "actor_id") },
+        payload: {
+          actorId: string(r, "actor_id"),
+          clientId: r.client_id === null ? null : string(r, "client_id"),
+        },
         cursor: number(r, "sequence"),
       }));
     },

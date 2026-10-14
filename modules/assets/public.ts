@@ -25,13 +25,13 @@ export interface AssetResult {
 export interface AssetEvent {
   readonly eventId: string;
   readonly source: "assets";
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 1 | 2;
   readonly workspaceId: string;
   readonly aggregateId: string;
   readonly aggregateVersion: number;
   readonly type: "AssetBegun" | "AssetCompleted" | "AssetLinked" | "AssetUnlinked";
   readonly occurredAt: number;
-  readonly payload: { readonly actorId: string };
+  readonly payload: { readonly actorId: string; readonly clientId: string | null };
   readonly cursor: number;
 }
 declare const readerBrand: unique symbol;

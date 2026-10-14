@@ -696,3 +696,19 @@ test("09a download after membership revoke rejects a previously authorized asset
   f.revoke(s);
   await assert.rejects(f.api.downloadAsset(s, "b1"), error("forbidden"));
 });
+
+test("11a Assets event attribution and legacy null", async () => {
+  const f = await fixture();
+  await f.api.beginUpload(f.scope("w1", "agent", { clientId: "Dots" }), await f.input());
+  const current = (await f.api.readEvents(f.eventReader, "w1", 0, 100))[0];
+  assert.equal(current.schemaVersion, 2);
+  assert.equal(current.payload.clientId, "Dots");
+  await f.db
+    .prepare(
+      "INSERT INTO assets_events(workspace_id,sequence,event_id,aggregate_id,aggregate_version,type,actor_id,occurred_at) VALUES('w1',2,'old','b1',1,'AssetBegun','agent',1)",
+    )
+    .run();
+  const old = (await f.api.readEvents(f.eventReader, "w1", 1, 100))[0];
+  assert.equal(old.schemaVersion, 1);
+  assert.equal(old.payload.clientId, null);
+});

@@ -121,7 +121,18 @@ export function createPlanning(d: Dependencies): {
         { name: "receipt", values: [ws(s), actor(s), op, fp, ws(s), sprintId] },
         {
           name: "event",
-          values: [ws(s), ws(s), ids.next(), sprintId, next, type, issueId, actor(s), at],
+          values: [
+            ws(s),
+            ws(s),
+            ids.next(),
+            sprintId,
+            next,
+            type,
+            issueId,
+            actor(s),
+            at,
+            s.clientId ?? null,
+          ],
         },
       ]);
     } catch (e) {
@@ -273,13 +284,17 @@ export function createPlanning(d: Dependencies): {
       return (await store.run("events", [id(workspaceId), cursor, limit])).rows.map((r) => ({
         eventId: str(r, "event_id"),
         source: "planning" as const,
-        schemaVersion: 1 as const,
+        schemaVersion: num(r, "schema_version") as 1 | 2,
         workspaceId,
         aggregateId: str(r, "aggregate_id"),
         aggregateVersion: num(r, "aggregate_version"),
         type: str(r, "type") as PlanningEvent["type"],
         issueId: r.issue_id === null ? null : str(r, "issue_id"),
         actorId: str(r, "actor_id"),
+        payload: {
+          actorId: str(r, "actor_id"),
+          clientId: r.client_id === null ? null : str(r, "client_id"),
+        },
         occurredAt: num(r, "occurred_at"),
         cursor: num(r, "sequence"),
       }));

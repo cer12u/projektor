@@ -960,3 +960,55 @@ test("07c OAuth owner cannot set WIP cap; interactive owner retains CAS and retr
     code("conflict"),
   );
 });
+
+test("11a Coordination attribution and forced claim project identity, legacy null", async () => {
+  const f = await fixture();
+  const a = f.issue("w1", "a");
+  const m = f.auth.issue({
+    id: "manager",
+    workspaceId: "w1",
+    role: "owner",
+    kind: "machine",
+    scope: "write",
+    active: true,
+    clientId: "Codex",
+  });
+  await start(f.api, a, "sa");
+  await start(f.api, m, "sm");
+  const lease = await acquire(f.api, m, "sm", "p1-a");
+  await f.api.claimFiles(a, {
+    operationId: "claim",
+    sessionId: "sa",
+    repo: "repo",
+    paths: ["file"],
+  });
+  await f.api.claimFiles(m, {
+    operationId: "force",
+    sessionId: "sm",
+    repo: "repo",
+    paths: ["file"],
+    leaseIssueId: "p1-a",
+    fencingToken: lease.fencingToken,
+    force: true,
+  });
+  const events = await f.api.readEvents(f.eventReader, "w1", 0, 100);
+  assert(events.every((e) => e.schemaVersion === 2 && e.payload.clientId === "Codex"));
+  const forced = events.find((e) => e.type === "FileClaimForced");
+  assert.equal(forced.issueId, "p1-a");
+  assert.equal(forced.projectId, "p1");
+  assert.equal(forced.subjectId, "repo/file");
+  assert.deepEqual(
+    (await f.api.readAgentEvents(a, 0, 100)).find((e) => e.type === "FileClaimForced"),
+    forced,
+  );
+  await f.db
+    .prepare(
+      "INSERT INTO coord_events(workspace_id,sequence,event_id,type,subject_id,actor_id,occurred_at) VALUES('w1',3,'old','FileClaimForced','repo/file','a',1)",
+    )
+    .run();
+  const old = (await f.api.readEvents(f.eventReader, "w1", 2, 100))[0];
+  assert.equal(old.schemaVersion, 1);
+  assert.equal(old.payload.clientId, null);
+  assert.equal(old.issueId, null);
+  assert.equal(old.projectId, null);
+});

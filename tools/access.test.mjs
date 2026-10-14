@@ -1888,3 +1888,22 @@ test("07c client revoke rejects OAuth-derived owner before effects", async () =>
     false,
   );
 });
+
+test("11a background discovery pages active workspaces without membership or first read", async () => {
+  const f = await fixture();
+  for (const w of ["w3", "w1", "w2"]) await f.owner(w);
+  const human = await f.human();
+  await f.api.archiveWorkspace(await f.api.requireMembership(human, "w2", "archive"), {
+    operationId: "archive",
+    expectedVersion: 1,
+  });
+  assert.equal("listActiveWorkspaceIds" in f.api, false);
+  const first = await f.background.listActiveWorkspaceIds(undefined, 1);
+  assert.deepEqual(first, { workspaceIds: ["w1"], nextCursor: "w1" });
+  assert.deepEqual(await f.background.listActiveWorkspaceIds(first.nextCursor, 1), {
+    workspaceIds: ["w3"],
+    nextCursor: null,
+  });
+  for (const limit of [0, 101, 1.5])
+    await assert.rejects(f.background.listActiveWorkspaceIds(undefined, limit), code("validation"));
+});

@@ -34,6 +34,52 @@ const ddl = (root, sql, object) => {
 };
 const cases = [
   [
+    "FTS owner catalog cannot read schema metadata",
+    "sql-ownership",
+    (r) =>
+      write(
+        r,
+        "modules/issues/storage/queries.ts",
+        'export const queries = { leak: "SELECT sql FROM sqlite_master" } as const;',
+      ),
+  ],
+  [
+    "FTS owner view cannot read schema metadata",
+    "sql-ownership",
+    (r) => {
+      append(
+        r,
+        "modules/issues/storage/migrations/0002_search_attribution.sql",
+        "\nCREATE VIEW issues_schema_leak AS SELECT sql FROM sqlite_master;\n",
+      );
+      manifest(r, (owners) =>
+        owners.find((o) => o.id === "issues").storage.objects.push("issues_schema_leak"),
+      );
+    },
+  ],
+
+  [
+    "Gateway cannot import Access background discovery factory",
+    "import",
+    (r) =>
+      write(
+        r,
+        "gateway/background.ts",
+        'export { createAccess } from "../modules/access/internal/factory";',
+      ),
+  ],
+  [
+    "Gateway cannot import Insights consumer factory",
+    "import",
+    (r) =>
+      write(
+        r,
+        "gateway/background.ts",
+        'export { createInsights } from "../modules/insights/internal/factory";',
+      ),
+  ],
+
+  [
     "union hides storage",
     "public-type",
     (r) => append(r, `${a}/public.ts`, 'export type Hidden = "none" | { nested: D1Database };'),
