@@ -240,7 +240,11 @@ export function createAssets(d: Dependencies): {
         await bucketFor(w(scope)).put(key(w(scope), assetId), body);
         const frozen = await one("uploadFrozen", [w(scope), string(r, "project_id")]);
         if (frozen) {
-          await bucketFor(w(scope)).delete(key(w(scope), assetId));
+          try {
+            await bucketFor(w(scope)).delete(key(w(scope), assetId));
+          } catch {
+            /* GC tombstone retries. */
+          }
           fail("conflict", "Scope frozen");
         }
       } finally {
@@ -444,8 +448,27 @@ export function createAssets(d: Dependencies): {
         ]);
         done++;
       }
+      const tombstones = (await store.run("tombstoneDue", [limit])).rows;
+      for (const row of tombstones) {
+        const ws = string(row, "workspace_id"),
+          objectKey = string(row, "object_key");
+        if (clock.now() < number(row, "sweep_until")) await bucketFor(ws).delete(objectKey);
+        else await store.run("tombstoneRemove", [ws, objectKey]);
+        done++;
+      }
+      const scopes = (await store.run("workspaceSweeps", [clock.now(), limit])).rows;
+      for (const row of scopes) {
+        const ws = string(row, "workspace_id"),
+          bucket = bucketFor(ws);
+        const prefix = `assets/${ws}/`;
+        const page = await bucket.list(prefix, undefined, limit);
+        for (const objectKey of page.keys) {
+          await bucket.delete(objectKey);
+          done++;
+        }
+      }
       return done;
     },
   };
-  return { api, eventReader, maintenance: createMaintenance(store, bucketFor) };
+  return { api, eventReader, maintenance: createMaintenance(store, bucketFor, clock) };
 }

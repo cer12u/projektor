@@ -117,6 +117,7 @@ export interface AssetsMaintenance {
   }): Promise<AssetsPurgeStatus | null>;
 }
 export interface AssetsPurgeStatus {
+  readonly sweepingUntil?: number;
   readonly state: "frozen" | "purging" | "purged";
   readonly remaining: number;
   readonly pending: number;

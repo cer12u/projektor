@@ -99,6 +99,7 @@ export function createLifecycle(d: Dependencies): {
         remaining: num(r, "remaining"),
         pending: num(r, "pending"),
         error: r.error === null ? null : str(r, "error"),
+        ...(typeof r.sweeping_until === "number" ? { sweepingUntil: r.sweeping_until } : {}),
       })),
     };
   }
@@ -273,7 +274,8 @@ export function createLifecycle(d: Dependencies): {
     let state: PurgeStep["state"] = step.state,
       remaining = step.remaining,
       pending = step.pending,
-      error: string | null = null;
+      error: string | null = null,
+      sweepingUntil = step.sweepingUntil ?? null;
     // Persist purging before entering an owner. This also makes terminal receipt access
     // survive Access deletion followed by a crash before the acknowledgement is stored.
     if (j.state === "purging" && step.state === "frozen") {
@@ -281,7 +283,16 @@ export function createLifecycle(d: Dependencies): {
         ...cas(j, j.state),
         {
           name: "saveStep",
-          values: ["purging", remaining, pending, null, j.workspaceId, j.id, name],
+          values: [
+            "purging",
+            remaining,
+            pending,
+            null,
+            step.sweepingUntil ?? null,
+            j.workspaceId,
+            j.id,
+            name,
+          ],
         },
         ...audit({ ...j, version: j.version + 1 }, "PurgeAdvanced", "scheduler"),
       ]);
@@ -298,6 +309,10 @@ export function createLifecycle(d: Dependencies): {
         throw new PlatformError("unknown", "Invalid maintenance acknowledgement");
       remaining = observed.remaining;
       pending = observed.pending;
+      sweepingUntil =
+        "sweepingUntil" in observed && typeof observed.sweepingUntil === "number"
+          ? observed.sweepingUntil
+          : null;
       state =
         j.state === "freezing"
           ? "frozen"
@@ -309,7 +324,10 @@ export function createLifecycle(d: Dependencies): {
     }
     await store.batch([
       ...cas(j, j.state, error || pending ? clock.now() + 30 : 0),
-      { name: "saveStep", values: [state, remaining, pending, error, j.workspaceId, j.id, name] },
+      {
+        name: "saveStep",
+        values: [state, remaining, pending, error, sweepingUntil, j.workspaceId, j.id, name],
+      },
       ...audit({ ...j, version: j.version + 1 }, "PurgeAdvanced", "scheduler"),
     ]);
   }

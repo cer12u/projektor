@@ -21,7 +21,7 @@ before(async () => {
     modules: true,
     script: "export default {fetch(){return new Response('ok')}}",
     compatibilityDate: "2026-07-30",
-    d1Databases: ["A0", "A1", "A2", "A3"],
+    d1Databases: ["A0", "A1", "A2", "A3", "A4"],
     r2Buckets: ["R2"],
   });
 });
@@ -34,6 +34,7 @@ async function fixture() {
     store = p.createModuleStore(db, "assets");
   const ws = `w${n}`;
   let count = 0,
+    now = 100,
     hook,
     fault;
   const make = () =>
@@ -61,7 +62,7 @@ async function fixture() {
       },
       issues: {},
       wiki: {},
-      clock: { now: () => 100 },
+      clock: { now: () => now },
       ids: { next: () => `a${++count}` },
       bucketFor: (workspace) => {
         const b = p.createScopedBucket(raw, "assets", workspace);
@@ -109,6 +110,9 @@ async function fixture() {
     },
     setFault: () => {
       fault = true;
+    },
+    setNow: (value) => {
+      now = value;
     },
   };
 }
@@ -216,7 +220,7 @@ test("an active R2 upload prevents freeze acknowledgement until compensation fin
   await at;
   const scope = { workspaceId: f.ws };
   assert.equal((await module.maintenance.freezeScope(scope)).pending, 1);
-  assert.equal((await module.maintenance.purgeScope(scope)).state, "frozen");
+  assert.equal((await module.maintenance.purgeScope(scope)).state, "purged");
   release();
   await assert.rejects(upload, (e) => e.code === "conflict");
   assert.equal(await f.raw.get(`assets/${f.ws}/active`), null);
@@ -224,17 +228,36 @@ test("an active R2 upload prevents freeze acknowledgement until compensation fin
   await finish(f, scope);
 });
 
-test("interrupted upload admission is retained across restart rather than falsely completing purge", async () => {
+test("unresolved admission is tombstoned, retried by GC, then expires", async () => {
   const f = await fixture();
   await f.begin("unknown");
+  await f.raw.put(`assets/${f.ws}/unknown`, f.bytes);
   await f.store.run("uploadStart", [f.ws, "crashed", f.ws, "unknown"]);
-  const restarted = f.make();
+  const scope = { workspaceId: f.ws, projectId: "p1" };
+  await f.make().maintenance.freezeScope(scope);
+  f.setFault();
+  await assert.rejects(f.make().maintenance.purgeScope(scope), /R2 unavailable/);
+  assert.equal((await f.make().maintenance.purgeStatus(scope)).pending, 1);
+  const result = await finish(f, scope);
+  assert.equal(result.sweepingUntil, 100 + 7 * 86400);
+  assert.equal(await f.raw.get(`assets/${f.ws}/unknown`), null);
+  assert.equal((await f.store.run("tombstoneDue", [10])).rows.length, 1);
+  await f.raw.put(`assets/${f.ws}/unknown`, f.bytes);
+  await f.make().api.drainGc();
+  assert.equal(await f.raw.get(`assets/${f.ws}/unknown`), null);
+  f.setNow(result.sweepingUntil);
+  await f.make().api.drainGc();
+  assert.equal((await f.store.run("tombstoneDue", [10])).rows.length, 0);
+});
+
+test("workspace sweep removes stray objects only in purged workspace", async () => {
+  const f = await fixture();
   const scope = { workspaceId: f.ws };
-  assert.equal((await restarted.maintenance.freezeScope(scope)).pending, 1);
-  for (let i = 0; i < 3; i++) {
-    const status = await f.make().maintenance.purgeScope(scope);
-    assert.equal(status.state, "frozen");
-    assert.equal(status.pending, 1);
-  }
-  assert.equal((await f.store.run("blob", [f.ws, "unknown"])).rows.length, 1);
+  await f.make().maintenance.freezeScope(scope);
+  await finish(f, scope);
+  await f.raw.put(`assets/${f.ws}/stray`, f.bytes);
+  await f.raw.put(`assets/other/keep`, f.bytes);
+  await f.make().api.drainGc();
+  assert.equal(await f.raw.get(`assets/${f.ws}/stray`), null);
+  assert(await f.raw.get("assets/other/keep"));
 });

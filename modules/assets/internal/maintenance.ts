@@ -1,5 +1,6 @@
 import {
   type Call,
+  type Clock,
   type ModuleStore,
   PlatformError,
   type ScopedBucket,
@@ -9,9 +10,11 @@ import type { queries } from "../storage/queries";
 
 type Name = keyof typeof queries;
 type Scope = Parameters<AssetsMaintenance["freezeScope"]>[0];
+export const TOMBSTONE_SWEEP_SECONDS = 7 * 24 * 60 * 60;
 export function createMaintenance(
   store: ModuleStore<"assets", Name>,
   bucketFor: (workspaceId: string) => ScopedBucket,
+  clock: Clock,
 ): AssetsMaintenance {
   function values(s: Scope): [string, string, string] {
     if (
@@ -41,7 +44,14 @@ export function createMaintenance(
         (await store.run("maintenanceUnattributed", [s.workspaceId, s.workspaceId])).rows[0]?.n ??
           0,
       );
-    return { state: marker.state as AssetsPurgeStatus["state"], remaining, pending };
+    return {
+      state: marker.state as AssetsPurgeStatus["state"],
+      remaining,
+      pending,
+      ...(typeof marker.sweeping_until === "number"
+        ? { sweepingUntil: marker.sweeping_until }
+        : {}),
+    };
   }
   async function batch(ws: string, calls: Call<Name>[]) {
     await store.batch([
@@ -64,7 +74,19 @@ export function createMaintenance(
         ws = s.workspaceId;
       const before = await status(s);
       if (!before) throw new PlatformError("conflict", "Scope must be frozen");
-      if (before.state === "purged" || before.pending) return before;
+      if (before.state === "purged") return before;
+      if (before.pending) {
+        for (const row of (await store.run("maintenancePendingUploads", v)).rows) {
+          if (typeof row.id !== "string" || typeof row.asset_id !== "string")
+            throw new PlatformError("unknown", "Invalid upload admission");
+          const objectKey = `assets/${ws}/${row.asset_id}`;
+          await store.run("tombstoneAdd", [ws, objectKey, clock.now() + TOMBSTONE_SWEEP_SECONDS]);
+          await bucketFor(ws).delete(objectKey);
+          await store.run("maintenanceCollectUpload", [ws, row.id]);
+        }
+        const drained = await status(s);
+        if (!drained || drained.pending) return drained ?? before;
+      }
       await store.run("maintenanceBegin", v.slice(0, 2));
       await batch(
         ws,
@@ -109,8 +131,9 @@ export function createMaintenance(
       const next = await status(s);
       if (!next) throw new PlatformError("unknown", "Missing purge status");
       if (next.remaining === 0 && next.pending === 0) {
-        await store.run("maintenanceDone", v.slice(0, 2));
-        return { ...next, state: "purged" };
+        const sweepingUntil = clock.now() + TOMBSTONE_SWEEP_SECONDS;
+        await store.run("maintenanceDone", [sweepingUntil, ...v.slice(0, 2)]);
+        return { ...next, state: "purged", sweepingUntil };
       }
       return next;
     },

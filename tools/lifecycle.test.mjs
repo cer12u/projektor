@@ -193,6 +193,10 @@ test("human workspace owner, exact confirmation, scoped CAS and immutable operat
     (e) => e.code === "validation",
   );
   await assert.rejects(
+    f.api().requestPurge(f.scope, { ...f.input, confirmation: undefined }),
+    (e) => e.code === "validation",
+  );
+  await assert.rejects(
     f.api().requestPurge(f.scope, { ...f.input, expectedVersion: 1 }),
     (e) => e.code === "conflict",
   );
@@ -310,5 +314,37 @@ test("pending acknowledgements and incomplete R2 counts hold the global barrier"
   assert(!f.erased.has("access"));
   remaining = 0;
   f.erased.add("assets");
+  await finish(f);
+});
+
+test("a purged owner acknowledgement cannot complete while R2 or pending work remains", async () => {
+  const f = await fixture();
+  let remaining = 1;
+  let pending = 0;
+  f.owners.assets.purgeScope = async () => {
+    if (remaining === 0 && pending === 0) f.erased.add("assets");
+    return { state: "purged", remaining, pending };
+  };
+  f.owners.assets.purgeStatus = async () =>
+    f.frozen.has("assets") ? { state: "purged", remaining, pending } : null;
+  await f.api().requestPurge(f.scope, f.input);
+  for (let i = 0; i < 40; i++) {
+    const j = await f.status();
+    if (j.state === "purging" && j.steps.find((s) => s.owner === "assets").state === "purging")
+      break;
+    await f.tick();
+  }
+  assert.equal((await f.status()).steps.find((s) => s.owner === "assets").state, "purging");
+  await f.tick();
+  assert.equal((await f.status()).steps.find((s) => s.owner === "assets").state, "purging");
+  assert(!f.erased.has("access"));
+  remaining = 0;
+  pending = 1;
+  await f.tick();
+  const waiting = await f.status();
+  assert.equal(waiting.state, "purging");
+  assert.equal(waiting.steps.find((s) => s.owner === "assets").pending, 1);
+  assert(!f.erased.has("access"));
+  pending = 0;
   await finish(f);
 });

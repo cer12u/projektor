@@ -6,6 +6,7 @@ export interface LifecycleScope {
   readonly requestId: string;
 }
 export interface PurgeStep {
+  readonly sweepingUntil?: number;
   readonly owner: string;
   readonly state: "pending" | "frozen" | "purging" | "purged";
   readonly remaining: number;

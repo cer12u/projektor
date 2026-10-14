@@ -411,7 +411,8 @@
           "assets_guards",
           "assets_frozen",
           "assets_maintenance_bypass",
-          "assets_uploads"
+          "assets_uploads",
+          "assets_r2_tombstones"
         ],
         "objects": [
           "assets_target",

@@ -30,6 +30,11 @@ export interface ByteReader {
   cancel(): Promise<void>;
 }
 export interface ScopedBucket {
+  list(
+    prefix: string,
+    cursor?: string,
+    limit?: number,
+  ): Promise<{ keys: readonly string[]; cursor?: string }>;
   open(key: string): Promise<ByteReader | null>;
   get(key: string): Promise<ArrayBuffer | null>;
   put(key: string, value: ArrayBuffer): Promise<void>;

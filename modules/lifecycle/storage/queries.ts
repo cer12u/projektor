@@ -2,7 +2,7 @@ export const queries = {
   job: "SELECT * FROM lifecycle_jobs WHERE workspace_id=? AND id=?",
   scopeJob: "SELECT * FROM lifecycle_jobs WHERE workspace_id=? AND scope_id=?",
   steps:
-    "SELECT owner,state,remaining,pending,error FROM lifecycle_steps WHERE workspace_id=? AND job_id=? ORDER BY ordinal",
+    "SELECT owner,state,remaining,pending,error,sweeping_until FROM lifecycle_steps WHERE workspace_id=? AND job_id=? ORDER BY ordinal",
   due: "SELECT * FROM lifecycle_jobs WHERE state!='complete' AND next_attempt_at<=? ORDER BY next_attempt_at,workspace_id,id LIMIT ?",
   create:
     "INSERT INTO lifecycle_jobs(workspace_id,id,scope_id,project_id,requester_id,version,state,updated_at,next_attempt_at) VALUES(?,?,?,?,?,1,'freezing',?,0)",
@@ -10,7 +10,7 @@ export const queries = {
   advance:
     "UPDATE lifecycle_jobs SET version=version+1,state=?,updated_at=?,next_attempt_at=? WHERE workspace_id=? AND id=? AND version=? AND state!='complete'",
   saveStep:
-    "UPDATE lifecycle_steps SET state=?,remaining=?,pending=?,error=? WHERE workspace_id=? AND job_id=? AND owner=?",
+    "UPDATE lifecycle_steps SET state=?,remaining=?,pending=?,error=?,sweeping_until=? WHERE workspace_id=? AND job_id=? AND owner=?",
   guard: "INSERT INTO lifecycle_guards(workspace_id,id,changed) VALUES(?,?,changes())",
   clearGuard: "DELETE FROM lifecycle_guards WHERE workspace_id=? AND id=?",
   receipt:

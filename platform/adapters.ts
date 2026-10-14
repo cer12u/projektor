@@ -82,6 +82,14 @@ export function createScopedBucket(
       throw new PlatformError("forbidden", "Invalid workspace object key");
   };
   return Object.freeze({
+    async list(requestedPrefix: string, cursor?: string, limit = 100) {
+      if (requestedPrefix !== prefix) throw new PlatformError("forbidden", "Invalid bucket prefix");
+      const page = await bucket.list({ prefix: requestedPrefix, cursor, limit });
+      return {
+        keys: page.objects.map((object) => object.key),
+        ...(page.truncated ? { cursor: page.cursor } : {}),
+      };
+    },
     async get(key: string) {
       check(key);
       const object = await bucket.get(key);

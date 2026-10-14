@@ -84,6 +84,17 @@ receipt. A failed R2 delete cannot acknowledge completion. Its purge handles at
 most 10 blobs per call. Upload admission is recorded in Assets D1 before the R2
 write. Freeze waits for admitted uploads; an upload completing across freeze
 deletes its object before releasing admission. Ordinary GC skips frozen scopes.
+An unresolved upload admission is collected during purge: Assets first deletes its
+R2 key, records an Assets-owned tombstone for seven days, then removes the
+admission. Purge reports `purged` with `sweepingUntil`; Lifecycle can complete
+once every owner reports purged. Scheduled Assets GC re-deletes tombstoned keys
+on each run within the window and drops expired tombstones. During the same
+window, a purged workspace also sweeps its scoped R2 prefix. A late upload
+crossing freeze deletes its own object on a best-effort basis. Download requires
+metadata, so a late orphan is unreachable. Worker HTTP requests have no fixed
+wall-clock limit: no elapsed freeze horizon proves that a write cannot arrive.
+A write arriving after the seven-day sweep can leave an unreachable object
+without metadata; an operational bucket audit is needed to find such objects.
 
 ## Upgrade and external-operation limits
 
@@ -98,10 +109,8 @@ The no-importer owner decision remains in force. Existing-data attribution needs
 an explicit operator-supplied mapping or a separately reviewed reconciliation.
 
 D1 and R2 do not share a transaction. A Worker crash during an admitted upload
-can leave its durable admission unresolved. This implementation deliberately
-keeps purge incomplete rather than expiring admission and allowing a late R2
-write to resurrect the object. Automatic resolution of such ambiguous uploads
-needs an upload protocol with a reliable external completion fence. The same
+can leave its durable admission unresolved until purge; R2 deletion and
+tombstone recording precede admission collection and purge completion. The same
 D1 freeze cannot retract a webhook HTTP request already sent before freeze;
 its delayed local state update is rejected, and no new delivery is admitted.
 
