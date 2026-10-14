@@ -40,3 +40,7 @@ export class PlatformError extends Error {
     this.name = "PlatformError";
   }
 }
+
+export interface RateLimiter {
+  allow(key: string): Promise<boolean>;
+}

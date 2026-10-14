@@ -20,7 +20,7 @@
     "verify": "pnpm lint && pnpm typecheck && pnpm check:boundaries && pnpm test:boundary-checkers && pnpm test:modules && pnpm test:migrations && pnpm build && pnpm check:artifact && pnpm test:gateway",
     "smoke:cloudflare": "node tools/disabled.mjs",
     "deploy:artifact": "node tools/disabled.mjs",
-    "test:gateway": "node --test --test-reporter=dot tools/gateway.test.mjs"
+    "test:gateway": "node --test --test-concurrency=1 --test-reporter=dot tools/gateway.test.mjs tools/gateway-oauth.test.mjs tools/gateway-oauth-rules.test.mjs"
   },
   "dependencies": {
     "hono": "4.13.13"

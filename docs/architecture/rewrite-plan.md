@@ -484,3 +484,24 @@ SQLite内部のFTS DROP時data_versionとPython注入BEGINを利用者SQLと混�
 前者を所有virtual tableの正確なDROPに限定して扱い、後者をautocommit接続で発生
 させないようにする。明示PRAGMA/transaction・他owner DROP・runtime DDLの拒否は
 負のテストで維持する。owner依存・storage境界・生bindingの流れは変更しない。
+
+
+### Step 06b HTTP integration decisions
+
+Use one configured OAuth resource (`issuer + /mcp`) for all MCP workspace paths;
+REST rejects OAuth. This replaces 06a's request-derived per-workspace audience.
+The GET/POST one-time form requirement needs strongly consistent shared state:
+Gateway memory loses replay knowledge on restart and KV cannot guarantee a
+single consumer. Therefore 06b narrowly extends Access with a tenant-local
+`access_oauth_forms` table and public issue/consume operations; Gateway retains
+no OAuth database or SQL. The envelope binds all display/approval inputs and
+consumption fails closed before the existing approval command. The existing Platform edge now supplies a small native rate-limit adapter and
+composition declares two per-IP rate bindings; no account resources are provisioned.
+No owner edges, checker exceptions or business commands are added. See
+[Gateway](gateway.md#step-06b-oauth-http) for exact contracts and limits.
+
+The browser review also corrected the consent document's referrer policy from
+no-referrer to origin-only: Chrome otherwise sends `Origin: null` on form POST,
+which conflicts with the mandatory exact-Origin check. Callback responses retain
+no-referrer; authorization query data never enters the referrer. CSP permits
+only self and the already validated callback origin for the form redirect chain.

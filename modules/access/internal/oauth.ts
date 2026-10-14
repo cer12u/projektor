@@ -206,6 +206,39 @@ export function createOAuth(deps: Dependencies): {
     }
   }
   const api: OAuthApi = {
+    async issueOAuthForm(scope, tokenHash) {
+      configured();
+      const s = await deps.interactiveScope(scope, "read");
+      oauthCheck(/^[0-9a-f]{64}$/.test(tokenHash), "invalid_request");
+      const now = clock.now();
+      const results = await store.batch([
+        { name: "oauthPruneForms", values: [s.workspaceId, s.principalId, now] },
+        {
+          name: "oauthIssueForm",
+          values: [
+            s.workspaceId,
+            tokenHash,
+            s.principalId,
+            now + 600,
+            s.workspaceId,
+            s.principalId,
+          ],
+        },
+      ]);
+      oauthCheck(results[1].changes === 1, "temporarily_unavailable");
+    },
+    async consumeOAuthForm(scope, tokenHash) {
+      configured();
+      const s = await deps.interactiveScope(scope, "read");
+      oauthCheck(/^[0-9a-f]{64}$/.test(tokenHash), "invalid_request");
+      const result = await store.run("oauthConsumeForm", [
+        s.workspaceId,
+        tokenHash,
+        s.principalId,
+        clock.now(),
+      ]);
+      oauthCheck(result.changes === 1, "invalid_request");
+    },
     getAuthorizationServerMetadata() {
       const { issuer } = configured();
       return {

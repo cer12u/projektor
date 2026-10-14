@@ -309,7 +309,7 @@ events: `OAuthConsentGranted`, `OAuthClientRevoked`, `OAuthTokenIssued`,
 The code hash/family ID is the credential aggregate ID, not a credential secret.
 No other module's schema or new business dependency is used.
 
-## Exact Gateway HTTP contract (step 06; not wired here)
+## Exact Gateway HTTP contract (step 06)
 
 For example issuer `https://projektor.example`, resource
 `https://projektor.example/mcp`:
@@ -360,7 +360,7 @@ revocation. Browser denial/Access forbidden maps to `access_denied`, not token
 `invalid_grant`. Unsupported grant/response types retain their specific codes.
 
 All token/registration/revocation and authorization responses: `Cache-Control:
-no-store`, `Pragma: no-cache`; consent pages also `Referrer-Policy: no-referrer`,
+no-store`, `Pragma: no-cache`; consent pages use `Referrer-Policy: origin` (see the browser compatibility note below),
 frame protection/CSP and no third-party assets. Use URLSearchParams to overwrite
 reserved callback response parameters, removing stale `code`, `error`, `state`,
 `iss` before adding this response. No assertion/token/verifier/authorization query
@@ -407,3 +407,18 @@ Step 06a corrected JWKS fetch from `redirect: "error"` to `manual`: workerd
 rejects the former option before network I/O. The verifier continues to reject
 3xx and any other non-2xx response, and Gateway integration now tests a signed
 human assertion through the real Worker.
+
+
+### Step 06b transport support
+
+Gateway now implements the HTTP contract; resource/configuration, response-loss
+semantics and deployment limits are in [Gateway](gateway.md#step-06b-oauth-http).
+Access adds `issueOAuthForm(scope, tokenHash)` and `consumeOAuthForm(scope, tokenHash)`
+for interactive human scopes only. `access_oauth_forms` is tenant-owned and stores
+only a SHA-256 hash, principal and expiry. It has no global-table exception and
+emits no business event. Issuance prunes that human's expired rows and atomically
+caps outstanding forms at 16; consumption is one DELETE with workspace, principal
+and expiry predicates. A restart cannot revive a consumed form. Expired rows for
+inactive humans are inert; bulk retention remains future Access maintenance.
+`OAuthInsufficientScope` distinguishes a live OAuth scope denial from generic
+forbidden without exposing token metadata or other tenants to Gateway.

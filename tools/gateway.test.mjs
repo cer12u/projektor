@@ -367,7 +367,8 @@ test("transport limits, request IDs and generated descriptions", async () => {
   });
   assert.equal(foreignOrigin.status, 403);
   const getMcp = await mf.dispatchFetch("http://localhost/mcp/w1", { method: "GET" });
-  assert.equal(getMcp.status, 405);
+  assert.equal(getMcp.status, 401);
+  assert.equal((await mf.dispatchFetch("http://localhost/mcp/w1", { headers })).status, 405);
   const openapi = await (await mf.dispatchFetch("http://localhost/api/openapi.json")).json();
   assert(openapi.paths["/api/w/{workspaceId}/issues/create"].post);
   assert(openapi.paths["/api/w/{workspaceId}/wiki/search"].get);
