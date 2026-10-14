@@ -103,7 +103,12 @@ before(async () => {
     d1Databases: ["DB"],
     kvNamespaces: ["KV"],
     r2Buckets: ["R2"],
-    bindings: { ACCESS_TEAM_DOMAIN: issuer, ACCESS_AUDIENCE: audience },
+    ratelimits: { FEEDBACK_LIMIT: { namespace_id: "1003", simple: { limit: 60, period: 60 } } },
+    bindings: {
+      ACCESS_TEAM_DOMAIN: issuer,
+      ACCESS_AUDIENCE: audience,
+      INTEGRATIONS_KEY: "ab".repeat(32),
+    },
   });
   const db = await mf.getD1Database("DB");
   await platform.migrate(db, [
@@ -115,6 +120,7 @@ before(async () => {
     "assets",
     "planning",
     "insights",
+    "integrations",
   ]);
   const clock = { now: () => Math.floor(Date.now() / 1000) };
   const created = platform.createAccess({
@@ -1422,4 +1428,89 @@ test("11a Insights provider read contract matches real owners", async () => {
         expectedVersion: 1,
       }),
   });
+});
+
+test("Integrations REST/MCP parity and public signed feedback intake", async () => {
+  const link = {
+    operationId: "int-link-1",
+    refId: "int-ref-1",
+    targetKind: "issue",
+    targetId: "i1",
+    kind: "github_issue",
+    url: "https://github.com/example/project/issues/1",
+  };
+  const linked = await req("w1", "integrations.link", link, write);
+  assert.equal(linked.status, 200, JSON.stringify(linked.data));
+  const refs = (
+    await req("w1", "integrations.links", { targetKind: "issue", targetId: "i1" }, read)
+  ).data;
+  assert.deepEqual(
+    mcpResult(await rpc("w1", "integrations.links", { targetKind: "issue", targetId: "i1" }, read)),
+    refs,
+  );
+  assert(refs.items.some((x) => x.id === link.refId));
+  assert.equal(
+    (await req("w2", "integrations.links", { targetKind: "issue", targetId: "i1" }, other)).data
+      .code,
+    "not_found",
+  );
+  const sourceResponse = await mf.dispatchFetch(endpoint("w1", "integrations.source.register"), {
+    method: "POST",
+    headers: { "cf-access-jwt-assertion": ownerAssertion, "content-type": "application/json" },
+    body: JSON.stringify({
+      operationId: "int-source-op",
+      sourceId: "int-source",
+      projectId: "p1",
+      name: "Form",
+    }),
+  });
+  assert.equal(sourceResponse.status, 200);
+  const source = await sourceResponse.json();
+  assert.match(source.secret, /^[0-9a-f]{64}$/);
+  assert.equal(
+    (await rpc("w1", "integrations.source.register", {}, write)).data.error?.code,
+    -32601,
+  );
+  const body = JSON.stringify({ title: "Reported issue", body: "Feedback body" });
+  const timestamp = Math.floor(Date.now() / 1000);
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(source.secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = Buffer.from(
+    await crypto.subtle.sign(
+      "HMAC",
+      key,
+      new TextEncoder().encode(`${timestamp}.delivery-1.${body}`),
+    ),
+  ).toString("hex");
+  const received = await mf.dispatchFetch("http://localhost/integrations/feedback/w1/int-source", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-projektor-timestamp": String(timestamp),
+      "x-projektor-delivery-id": "delivery-1",
+      "x-projektor-signature": signature,
+    },
+    body,
+  });
+  assert.equal(received.status, 200);
+  const feedbackId = (await received.json()).id;
+  const feedback = (await req("w1", "integrations.feedback", {}, read)).data;
+  assert.deepEqual(mcpResult(await rpc("w1", "integrations.feedback", {}, read)), feedback);
+  assert(feedback.items.some((x) => x.id === feedbackId));
+  const converted = await req(
+    "w1",
+    "integrations.convert",
+    { operationId: "int-convert-op", feedbackId, expectedVersion: 1 },
+    write,
+  );
+  assert.equal(converted.status, 200, JSON.stringify(converted.data));
+  assert.equal(
+    (await req("w1", "issues.get", { issueId: converted.data.issueId }, read)).status,
+    200,
+  );
 });

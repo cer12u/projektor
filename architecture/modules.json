@@ -16,7 +16,8 @@
         "coordination",
         "assets",
         "planning",
-        "insights"
+        "insights",
+        "integrations"
       ],
       "external": []
     },
@@ -42,7 +43,8 @@
         "coordination",
         "assets",
         "planning",
-        "insights"
+        "insights",
+        "integrations"
       ],
       "external": []
     },
@@ -348,6 +350,34 @@
       }
     },
     {
+      "id": "integrations",
+      "root": "modules/integrations",
+      "public": "modules/integrations/public.ts",
+      "factory": "modules/integrations/internal/factory.ts",
+      "kind": "module",
+      "dependencies": ["platform", "issues", "wiki", "projects", "access"],
+      "external": [],
+      "storage": {
+        "prefix": "integrations_",
+        "tables": [
+          "integrations_links",
+          "integrations_sources",
+          "integrations_feedback",
+          "integrations_deliveries",
+          "integrations_receipts",
+          "integrations_guards",
+          "integrations_history",
+          "integrations_events"
+        ],
+        "objects": [],
+        "globalTables": [],
+        "catalog": "modules/integrations/storage/queries.ts",
+        "migrations": "modules/integrations/storage/migrations",
+        "kvPrefix": null,
+        "r2Prefix": null
+      }
+    },
+    {
       "id": "tools",
       "root": "tools",
       "public": null,
@@ -366,7 +396,8 @@
         "coordination",
         "assets",
         "planning",
-        "insights"
+        "insights",
+        "integrations"
       ],
       "external": [
         "node:*",

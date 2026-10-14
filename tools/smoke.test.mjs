@@ -106,11 +106,13 @@ test("07c smoke Worker gates probes and executes local D1, migration and R2 chec
     d1Databases: ["DB"],
     kvNamespaces: ["KV"],
     r2Buckets: ["R2"],
+    ratelimits: { FEEDBACK_LIMIT: { namespace_id: "1003", simple: { limit: 60, period: 60 } } },
     bindings: {
       SMOKE_ENABLED: "1",
       SMOKE_SECRET: sentinel,
       ACCESS_TEAM_DOMAIN: "https://unit.cloudflareaccess.com",
       ACCESS_AUDIENCE: "audit",
+      INTEGRATIONS_KEY: "ab".repeat(32),
     },
   });
   try {

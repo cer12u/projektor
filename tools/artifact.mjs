@@ -42,7 +42,12 @@ const mf = new Miniflare({
   assets: { directory: "dist/assets", routerConfig: { has_user_worker: true } },
   d1Databases: ["DB"],
   kvNamespaces: ["KV"],
-  bindings: { ACCESS_TEAM_DOMAIN: "https://unit.cloudflareaccess.com", ACCESS_AUDIENCE: "test" },
+  ratelimits: { FEEDBACK_LIMIT: { namespace_id: "1003", simple: { limit: 60, period: 60 } } },
+  bindings: {
+    ACCESS_TEAM_DOMAIN: "https://unit.cloudflareaccess.com",
+    ACCESS_AUDIENCE: "test",
+    INTEGRATIONS_KEY: "ab".repeat(32),
+  },
 });
 try {
   const response = await mf.dispatchFetch("http://localhost/health");

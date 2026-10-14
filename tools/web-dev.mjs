@@ -48,6 +48,7 @@ const mf = new Miniflare({
   ratelimits: {
     OAUTH_REGISTER_LIMIT: { namespace_id: "2001", simple: { limit: 10, period: 60 } },
     OAUTH_TOKEN_LIMIT: { namespace_id: "2002", simple: { limit: 60, period: 60 } },
+    FEEDBACK_LIMIT: { namespace_id: "2003", simple: { limit: 60, period: 60 } },
   },
   assets: { directory: "dist/assets", routerConfig: { has_user_worker: true } },
   d1Databases: ["DB"],
@@ -59,6 +60,7 @@ const mf = new Miniflare({
     OAUTH_ISSUER: oauthIssuer,
     OAUTH_RESOURCE: oauthResource,
     OAUTH_FORM_SECRET: "web-fixture-secret-keep-out-of-production",
+    INTEGRATIONS_KEY: "ab".repeat(32),
   },
 });
 const db = await mf.getD1Database("DB");
@@ -71,6 +73,7 @@ await platform.migrate(db, [
   "assets",
   "planning",
   "insights",
+  "integrations",
 ]);
 const clock = { now: () => Math.floor(Date.now() / 1000) };
 const access = platform.createAccess({

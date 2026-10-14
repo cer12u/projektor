@@ -49,3 +49,10 @@ export class PlatformError extends Error {
 export interface RateLimiter {
   allow(key: string): Promise<boolean>;
 }
+
+/** Narrow cryptographic port; Worker secret never crosses the adapter. */
+export interface SecretVault {
+  inboundSecret(label: string): Promise<string>;
+  seal(value: string): Promise<string>;
+  open(ciphertext: string): Promise<string>;
+}

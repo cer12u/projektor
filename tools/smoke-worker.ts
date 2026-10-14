@@ -9,7 +9,7 @@ interface Env extends GatewayEnv {
   readonly SMOKE_SECRET: string;
 }
 
-const owners = ["access", "projects", "issues", "wiki", "coordination"] as const;
+const owners = ["access", "projects", "issues", "wiki", "coordination", "integrations"] as const;
 const reply = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {
     status,

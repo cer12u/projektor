@@ -96,11 +96,13 @@ if (process.argv[1]?.endsWith("smoke-check.mjs")) {
         d1Databases: ["DB"],
         kvNamespaces: ["KV"],
         r2Buckets: ["R2"],
+        ratelimits: { FEEDBACK_LIMIT: { namespace_id: "1003", simple: { limit: 60, period: 60 } } },
         bindings: {
           SMOKE_ENABLED: "1",
           SMOKE_SECRET: "local-test-secret",
           ACCESS_TEAM_DOMAIN: "https://unit.cloudflareaccess.com",
           ACCESS_AUDIENCE: "test",
+          INTEGRATIONS_KEY: "ab".repeat(32),
         },
       });
       const result = await checkSmoke(

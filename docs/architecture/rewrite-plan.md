@@ -366,7 +366,7 @@ owner の利用目的は OpenAI Dots、Codex、Claude Code など複数 agent �
 | 09 `rewrite/09-assets` | Assets: upload/download/link/GC | 他 module table に link metadata を追加しない。R2 故障・応答断・再送後も job が残り回収できる。archive/revoke 後 download 拒否。binary REST と MCP metadata の例外を catalog に明記 |
 | 10 `rewrite/10-planning` | Planning: sprint と items | sprint 削除/終了が Issues UPDATE を発生させない。無権限 issue の schedule 拒否。archived issue の読取り/表示を定義。失敗再送で重複 item なし |
 | 11 `rewrite/11-insights` | Insights: activity projection と最小 metrics | duplicate/out-of-order event の再生が安定。consumer crash 後に欠落しない。projection 遅延を表示し、revoke 後に本文・件数を漏らさない。巨大な分析/通知 engine を追加しない |
-| 12 `rewrite/12-integrations` | Integrations: まず external ref と feedback→issue | webhook/feedback 重複抑止。issue 作成 API の operationId を同じ値で再試行し、途中失敗が二重 issue を作らない。外部資格を context に広げない |
+| 12 `rewrite/12-integrations` | Integrations: external ref、署名付き feedback→issue、署名付き webhook 配送 | webhook/feedback 重複抑止。issue 作成 API の operationId を同じ値で再試行し、途中失敗が二重 issue を作らない。外部資格を context に広げない |
 | 13 `rewrite/13-lifecycle` | Lifecycle: freeze と purge job | 全 owner freeze 後の遅延 write 拒否。各境界で crash しても resume 可能。R2 GC 完了まで parent 消去を完了扱いしない。他 owner の SQL が一行もない |
 
 Step 07 で見つかった公開契約の欠落は 07b で補った。`/api/me` は既知の workspace ID なしで principal と所属 workspace を返し、Access が member/client 管理を、Coordination が project 単位の agent 稼働と WIP cap を所有する。Gateway は公開契約だけを REST/MCP に翻訳し、Web はその結果を表示する。07b の merge 後、最小 core の契約は完成と記録する。実 Cloudflare D1 smoke と本番切替は別の判断条件である。

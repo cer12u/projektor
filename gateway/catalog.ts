@@ -2,6 +2,7 @@ import type { AccessApi, RequestScope } from "../modules/access/public";
 import type { AssetsApi } from "../modules/assets/public";
 import type { CoordinationApi } from "../modules/coordination/public";
 import type { InsightsApi } from "../modules/insights/public";
+import type { IntegrationsApi } from "../modules/integrations/public";
 import type { IssuesApi } from "../modules/issues/public";
 import type { PlanningApi } from "../modules/planning/public";
 import type { ProjectsApi } from "../modules/projects/public";
@@ -15,6 +16,7 @@ export interface Services {
   readonly projects: ProjectsApi;
   readonly issues: IssuesApi;
   readonly insights: InsightsApi;
+  readonly integrations: IntegrationsApi;
   readonly wiki: WikiApi;
   readonly coordination: CoordinationApi;
   readonly assets: AssetsApi;
@@ -49,6 +51,87 @@ const op = (fields: Fields, write: boolean, call: Operation["call"]): Operation 
 const operationId = { operationId: "string" } as const;
 const version = { ...operationId, expectedVersion: "number" } as const;
 export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
+  "integrations.links": op(
+    { targetKind: "string", targetId: "string", cursor: "optionalString", limit: "optionalNumber" },
+    false,
+    (s, c, a) =>
+      s.integrations.listExternalRefs(
+        c,
+        { kind: str(a, "targetKind") as "issue" | "wiki", id: str(a, "targetId") },
+        optStr(a, "cursor"),
+        optNum(a, "limit"),
+      ),
+  ),
+  "integrations.link": op(
+    {
+      ...operationId,
+      refId: "string",
+      targetKind: "string",
+      targetId: "string",
+      kind: "string",
+      url: "string",
+    },
+    true,
+    (s, c, a) =>
+      s.integrations.linkExternalRef(c, {
+        operationId: str(a, "operationId"),
+        refId: str(a, "refId"),
+        target: { kind: str(a, "targetKind") as "issue" | "wiki", id: str(a, "targetId") },
+        kind: str(a, "kind") as import("../modules/integrations/public").ExternalKind,
+        url: str(a, "url"),
+      }),
+  ),
+  "integrations.unlink": op({ ...version, refId: "string" }, true, (s, c, a) =>
+    s.integrations.unlinkExternalRef(c, {
+      operationId: str(a, "operationId"),
+      refId: str(a, "refId"),
+      expectedVersion: num(a, "expectedVersion"),
+    }),
+  ),
+  "integrations.feedback": op(
+    { cursor: "optionalString", limit: "optionalNumber" },
+    false,
+    (s, c, a) => s.integrations.listFeedback(c, optStr(a, "cursor"), optNum(a, "limit")),
+  ),
+  "integrations.convert": op({ ...version, feedbackId: "string" }, true, (s, c, a) =>
+    s.integrations.convertFeedback(c, {
+      operationId: str(a, "operationId"),
+      feedbackId: str(a, "feedbackId"),
+      expectedVersion: num(a, "expectedVersion"),
+    }),
+  ),
+  "integrations.deliveries": op(
+    { cursor: "optionalString", limit: "optionalNumber" },
+    false,
+    (s, c, a) => s.integrations.getDeliveryStatus(c, optStr(a, "cursor"), optNum(a, "limit")),
+  ),
+  "integrations.sources": op(
+    { cursor: "optionalString", limit: "optionalNumber" },
+    false,
+    (s, c, a) => s.integrations.listSources(c, optStr(a, "cursor"), optNum(a, "limit")),
+  ),
+  "integrations.source.register": op(
+    { ...operationId, sourceId: "string", projectId: "string", name: "string" },
+    true,
+    (s, c, a) =>
+      s.integrations.registerSource(c, {
+        operationId: str(a, "operationId"),
+        sourceId: str(a, "sourceId"),
+        projectId: str(a, "projectId"),
+        name: str(a, "name"),
+      }),
+  ),
+  "integrations.webhook.register": op(
+    { ...operationId, sourceId: "string", url: "string", eventTypes: "stringArray" },
+    true,
+    (s, c, a) =>
+      s.integrations.registerWebhook(c, {
+        operationId: str(a, "operationId"),
+        sourceId: str(a, "sourceId"),
+        url: str(a, "url"),
+        eventTypes: arr(a, "eventTypes"),
+      }),
+  ),
   "insights.subscription": op({ issueId: "string" }, false, (s, c, a) =>
     s.insights.getSubscription(c, str(a, "issueId")),
   ),
@@ -738,6 +821,9 @@ export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
   ),
 });
 export const restOnly = Object.freeze([
+  "integrations.sources",
+  "integrations.source.register",
+  "integrations.webhook.register",
   "access.credential.issue",
   "access.credential.revoke",
   "access.oauthClients.list",

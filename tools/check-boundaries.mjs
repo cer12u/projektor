@@ -101,6 +101,13 @@ export function check(root = process.cwd(), onlyRule, { freshness = true } = {})
       continue;
     }
     const owner = matches[0];
+    if (
+      owner.kind !== "tooling" &&
+      file !== "apps/worker/index.ts" &&
+      file !== "tools/check-boundaries.mjs" &&
+      /\bINTEGRATIONS_KEY\b/.test(fs.readFileSync(path.join(root, file), "utf8"))
+    )
+      report("capability", `${file}: integration key outside Worker composition`);
     const source =
       program.getSourceFile(path.join(root, file)) ??
       ts.createSourceFile(

@@ -34,6 +34,16 @@ const ddl = (root, sql, object) => {
 };
 const cases = [
   [
+    "Integration key outside narrowed adapter composition",
+    "capability",
+    (r) =>
+      append(
+        r,
+        "modules/integrations/internal/factory.ts",
+        "\nexport const forbiddenKey = INTEGRATIONS_KEY;\n",
+      ),
+  ],
+  [
     "FTS owner catalog cannot read schema metadata",
     "sql-ownership",
     (r) =>

@@ -194,6 +194,7 @@ before(async () => {
     ratelimits: {
       OAUTH_REGISTER_LIMIT: { namespace_id: "1001", simple: { limit: 10, period: 60 } },
       OAUTH_TOKEN_LIMIT: { namespace_id: "1002", simple: { limit: 60, period: 60 } },
+      FEEDBACK_LIMIT: { namespace_id: "1003", simple: { limit: 60, period: 60 } },
     },
     d1Databases: ["DB"],
     kvNamespaces: ["KV"],
@@ -203,6 +204,7 @@ before(async () => {
       OAUTH_ISSUER: origin,
       OAUTH_RESOURCE: resource,
       OAUTH_FORM_SECRET: "test-only-secret".repeat(4),
+      INTEGRATIONS_KEY: "ab".repeat(32),
     },
   });
   const db = await mf.getD1Database("DB");
@@ -214,6 +216,7 @@ before(async () => {
     "coordination",
     "assets",
     "planning",
+    "integrations",
   ]);
   const clock = { now: () => Math.floor(Date.now() / 1000) };
   const options = {
