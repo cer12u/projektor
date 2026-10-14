@@ -1,9 +1,9 @@
-import { handleHttp } from "../../gateway/public";
+import { createOAuthHttp, handleHttp } from "../../gateway/public";
 import { createAccess } from "../../modules/access/internal/factory";
 import { createIssues } from "../../modules/issues/internal/factory";
 import { createProjects } from "../../modules/projects/internal/factory";
 import { createWiki } from "../../modules/wiki/internal/factory";
-import { createModuleStore, createScopedKV } from "../../platform/adapters";
+import { createModuleStore, createRateLimiter, createScopedKV } from "../../platform/adapters";
 import { randomIds, systemClock } from "../../platform/primitives";
 
 export interface Env {
@@ -14,8 +14,21 @@ export interface Env {
   readonly ACCESS_AUDIENCE: string;
   readonly OAUTH_ISSUER?: string;
   readonly OAUTH_RESOURCE?: string;
+  readonly OAUTH_FORM_SECRET?: string;
+  readonly OAUTH_REGISTER_LIMIT?: RateLimit;
+  readonly OAUTH_TOKEN_LIMIT?: RateLimit;
 }
 function compose(env: Env) {
+  const configured = !!(env.OAUTH_ISSUER || env.OAUTH_RESOURCE || env.OAUTH_FORM_SECRET);
+  if (
+    configured &&
+    (!env.OAUTH_ISSUER ||
+      env.OAUTH_RESOURCE !== `${env.OAUTH_ISSUER}/mcp` ||
+      !env.OAUTH_FORM_SECRET ||
+      !env.OAUTH_REGISTER_LIMIT ||
+      !env.OAUTH_TOKEN_LIMIT)
+  )
+    throw new Error("Incomplete OAuth configuration");
   const access = createAccess({
     store: createModuleStore(env.DB, "access"),
     kv: createScopedKV(env.KV, "access"),
@@ -45,7 +58,25 @@ function compose(env: Env) {
     clock: systemClock,
     ids: randomIds,
   }).api;
-  return { access, projects, issues, wiki };
+  const oauthHttp =
+    env.OAUTH_ISSUER &&
+    env.OAUTH_RESOURCE &&
+    env.OAUTH_FORM_SECRET &&
+    env.OAUTH_REGISTER_LIMIT &&
+    env.OAUTH_TOKEN_LIMIT
+      ? createOAuthHttp(
+          {
+            issuer: env.OAUTH_ISSUER,
+            resource: env.OAUTH_RESOURCE,
+            formSecret: env.OAUTH_FORM_SECRET,
+            clock: systemClock,
+            registerLimit: createRateLimiter(env.OAUTH_REGISTER_LIMIT),
+            tokenLimit: createRateLimiter(env.OAUTH_TOKEN_LIMIT),
+          },
+          access,
+        )
+      : undefined;
+  return { access, projects, issues, wiki, oauthHttp, oauthOrigin: env.OAUTH_ISSUER };
 }
 
 // One composition per isolate keeps the verifier’s bounded trusted JWKS cache.

@@ -1,4 +1,11 @@
 export const queries = {
+  oauthPruneForms:
+    "DELETE FROM access_oauth_forms WHERE workspace_id=? AND principal_id=? AND expires_at<=?",
+  oauthIssueForm:
+    "INSERT INTO access_oauth_forms(workspace_id,token_hash,principal_id,expires_at) SELECT ?,?,?,? WHERE (SELECT COUNT(*) FROM access_oauth_forms WHERE workspace_id=? AND principal_id=?)<16",
+  oauthConsumeForm:
+    "DELETE FROM access_oauth_forms WHERE workspace_id=? AND token_hash=? AND principal_id=? AND expires_at>?",
+
   principal: "SELECT id, kind, issuer, subject FROM access_principals WHERE id=?",
   putPrincipal:
     "INSERT INTO access_principals(id,kind,issuer,subject) VALUES(?,?,?,?) ON CONFLICT(id) DO NOTHING",

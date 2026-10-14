@@ -47,3 +47,12 @@ See [Gateway routes and evidence](docs/architecture/gateway.md),
 [Issues](docs/architecture/issues.md),
 [Wiki](docs/architecture/wiki.md),
 [approved plan](docs/architecture/rewrite-plan.md) and [AGENTS.md](AGENTS.md).
+
+
+OAuth HTTP setup (step 06b): configure `OAUTH_ISSUER` as the exact HTTPS origin,
+`OAUTH_RESOURCE` as that origin plus `/mcp`, and secret binding `OAUTH_FORM_SECRET`
+with at least 32 characters of cryptographic randomness. All three and the two OAuth rate-limit bindings are required
+together. Keep the secret outside source/vars. Only the interactive authorization
+page belongs behind Cloudflare Access login; discovery, register, token, revoke
+and MCP must return their protocol responses. See [Gateway OAuth operations](docs/architecture/gateway.md#step-06b-oauth-http)
+for consent, rate limits, tests and remaining deployment acceptance.

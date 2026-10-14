@@ -1,7 +1,15 @@
-import type { AuthenticatedPrincipal, RequestScope } from "../modules/access/public";
+import {
+  type AuthenticatedPrincipal,
+  OAuthInsufficientScope,
+  type RequestScope,
+} from "../modules/access/public";
 import { PlatformError } from "../platform/public";
 import { catalog, inputFor, restOnly, type Services } from "./catalog";
 import { openApi, tools } from "./wire";
+
+export { createOAuthHttp } from "./oauth";
+
+class AuthenticationError extends Error {}
 
 const MAX_BODY = 64 * 1024;
 const status: Record<string, number> = {
@@ -79,17 +87,15 @@ async function principal(
     throw new PlatformError("forbidden", "Authentication required");
   const bearer = authorization.slice(7);
   if (bearer.startsWith("pt1.")) return services.access.authenticate({ kind: "machine", bearer });
-  if (endpoint === "mcp")
+  if (endpoint === "mcp") {
+    if (!services.oauthOrigin) throw new PlatformError("forbidden", "OAuth unavailable");
     return services.access.authenticate({
       kind: "oauth",
       bearer,
-      resource: new URL(request.url).origin + new URL(request.url).pathname,
+      resource: `${services.oauthOrigin}/mcp`,
     });
-  return services.access.authenticate({
-    kind: "oauth",
-    bearer,
-    resource: new URL(request.url).origin + `/mcp/${new URL(request.url).pathname.split("/")[3]}`,
-  });
+  }
+  throw new PlatformError("forbidden", "OAuth requires MCP");
 }
 async function admit(
   request: Request,
@@ -99,12 +105,15 @@ async function admit(
   requestId: string,
   endpoint: "rest" | "mcp",
 ): Promise<RequestScope> {
-  return services.access.requireMembership(
-    await principal(request, services, endpoint),
-    workspace(request, w),
-    requestId,
-    mode,
-  );
+  let actor: AuthenticatedPrincipal;
+  try {
+    actor = await principal(request, services, endpoint);
+  } catch (error) {
+    if (endpoint === "mcp" && error instanceof PlatformError && error.code === "forbidden")
+      throw new AuthenticationError();
+    throw error;
+  }
+  return services.access.requireMembership(actor, workspace(request, w), requestId, mode);
 }
 const rpc = (idValue: unknown, result: unknown) => ({ jsonrpc: "2.0", id: idValue, result });
 const rpcError = (idValue: unknown, code: number, message: string) => ({
@@ -117,6 +126,14 @@ export async function handleHttp(request: Request, services: Services): Promise<
   const requestId = id();
   try {
     const url = new URL(request.url);
+    if (url.pathname.startsWith("/oauth/") || url.pathname.startsWith("/.well-known/")) {
+      if (services.oauthHttp) return services.oauthHttp(request);
+      return json({ error: "temporarily_unavailable" }, 503, {
+        "cache-control": "no-store",
+        pragma: "no-cache",
+        "retry-after": "5",
+      });
+    }
     if (url.pathname === "/api/openapi.json" && request.method === "GET")
       return json(openApi(), 200, { "x-request-id": requestId });
     if (url.pathname === "/health" && request.method === "GET")
@@ -249,8 +266,13 @@ export async function handleMcp(
   let rpcId: unknown = null;
   try {
     ownOrigin(request);
+    if (services.oauthOrigin && new URL(request.url).origin !== services.oauthOrigin)
+      throw new PlatformError("forbidden", "Origin denied");
+    if (["access_token", "token"].some((k) => new URL(request.url).searchParams.has(k)))
+      throw new PlatformError("validation", "Query credentials denied");
     const match = new URL(request.url).pathname.match(/^\/mcp\/([^/]+)$/);
     if (!match) throw new PlatformError("not_found", "Unknown MCP endpoint");
+    await admit(request, services, match[1], "read", requestId, "mcp");
     if (request.method === "GET" || request.method === "DELETE")
       return new Response(null, {
         status: 405,
@@ -328,6 +350,8 @@ export async function handleMcp(
           { "x-request-id": requestId },
         );
       } catch (cause) {
+        if (cause instanceof AuthenticationError || cause instanceof OAuthInsufficientScope)
+          throw cause;
         const error = failure(cause);
         return json(
           rpc(rpcId, {
@@ -343,6 +367,20 @@ export async function handleMcp(
     }
     return json(rpcError(rpcId, -32601, "Method not found"), 200, { "x-request-id": requestId });
   } catch (cause) {
+    if (cause instanceof AuthenticationError || cause instanceof OAuthInsufficientScope) {
+      const insufficient = cause instanceof OAuthInsufficientScope;
+      const origin = services.oauthOrigin;
+      const challenge = `Bearer ${insufficient ? 'error="insufficient_scope", ' : request.headers.has("authorization") ? 'error="invalid_token", ' : ""}scope="${insufficient ? "read write" : "read"}"${origin ? `, resource_metadata="${origin}/.well-known/oauth-protected-resource/mcp"` : ""}`;
+      return json(
+        rpcError(
+          rpcId,
+          -32000,
+          insufficient ? "Insufficient OAuth scope" : "Authentication required",
+        ),
+        insufficient ? 403 : 401,
+        { "www-authenticate": challenge, "x-request-id": requestId },
+      );
+    }
     const error = failure(cause);
     return json(
       rpcError(rpcId, error.code === "validation" ? -32600 : -32000, error.message),

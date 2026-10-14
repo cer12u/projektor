@@ -1,3 +1,5 @@
+import { PlatformError } from "../../platform/public";
+
 /** Handles are valid only in the issuing Access instance; casts/copies cannot mint them. */
 declare const principalBrand: unique symbol;
 declare const scopeBrand: unique symbol;
@@ -264,7 +266,14 @@ export interface OAuthResourceMetadata {
   readonly scopes_supported: readonly ("read" | "write")[];
   readonly bearer_methods_supported: readonly "header"[];
 }
+export class OAuthInsufficientScope extends PlatformError {
+  constructor() {
+    super("forbidden", "Insufficient OAuth scope");
+  }
+}
 export interface OAuthApi {
+  issueOAuthForm(scope: RequestScope, tokenHash: string): Promise<void>;
+  consumeOAuthForm(scope: RequestScope, tokenHash: string): Promise<void>;
   getAuthorizationServerMetadata(): OAuthServerMetadata;
   getProtectedResourceMetadata(): OAuthResourceMetadata;
   registerOAuthClient(input: OAuthClientInput): Promise<OAuthClient>;

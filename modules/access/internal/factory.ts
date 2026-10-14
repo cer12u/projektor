@@ -7,17 +7,18 @@ import {
   type Row,
   type ScopedKV,
 } from "../../../platform/public";
-import type {
-  AccessApi,
-  AccessEvent,
-  AuthenticatedPrincipal,
-  CommandResult,
-  EventReader,
-  EventType,
-  OperatorCapability,
-  Permission,
-  PrincipalSummary,
-  RequestScope,
+import {
+  type AccessApi,
+  type AccessEvent,
+  type AuthenticatedPrincipal,
+  type CommandResult,
+  type EventReader,
+  type EventType,
+  OAuthInsufficientScope,
+  type OperatorCapability,
+  type Permission,
+  type PrincipalSummary,
+  type RequestScope,
 } from "../public";
 import type { queries } from "../storage/queries";
 import { type AccessConfig, createAssertionVerifier, type JwksFetcher } from "./assertions";
@@ -109,7 +110,8 @@ export function createAccess(deps: Dependencies): {
     if (!member) deny();
     const memberRole = role(member.role);
     if (mode === "write") {
-      if (memberRole === "viewer" || (p.clientId && p.oauthScope !== "write")) deny();
+      if (p.clientId && p.oauthScope !== "write") throw new OAuthInsufficientScope();
+      if (memberRole === "viewer") deny();
       if (p.kind === "machine") {
         const c = await one("credential", [w, p.credentialId ?? ""]);
         if (c?.scope !== "write" || c.revoked !== 0 || num(c, "expires_at") <= clock.now()) deny();

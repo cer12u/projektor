@@ -1582,6 +1582,10 @@ test("audit management matrix: every manager entry rejects viewer, member, machi
     "oauth",
   );
   const denied = [bot.scope, oauthScope, { ...owner.scope }];
+  for (const s of denied) {
+    await assert.rejects(f.api.issueOAuthForm(s, "a1".repeat(32)), code("forbidden"));
+    await assert.rejects(f.api.consumeOAuthForm(s, "a1".repeat(32)), code("forbidden"));
+  }
   for (const role of ["viewer", "member"]) {
     await f.api.inviteMember(owner.scope, invite(role, role));
     denied.push(await f.api.requireMembership(await f.human(role), "w1", role));
@@ -1618,4 +1622,39 @@ test("audit management matrix: every manager entry rejects viewer, member, machi
   assert.deepEqual(await accessSnapshot(f), before);
   const foreign = platform.createAccess(f.deps);
   await assert.rejects(f.api.readEvents(foreign.eventReader, "w1", 0, 10), code("forbidden"));
+});
+
+test("OAuth forms: Access-only D1 nonce consumption is tenant/subject bound, durable, expiring and capped", async () => {
+  const f = await fixture();
+  const { scope } = await f.owner();
+  const other = await f.owner("w2");
+  await f.api.inviteMember(scope, invite("bob"));
+  const bob = await f.api.requireMembership(await f.human("bob"), "w1", "bob");
+  const hash = "a1".repeat(32);
+  await f.api.issueOAuthForm(scope, hash);
+  await assert.rejects(f.api.consumeOAuthForm(other.scope, hash), code("invalid_request"));
+  await assert.rejects(f.api.consumeOAuthForm(bob, hash), code("invalid_request"));
+  const restarted = platform.createAccess(f.deps).api;
+  const fresh = await restarted.requireMembership(
+    await f.human("alice", restarted),
+    "w1",
+    "restart",
+  );
+  const consumed = await Promise.allSettled([
+    f.api.consumeOAuthForm(scope, hash),
+    restarted.consumeOAuthForm(fresh, hash),
+  ]);
+  assert.equal(consumed.filter((x) => x.status === "fulfilled").length, 1);
+  await assert.rejects(restarted.consumeOAuthForm(fresh, hash), code("invalid_request"));
+  for (let n = 0; n < 16; n++) await f.api.issueOAuthForm(scope, n.toString(16).padStart(64, "0"));
+  await assert.rejects(f.api.issueOAuthForm(scope, hash), code("temporarily_unavailable"));
+  f.state.now += 601;
+  await assert.rejects(f.api.consumeOAuthForm(scope, "0".repeat(64)), code("invalid_request"));
+  await f.api.issueOAuthForm(scope, hash);
+  await f.api.consumeOAuthForm(scope, hash);
+  await assert.rejects(f.api.issueOAuthForm({ ...scope }, hash), code("forbidden"));
+  assert.deepEqual(
+    (await f.store.run("oauthConsumeForm", ["w2", hash, scope.principalId, f.state.now])).rows,
+    [],
+  );
 });

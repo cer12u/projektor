@@ -2,6 +2,7 @@ import { catalogs } from "./generated/catalogs";
 import {
   type ModuleStore,
   PlatformError,
+  type RateLimiter,
   type ScopedBucket,
   type ScopedKV,
   type Value,
@@ -81,6 +82,16 @@ export function createScopedBucket(bucket: R2Bucket, owner: Owner): ScopedBucket
     async delete(key: string) {
       checkKey(prefix, key);
       await bucket.delete(key);
+    },
+  });
+}
+
+/** Composition only: portable rate admission; binding configuration fixes the quota. */
+export function createRateLimiter(binding: RateLimit): RateLimiter {
+  return Object.freeze({
+    async allow(key: string): Promise<boolean> {
+      if (!key || key.length > 128) throw new PlatformError("validation", "Invalid limiter key");
+      return (await binding.limit({ key })).success;
     },
   });
 }

@@ -1,5 +1,6 @@
 // Privileged test composition. These exports never enter the application artifact.
 
+export { createOAuthHttp } from "../gateway/public";
 export { createFixture as createA } from "../modules/_fixture_a/internal/factory";
 export { createFixture as createB } from "../modules/_fixture_b/internal/factory";
 export { createAccess } from "../modules/access/internal/factory";
@@ -10,7 +11,12 @@ export { createIssues } from "../modules/issues/internal/factory";
 export * as issuesRules from "../modules/issues/internal/rules";
 export { createProjects } from "../modules/projects/internal/factory";
 export { accessConsumerContract, fakeAccess } from "../modules/projects/tests/access-fake";
-export { createModuleStore, createScopedBucket, createScopedKV } from "../platform/adapters";
+export {
+  createModuleStore,
+  createRateLimiter,
+  createScopedBucket,
+  createScopedKV,
+} from "../platform/adapters";
 export { migrate } from "../platform/migrate";
 export { randomIds, systemClock } from "../platform/primitives";
 export { PlatformError } from "../platform/public";

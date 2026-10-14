@@ -6,6 +6,8 @@ import { PlatformError } from "../platform/public";
 
 export interface Services {
   readonly access: AccessApi;
+  readonly oauthHttp?: (request: Request) => Promise<Response>;
+  readonly oauthOrigin?: string;
   readonly projects: ProjectsApi;
   readonly issues: IssuesApi;
   readonly wiki: WikiApi;

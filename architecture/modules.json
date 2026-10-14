@@ -106,7 +106,8 @@
           "access_oauth_workspace_clients",
           "access_oauth_codes",
           "access_oauth_families",
-          "access_oauth_tokens"
+          "access_oauth_tokens",
+          "access_oauth_forms"
         ],
         "objects": [],
         "globalTables": ["access_principals", "access_bootstrap", "access_oauth_clients"],
