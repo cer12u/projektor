@@ -201,6 +201,7 @@ export async function handleHttp(request: Request, services: Services): Promise<
       return new Response(stream, {
         headers: {
           "content-type": result.metadata.contentType,
+          "x-content-type-options": "nosniff",
           "content-length": String(result.metadata.size),
           "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(result.metadata.filename)}`,
           "cache-control": "private, no-store",

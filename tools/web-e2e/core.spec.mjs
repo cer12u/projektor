@@ -285,3 +285,64 @@ test("mobile workspace and project flow remains usable", async ({ page }) => {
     true,
   );
 });
+
+test("09a attachment upload retry, safe download and unlink through the Web", async ({
+  page,
+  request,
+}) => {
+  const project = await post(request, "projects.create", {
+    operationId: "audit-assets-project",
+    projectId: "audit-assets-project",
+    key: "ASSET",
+    name: "Assets audit",
+  });
+  const issue = await post(request, "issues.create", {
+    operationId: "audit-assets-issue",
+    issueId: "audit-assets-issue",
+    projectId: project.id,
+    title: "Assets audit issue",
+    description: "",
+    priority: "medium",
+  });
+  await page.goto("/?w=web1");
+  await page.getByRole("button", { name: /ASSET · Assets audit/ }).click();
+  await page.getByRole("button", { name: /Assets audit issue/ }).click();
+  const attachments = page.locator("section.attachments");
+  const calls = [];
+  let lost = true;
+  await page.route("**/api/w/web1/assets/complete", async (route) => {
+    calls.push(route.request().postDataJSON());
+    if (lost) {
+      lost = false;
+      await route.fetch();
+      await route.abort();
+    } else await route.continue();
+  });
+  await attachments.getByLabel("アップロード").setInputFiles({
+    name: "unsafe.html",
+    mimeType: "text/html",
+    buffer: Buffer.from("<script>window.assetExecuted=true</script>"),
+  });
+  await expect(attachments.getByRole("button", { name: "同じ操作を再試行" })).toBeVisible();
+  await attachments.getByRole("button", { name: "同じ操作を再試行" }).click();
+  const link = attachments.getByRole("link", { name: /unsafe.html/ });
+  await expect(link).toBeVisible();
+  expect(calls).toHaveLength(2);
+  expect(calls[1]).toEqual(calls[0]);
+  const href = await link.getAttribute("href");
+  const downloadEvent = page.waitForEvent("download");
+  await link.click();
+  const download = await downloadEvent;
+  expect(download.suggestedFilename()).toBe("unsafe.html");
+  expect(await download.failure()).toBeNull();
+  expect(await page.evaluate(() => window.assetExecuted)).toBeUndefined();
+  const response = await request.get(href);
+  expect(response.headers()["x-content-type-options"]).toBe("nosniff");
+  expect(response.headers()["content-disposition"]).toMatch(/^attachment;/);
+  expect(
+    (await get(request, "assets.list", { targetKind: "issue", targetId: issue.id })).items,
+  ).toHaveLength(1);
+  await attachments.getByRole("button", { name: "添付を解除" }).click();
+  await expect(link).toHaveCount(0);
+  expect((await request.get(href)).status()).toBe(404);
+});

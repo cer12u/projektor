@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { after, before, test } from "node:test";
 import { build } from "esbuild";
 import { Miniflare } from "miniflare";
+import { assetsProviderContract } from "./assets-provider-contract.mjs";
 
 let platform,
   mf,
@@ -33,7 +34,7 @@ before(async () => {
     modules: true,
     script: "export default {fetch(){return new Response('ok')}}",
     compatibilityDate: "2026-07-30",
-    d1Databases: Array.from({ length: 16 }, (_, i) => `ASSETS${i}`),
+    d1Databases: Array.from({ length: 48 }, (_, i) => `ASSETS${i}`),
     r2Buckets: ["R2"],
   });
 });
@@ -46,8 +47,9 @@ async function fixture() {
   const access = platform.fakeAccess();
   let now = 1000,
     fault = null,
-    batchFault = null;
-  const scope = (ws = "w1", principal = "a") =>
+    batchFault = null,
+    beforeDelete = null;
+  const scope = (ws = "w1", principal = "a", options = {}) =>
     access.issue({
       id: principal,
       workspaceId: ws,
@@ -55,13 +57,15 @@ async function fixture() {
       role: "member",
       scope: "write",
       active: true,
+      ...options,
     });
   const denied = new Set();
   const projects = {
     async authorizeProject(s, p, permission = "read") {
       await access.access.authorize(s, permission);
-      if (denied.has(`${s.workspaceId}:${p}`))
+      if (denied.has(`${s.workspaceId}:${p}`) || (s.principalId === "outsider" && p === "p1"))
         throw new platform.PlatformError("forbidden", "project denied");
+      if (!["p1", "p2"].includes(p)) throw new platform.PlatformError("not_found", "project");
       return { id: p };
     },
   };
@@ -105,6 +109,11 @@ async function fixture() {
           return scoped.put(k, v);
         },
         delete: async (k) => {
+          if (beforeDelete) {
+            const hook = beforeDelete;
+            beforeDelete = null;
+            await hook();
+          }
           if (fault?.kind === "delete") {
             fault = null;
             throw Error("R2 delete fault");
@@ -141,7 +150,10 @@ async function fixture() {
     input,
     denied,
     revoke: access.revoke,
+    providers: { access: access.access, projects, issues, wiki },
+    restart: () => platform.createAssets(deps).api,
     setNow: (n) => (now = n),
+    beforeDelete: (hook) => (beforeDelete = hook),
     failR2: (kind) => (fault = { kind }),
     failBatch: (e) => (batchFault = e),
   };
@@ -348,4 +360,339 @@ test("completed but never linked object expires without an orphan", async () => 
   assert.equal(await f.bucket.get("assets/w1/b1"), null);
   await assert.rejects(f.api.getMetadata(s, "b1"), error("not_found"));
   assert.equal((await f.db.prepare("SELECT count(*) n FROM assets_gc_jobs").first()).n, 0);
+});
+
+async function linked(f, s) {
+  await completed(f, s);
+  await f.api.linkAsset(s, {
+    operationId: "link",
+    assetId: "b1",
+    expectedVersion: 2,
+    linkId: "l1",
+    target: { kind: "issue", id: "i1" },
+  });
+}
+async function snapshot(f) {
+  const tables = ["blobs", "links", "gc_jobs", "history", "receipts", "events", "guards"];
+  const rows = [];
+  for (const table of tables)
+    rows.push((await f.db.prepare(`SELECT * FROM assets_${table} ORDER BY rowid`).all()).results);
+  return rows;
+}
+
+test("09a R2 every method rejects foreign owner/workspace, dot and slash keys before touching storage", async () => {
+  const f = await fixture();
+  const forbidden = [
+    "assets/w2/b1",
+    "otherx/w1/b1",
+    "assets/w1/..",
+    "assets/w1/a..b",
+    "assets/w1/a/b",
+    "assets/w1/",
+    "assets/w1//",
+  ];
+  for (const key of forbidden) {
+    await f.raw.put(key, bytes("private"));
+    for (const method of ["get", "open", "put", "delete"])
+      await assert.rejects(
+        f.bucket[method](key, bytes("overwrite")),
+        error("forbidden"),
+        `${method}: ${key}`,
+      );
+    assert.equal(await (await f.raw.get(key)).text(), "private");
+  }
+  await f.bucket.put("assets/w1/valid-key_1", bytes("valid"));
+  assert.equal(new TextDecoder().decode(await f.bucket.get("assets/w1/valid-key_1")), "valid");
+  const stream = await f.bucket.open("assets/w1/valid-key_1");
+  assert.equal(new TextDecoder().decode(await stream.read()), "valid");
+  await stream.cancel();
+  await f.bucket.delete("assets/w1/valid-key_1");
+  assert.equal(await f.bucket.get("assets/w1/valid-key_1"), null);
+});
+
+for (const defect of ["size", "sha256", "missing"]) {
+  test(`09a complete independently rejects ${defect} without metadata, receipt or event change`, async () => {
+    const f = await fixture(),
+      s = f.scope();
+    const input = await f.input();
+    // Match the digest while deliberately contradicting the declared size.
+    if (defect === "size") input.size = 4;
+    await f.api.beginUpload(s, input);
+    await f.raw.delete("assets/w1/b1");
+    if (defect !== "missing")
+      await f.raw.put("assets/w1/b1", bytes(defect === "sha256" ? "wrong" : "hello"));
+    const before = await snapshot(f);
+    await assert.rejects(
+      f.api.completeUpload(s, { operationId: "complete", assetId: "b1", expectedVersion: 1 }),
+      error("validation"),
+    );
+    assert.deepEqual(await snapshot(f), before);
+  });
+}
+
+test("09a download checks the live project and target at R2 open, including other-project viewer", async () => {
+  const f = await fixture(),
+    s = f.scope();
+  await linked(f, s);
+  const outsider = f.scope("w1", "outsider", { role: "viewer", scope: "read" });
+  await f.providers.projects.authorizeProject(outsider, "p2");
+  await assert.rejects(f.api.downloadAsset(outsider, "b1"), error("forbidden"));
+  // Metadata lookup is intentionally insufficient authority to open the stream.
+  assert.equal((await f.api.getMetadata(s, "b1")).ready, true);
+  f.providers.issues.authorizeIssue = async () => {
+    throw new platform.PlatformError("not_found", "target archived");
+  };
+  await assert.rejects(f.api.downloadAsset(s, "b1"), error("forbidden"));
+});
+
+for (const method of ["beginUpload", "completeUpload", "linkAsset", "unlinkAsset"]) {
+  test(`09a ${method} retry binds every input and replays one durable result after restart`, async () => {
+    const f = await fixture(),
+      s = f.scope();
+    const inputs = {
+      beginUpload: await f.input(),
+      completeUpload: { operationId: "complete", assetId: "b1", expectedVersion: 1 },
+      linkAsset: {
+        operationId: "link",
+        assetId: "b1",
+        expectedVersion: 2,
+        linkId: "l1",
+        target: { kind: "issue", id: "i1" },
+      },
+      unlinkAsset: { operationId: "unlink", assetId: "b1", expectedVersion: 3, linkId: "l1" },
+    };
+    if (method === "completeUpload") {
+      await f.api.beginUpload(s, await f.input());
+      await f.api.putUpload(s, "b1", bytes("hello"));
+    } else if (method === "linkAsset") await completed(f, s);
+    else if (method === "unlinkAsset") await linked(f, s);
+    const input = inputs[method];
+    const result = await f.api[method](s, input),
+      before = await snapshot(f);
+    const restarted = f.restart();
+    assert.deepEqual(await restarted[method](s, input), result);
+    assert.deepEqual(await restarted.readOperation(s, input.operationId), result);
+    assert.deepEqual(await snapshot(f), before);
+    for (const field of Object.keys(input).filter((k) => k !== "operationId")) {
+      const changed = {
+        ...input,
+        [field]:
+          typeof input[field] === "number"
+            ? input[field] + 1
+            : field === "target"
+              ? { kind: "wiki", id: "page1" }
+              : field === "projectId"
+                ? "p2"
+                : field === "sha256"
+                  ? "0".repeat(64)
+                  : field === "contentType"
+                    ? "image/png"
+                    : `${input[field]}x`,
+      };
+      await assert.rejects(restarted[method](s, changed), error("conflict"), field);
+    }
+    assert.deepEqual(await snapshot(f), before);
+  });
+}
+
+for (const method of ["linkAsset", "unlinkAsset"]) {
+  test(`09a ${method} stale CAS rolls back all owned rows; concurrent updates have one winner`, async () => {
+    const f = await fixture(),
+      s = f.scope();
+    if (method === "linkAsset") await completed(f, s);
+    else await linked(f, s);
+    const expectedVersion = method === "linkAsset" ? 2 : 3;
+    const input = {
+      assetId: "b1",
+      linkId: "l1",
+      expectedVersion,
+      target: { kind: "issue", id: "i1" },
+    };
+    // A missing audit row must not turn the history PK into the CAS mechanism.
+    await f.db
+      .prepare("DELETE FROM assets_history WHERE workspace_id='w1' AND asset_id='b1' AND version=?")
+      .bind(expectedVersion)
+      .run();
+    const before = await snapshot(f);
+    await assert.rejects(
+      f.api[method](s, { ...input, expectedVersion: expectedVersion - 1, operationId: "stale" }),
+      error("conflict"),
+    );
+    assert.deepEqual(await snapshot(f), before);
+    const outcomes = await Promise.allSettled(
+      [0, 1].map((n) =>
+        f.api[method](s, {
+          ...input,
+          operationId: `race${n}`,
+          ...(method === "linkAsset" ? { linkId: `race${n}` } : {}),
+        }),
+      ),
+    );
+    assert.equal(outcomes.filter((x) => x.status === "fulfilled").length, 1);
+    assert.equal(
+      outcomes.filter(
+        (x) => x.status === "rejected" && ["conflict", "not_found"].includes(x.reason.code),
+      ).length,
+      1,
+    );
+    assert.equal(
+      (await f.db.prepare("SELECT version FROM assets_blobs WHERE id='b1'").first()).version,
+      expectedVersion + 1,
+    );
+    assert.equal(
+      (
+        await f.db
+          .prepare("SELECT count(*) n FROM assets_receipts WHERE operation_id LIKE 'race%'")
+          .first()
+      ).n,
+      1,
+    );
+  });
+}
+
+for (const method of ["beginUpload", "unlinkAsset"]) {
+  test(`09a ${method} cannot change metadata unless its GC job is durably committed`, async () => {
+    const f = await fixture(),
+      s = f.scope();
+    if (method === "unlinkAsset") await linked(f, s);
+    const input =
+      method === "beginUpload"
+        ? await f.input()
+        : { operationId: "unlink", assetId: "b1", expectedVersion: 3, linkId: "l1" };
+    const before = await snapshot(f);
+    await f.db.exec(
+      "CREATE TRIGGER fail_gc BEFORE INSERT ON assets_gc_jobs BEGIN SELECT RAISE(ABORT, 'injected GC persistence failure'); END;",
+    );
+    await assert.rejects(f.api[method](s, input));
+    assert.deepEqual(
+      await snapshot(f),
+      before,
+      "metadata and audit must roll back when GC persistence fails",
+    );
+    await f.db.exec("DROP TRIGGER fail_gc;");
+    await f.api[method](s, input);
+    assert.equal((await f.db.prepare("SELECT count(*) n FROM assets_gc_jobs").first()).n, 1);
+  });
+}
+
+test("09a GC preserves a still-linked blob and resumes after R2 delete / D1 crash", async () => {
+  const f = await fixture(),
+    s = f.scope();
+  await linked(f, s);
+  await f.api.linkAsset(s, {
+    operationId: "link2",
+    assetId: "b1",
+    expectedVersion: 3,
+    linkId: "l2",
+    target: { kind: "wiki", id: "page1" },
+  });
+  await f.api.unlinkAsset(s, {
+    operationId: "unlink1",
+    assetId: "b1",
+    expectedVersion: 4,
+    linkId: "l1",
+  });
+  assert.equal(await f.api.drainGc(), 1);
+  assert.deepEqual(await f.bucket.get("assets/w1/b1"), bytes("hello"));
+  assert.equal((await f.api.listAssets(s, { kind: "wiki", id: "page1" })).items.length, 1);
+  await f.api.unlinkAsset(s, {
+    operationId: "unlink2",
+    assetId: "b1",
+    expectedVersion: 5,
+    linkId: "l2",
+  });
+  f.failBatch(Error("crash after R2 delete"));
+  await assert.rejects(f.api.drainGc());
+  assert.equal(await f.bucket.get("assets/w1/b1"), null);
+  assert.equal((await f.db.prepare("SELECT count(*) n FROM assets_gc_jobs").first()).n, 1);
+  assert.equal((await f.db.prepare("SELECT count(*) n FROM assets_blobs").first()).n, 1);
+  const restarted = f.restart();
+  let drained;
+  await assert.doesNotReject(async () => {
+    drained = await restarted.drainGc();
+  });
+  assert.equal(drained, 1);
+  assert.equal(await restarted.drainGc(), 0);
+  assert.equal((await f.db.prepare("SELECT count(*) n FROM assets_blobs").first()).n, 0);
+  assert.equal((await f.db.prepare("SELECT count(*) n FROM assets_gc_jobs").first()).n, 0);
+  assert.deepEqual(await restarted.readOperation(s, "unlink2"), { id: "b1", version: 6 });
+});
+
+test("09a begin size boundary accepts exactly 10 MiB and rejects one byte more", async () => {
+  const f = await fixture(),
+    s = f.scope();
+  const data = new ArrayBuffer(10 * 1024 * 1024);
+  const input = { ...(await f.input()), size: data.byteLength, sha256: await hash(data) };
+  const before = await snapshot(f);
+  await assert.rejects(
+    f.api.beginUpload(s, { ...input, size: data.byteLength + 1 }),
+    error("validation"),
+  );
+  assert.deepEqual(await snapshot(f), before);
+  await assert.doesNotReject(async () => {
+    assert.deepEqual(await f.api.beginUpload(s, input), { id: "b1", version: 1 });
+    await f.api.putUpload(s, "b1", data);
+  });
+  assert.deepEqual(
+    await f.api.completeUpload(s, { operationId: "complete", assetId: "b1", expectedVersion: 1 }),
+    { id: "b1", version: 2 },
+  );
+});
+
+test("09a Assets dependency fakes satisfy the public provider contract", async () => {
+  const f = await fixture();
+  await assetsProviderContract({
+    ...f.providers,
+    editor: f.scope(),
+    viewer: f.scope("w1", "viewer", { role: "viewer", scope: "read" }),
+    projectId: "p1",
+    issueId: "i1",
+    pageId: "page1",
+  });
+});
+
+test("09a expired pending GC closes completion before deleting R2 bytes", async () => {
+  const f = await fixture(),
+    s = f.scope();
+  await f.api.beginUpload(s, await f.input());
+  await f.api.putUpload(s, "b1", bytes("hello"));
+  f.setNow(1000 + 86400);
+  let completion;
+  f.beforeDelete(async () => {
+    try {
+      completion = await f.api.completeUpload(s, {
+        operationId: "late-complete",
+        assetId: "b1",
+        expectedVersion: 1,
+      });
+      await f.api.linkAsset(s, {
+        operationId: "late-link",
+        assetId: "b1",
+        expectedVersion: 2,
+        linkId: "late-link",
+        target: { kind: "issue", id: "i1" },
+      });
+    } catch (e) {
+      completion = e.code;
+    }
+  });
+  await f.api.drainGc();
+  assert.equal(
+    completion,
+    "conflict",
+    "GC must close pending uploads before an interleaved completion/link",
+  );
+  assert.equal(await f.bucket.get("assets/w1/b1"), null);
+  assert.equal((await f.db.prepare("SELECT count(*) n FROM assets_links").first()).n, 0);
+  assert.equal(await f.api.readOperation(s, "late-complete"), null);
+});
+
+test("09a download after membership revoke rejects a previously authorized asset", async () => {
+  const f = await fixture(),
+    s = f.scope();
+  await linked(f, s);
+  const download = await f.api.downloadAsset(s, "b1");
+  await download.body.cancel();
+  f.revoke(s);
+  await assert.rejects(f.api.downloadAsset(s, "b1"), error("forbidden"));
 });
