@@ -996,3 +996,33 @@ Web unit and local smoke checks. The focused headless Integrations spec passed.
 The full Gateway run caught Miniflare stub invalidation after configuration reload;
 reload tests now run after shared-provider fixtures, with the unchanged behavior
 assertions passing in a full Gateway-file rerun.
+# Lifecycle and owner maintenance audit — 13a
+
+Reviewed Lifecycle's public commands, transition logic, all nine owner maintenance
+implementations, the Worker scheduler, REST dispatch, MCP catalog and Web purge
+flow against the step 13 contract. The existing tests use owner-only Miniflare
+migrations or the integrated scheduled Worker. This table maps the requested
+behavioral mutations to assertions; it is a targeted audit, not an exhaustive
+mutation score or deployed D1/R2 evidence.
+
+| Behavior whose removal must fail | Executable test |
+|---|---|
+| Every owner's ordinary write is stopped by its frozen marker, including an already admitted batch | `maintenance-core`: delayed public commands (Projects, Issues, Wiki, Coordination), delayed Access command; `maintenance-derived`: delayed commands (Planning, Insights, Integrations); `maintenance-assets`: delayed begin and put/complete upload. The delayed tests pause before `store.batch`, commit freeze, then assert rejection and no receipt. Assets additionally has a D1 admission fence before R2. |
+| Freeze and the guard are effective in the same D1 transaction | The delayed batch tests above; `maintenance-core`: direct post-freeze trigger writes; `maintenance-assets`: failed delayed begin has no receipt. |
+| No purge before all freeze acknowledgements, including pending external work | `lifecycle`: pending acknowledgements and incomplete R2 counts hold the global barrier; crash after every owner freeze/purge effect. |
+| Access parent is deleted only after all other owners | `lifecycle`: crash after every owner effect; purged owner acknowledgement test; `lifecycle-scheduled`: project then workspace purge across real owners. |
+| No completed job while an owner has remaining rows, pending work, or an undeleted R2 object | `lifecycle`: purged owner acknowledgement cannot complete while R2 or pending work remains; `maintenance-assets`: ambiguous admission tombstone and R2 deletion failure/retry; `lifecycle-scheduled`: R2 absent after complete. |
+| Purge chunks remain bounded and below the bind cap | `maintenance-core`: 51 Projects grants leave one after first call; `maintenance-derived`: 55 Planning sprints require another call; `maintenance-assets`: 55 history rows require another call. Catalog limits are 50 per table and 10 Assets blobs/admissions. |
+| A purge cannot touch another workspace or project | `maintenance-core`: Projects, Issues, Wiki and Coordination preservation; `maintenance-derived`: Planning, Insights and Integrations preservation; `maintenance-assets`: other project and workspace R2 keys; `lifecycle-scheduled`: real owners preserve w2/p1 and w1/p2. |
+| Request requires an interactive human owner and exact typed confirmation | `lifecycle`: role/kind/client matrix, absent/wrong confirmation, stale version and receipt checks. |
+| Gateway and MCP cannot acquire maintenance capabilities | `boundaries`: negative Gateway factory imports for each owner; `lifecycle-gateway`: Lifecycle REST routes preserve identity and input, and no Lifecycle MCP tool is registered. |
+| Resume is durable and idempotent | `lifecycle`: same operation returns immutable result, stale CAS has no receipt, crash before/after durable transitions and racing ticks. |
+
+The required finding was real: an upload admission left by a crashed request
+previously held Assets purge pending forever. Assets now deletes the
+deterministic R2 object during purge and records a
+seven-day tombstone before collecting the admission. Failed R2 deletion leaves
+the admission pending. The regression checks retry after deletion failure,
+tombstone GC and expiry, absent object after purge,
+scope isolation and late put/complete rejection. The pre-step-13 project
+attribution limit in `lifecycle.md` remains unchanged.
