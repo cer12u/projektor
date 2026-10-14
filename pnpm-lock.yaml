@@ -11,9 +11,6 @@ importers:
       dompurify:
         specifier: 3.2.6
         version: 3.2.6
-      hono:
-        specifier: 4.13.13
-        version: 4.13.13
       marked:
         specifier: 16.4.1
         version: 16.4.1

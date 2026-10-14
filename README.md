@@ -1,11 +1,19 @@
 # Projektor — modular rewrite
 
-The core owners Access, Projects, Issues and Wiki are implemented. Step 06a adds
-one Worker that composes them with Platform adapters and exposes workspace-scoped
-REST and MCP Streamable HTTP operations through Gateway. OAuth HTTP endpoints,
-consent UI and OAuth client end-to-end tests are step 06b. The Web app provides the core project, issue, Wiki, agent activity and workspace
-admin views. The Worker reports `deployable: false`; Cloudflare smoke and deploy
-jobs are disabled until resources and configuration are approved.
+Projektor is task management for people and coding agents (Claude Code, Codex and
+other MCP clients) working in the same workspaces. It runs as one Cloudflare Worker
+with D1, KV and R2.
+- Business modules own their data and are reached only through their public
+  contracts:
+  - Access, Projects, Issues and Wiki;
+  - Coordination (sessions, fenced leases, file claims, progress);
+  - Assets, Planning, Insights, Integrations and Lifecycle.
+- Gateway exposes them as workspace-scoped REST and MCP Streamable HTTP, with
+  Cloudflare Access for people and machine bearer or MCP OAuth for agents.
+- The Preact Web app is served as static assets.
+
+Installation-specific configuration (registries, account and resource IDs, hostnames
+and secrets) is never committed. See [docs/operations.md](docs/operations.md).
 
 The upstream Projektor was created by **Thomas Dickson**. This fork retains the
 [MIT license and copyright](LICENSE), authorship and Git history. The previous
@@ -15,7 +23,7 @@ Removing source does not migrate or delete deployed data.
 ```text
 apps/worker/                 Worker composition entry
 apps/web/                    Preact browser application
-modules/{access,projects,issues,wiki}/  core business owners
+modules/<owner>/             business owners (public.ts, internal/, storage/)
 modules/_fixture_{a,b}/       test-only owners
 platform/                    scoped adapters and migration ledger
 gateway/                     REST/MCP dispatch and wire descriptions
