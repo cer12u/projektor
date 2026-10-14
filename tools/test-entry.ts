@@ -1,6 +1,6 @@
 // Privileged test composition. These exports never enter the application artifact.
 
-export { createOAuthHttp } from "../gateway/public";
+export { createOAuthHttp, handleHttp, handleMcp } from "../gateway/public";
 export { createFixture as createA } from "../modules/_fixture_a/internal/factory";
 export { createFixture as createB } from "../modules/_fixture_b/internal/factory";
 export { createAccess } from "../modules/access/internal/factory";

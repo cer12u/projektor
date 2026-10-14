@@ -5,6 +5,9 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { build } from "esbuild";
 import { createFetchMock, Miniflare } from "miniflare";
+import { coordinationProviderContract } from "./coordination-provider-contract.mjs";
+
+let contractProviders;
 
 let mf, platform, write, read, other, ownerAssertion, writeMachineId;
 const issuer = "https://unit.cloudflareaccess.com";
@@ -168,6 +171,35 @@ before(async () => {
         if (mode === "write") write = token;
         else read = token;
       } else if (mode === "write") other = token;
+    }
+    if (w === "w1") {
+      const editor = await created.api.requireMembership(
+        await created.api.authenticate({ kind: "machine", bearer: write }),
+        w,
+        "contract-editor",
+      );
+      const viewer = await created.api.requireMembership(
+        await created.api.authenticate({ kind: "machine", bearer: read }),
+        w,
+        "contract-viewer",
+      );
+      const issues = platform.createIssues({
+        store: platform.createModuleStore(db, "issues"),
+        access: created.api,
+        projects: projectApi,
+        clock,
+        ids: platform.randomIds,
+      }).api;
+      contractProviders = {
+        access: created.api,
+        projects: projectApi,
+        issues,
+        editor,
+        viewer,
+        manager: scope,
+        issueId: "contract-issue",
+        projectId: "p1",
+      };
     }
   }
 });
@@ -486,6 +518,16 @@ test("two MCP SDK agents contend for issue and exact file claims", async () => {
       (await req("w1", "coordination.getProgress", { issueId: "coord-i" }, write)).data.text,
       "Working",
     );
+    const historyArgs = { issueId: "coord-i", limit: 1 };
+    const history = await req("w1", "coordination.listProgress", historyArgs, write);
+    assert.equal(history.status, 200);
+    assert.equal(history.data.items[0].text, "Working");
+    assert.equal(history.data.items[0].sequence, 1);
+    assert.equal(history.data.nextCursor, null);
+    assert.deepEqual(
+      (await call(clients[winner], "coordination.listProgress", historyArgs)).data,
+      history.data,
+    );
     assert.equal((await req("w1", "issues.get", { issueId: "coord-i" }, write)).data.state, "todo");
     const events = await req("w1", "coordination.readEvents", { cursor: 0 }, write);
     assert.equal(events.status, 200);
@@ -519,4 +561,17 @@ test("two MCP SDK agents contend for issue and exact file claims", async () => {
   } finally {
     await Promise.all(clients.map((c) => c.close()));
   }
+});
+
+test("audit real providers satisfy Coordination authorization contract", async () => {
+  const f = contractProviders;
+  await f.issues.createIssue(f.editor, {
+    operationId: "contract-issue",
+    issueId: f.issueId,
+    projectId: f.projectId,
+    title: "Contract",
+    description: "",
+    priority: "medium",
+  });
+  await coordinationProviderContract(f);
 });

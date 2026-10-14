@@ -170,3 +170,101 @@ test("Platform limiter adapter and Gateway preserve bounded source keys and fail
   };
   assert.equal((await f.post("/oauth/register", input, "application/json")).status, 503);
 });
+
+test("audit Gateway guards before dispatch and sanitizes internal errors on REST and MCP", async () => {
+  const { handleHttp, PlatformError } = await import("../.tmp/test-entry.mjs");
+  let writes = 0,
+    reads = 0,
+    thrown;
+  const services = {
+    oauthOrigin: issuer,
+    access: {
+      authenticate: async (input) => ({ kind: input.kind }),
+      requireMembership: async (_actor, w, _id, mode) => {
+        if (mode === "write") throw new PlatformError("forbidden", "read only");
+        return { workspaceId: w };
+      },
+    },
+    issues: {
+      getIssue: async () => {
+        reads++;
+        if (thrown) throw thrown;
+        return { id: "issue" };
+      },
+      createIssue: async () => {
+        writes++;
+        return { id: "unexpected" };
+      },
+    },
+  };
+  const request = (path, headers = {}, body) =>
+    handleHttp(
+      new Request(issuer + path, {
+        method: body ? "POST" : "GET",
+        headers: {
+          authorization: "Bearer pt1.fake",
+          "content-type": "application/json",
+          ...headers,
+        },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      }),
+      services,
+    );
+  const get = "/api/w/w1/issues/get?issueId=issue";
+  for (const [headers, status] of [
+    [{ "cf-access-jwt-assertion": "signed" }, 400],
+    [{ "x-workspace-id": "w2" }, 403],
+    [{ origin: "https://evil.example" }, 403],
+  ]) {
+    assert.equal((await request(get, headers)).status, status);
+    assert.equal(reads, 0);
+  }
+  assert.equal((await request(get, { authorization: "Bearer oauth-token" })).status, 403);
+  assert.equal(reads, 0);
+  const args = {
+    operationId: "op",
+    issueId: "new",
+    projectId: "p",
+    title: "new",
+    description: "",
+    priority: "medium",
+  };
+  const rpc = {
+    jsonrpc: "2.0",
+    id: 1,
+    method: "tools/call",
+    params: { name: "issues.create", arguments: args },
+  };
+  const response = await request("/mcp/w1", { accept: "application/json, text/event-stream" }, rpc);
+  assert.equal((await response.json()).result.isError, true);
+  assert.equal(writes, 0);
+  const badType = await request(
+    "/mcp/w1",
+    { accept: "application/json, text/event-stream", "content-type": "text/plain" },
+    rpc,
+  );
+  assert.equal(badType.status, 400);
+  for (const error of [
+    new Error("private database secret"),
+    new PlatformError("unknown", "private database secret"),
+  ]) {
+    thrown = error;
+    const rest = await request(get);
+    assert.equal(rest.status, 500);
+    assert.equal((await rest.json()).message, "Internal error");
+    const mcp = await request(
+      "/mcp/w1",
+      { accept: "application/json, text/event-stream" },
+      { ...rpc, params: { name: "issues.get", arguments: { issueId: "issue" } } },
+    );
+    const data = await mcp.json();
+    assert.equal(data.result.isError, true);
+    assert.deepEqual(JSON.parse(data.result.content[0].text), {
+      code: "unknown",
+      message: "Internal error",
+    });
+  }
+  const anonymous = await request("/mcp/w1", { authorization: "" });
+  assert.equal(anonymous.status, 401);
+  assert.match(anonymous.headers.get("www-authenticate"), /^Bearer /);
+});

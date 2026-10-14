@@ -416,6 +416,15 @@ export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
   "coordination.listClaims": op({ repo: "string", sessionId: "string" }, false, (s, c, a) =>
     s.coordination.listClaims(c, str(a, "repo"), str(a, "sessionId")),
   ),
+  "coordination.listProgress": op(
+    { issueId: "string", cursor: "optionalNumber", limit: "optionalNumber" },
+    false,
+    (s, c, a) =>
+      s.coordination.listProgress(c, str(a, "issueId"), {
+        cursor: optNum(a, "cursor"),
+        limit: optNum(a, "limit"),
+      }),
+  ),
   "coordination.getProgress": op({ issueId: "string" }, false, (s, c, a) =>
     s.coordination.getProgress(c, str(a, "issueId")),
   ),
