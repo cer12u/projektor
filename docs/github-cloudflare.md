@@ -1,6 +1,6 @@
 # GitHub main to Cloudflare
 
-Actions verifies and deploys the same checked artifact on main pushes, serialized in the production environment. Deployment stays disabled until repository variable CF_PRODUCTION_READY is explicitly true. Pull requests/manual verification never deploy. Workflow permissions are contents: read. GitLab CI is unchanged.
+Actions verifies and deploys the same checked artifact on main pushes, serialized in the production environment. Deployment stays disabled until repository variable CF_PRODUCTION_READY is explicitly true. Pull requests and default manual verification never deploy. An explicit deploy_production manual input can perform the approved first cutover from main. Workflow permissions are contents: read. GitLab CI is unchanged.
 
 ## Owner token input
 
@@ -29,7 +29,7 @@ Production environment variables:
 
 Run node tools/github-deploy.mjs --check with the approved configuration before enabling the job. It validates commit/checksums, approved schema hash, preserved-DB refusal, feature secret names, protected HTTP boundary and local dry-run. Binding existence is independently verified during initial setup; upload validates the referenced resources. It does not create/migrate/delete resources or save secrets.
 
-After first cutover/login verification, set repository CF_PRODUCTION_READY=true. Subsequent main pushes verify then deploy code/assets only. No automatic rollback changes production behind the operator; inspect any failure and explicitly choose rollback. Account/installation details stay outside the repository.
+After independently checking initial resources/schema/configuration and approving the cutover, set repository CF_PRODUCTION_READY=true and manually dispatch the main workflow with deploy_production=true for the first cutover. Confirm owner login/setup after it completes; disable the flag and explicitly roll back if necessary. Subsequent main pushes verify then deploy code/assets only. No automatic rollback changes production behind the operator; inspect any failure and explicitly choose rollback. Account/installation details stay outside the repository.
 
 ## Why Actions
 
