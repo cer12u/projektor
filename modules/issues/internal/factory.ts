@@ -27,7 +27,7 @@ interface Dependencies {
   readonly store: ModuleStore<"issues", Name>;
   readonly projects: Pick<
     ProjectsApi,
-    "authorizeProject" | "getProject" | "authorizeProjectPrincipal"
+    "authorizeProject" | "getProject" | "getProjectIncludingArchived" | "authorizeProjectPrincipal"
   >;
   readonly access: Pick<AccessApi, "authorize" | "getPrincipalSummary">;
   readonly clock: Clock;
@@ -118,10 +118,14 @@ export function createIssues(deps: Dependencies): {
     issueId: string,
     permission: "read" | "write" = "read",
     allowArchived = false,
+    allowArchivedProject = false,
   ): Promise<Issue> {
     const row = await one("issue", [w(scope), id(issueId)]);
     if (!row) fail("not_found", "Issue not found");
-    const project = await projects.authorizeProject(scope, string(row, "project_id"), permission);
+    const project =
+      allowArchivedProject && permission === "read"
+        ? await projects.getProjectIncludingArchived(scope, string(row, "project_id"))
+        : await projects.authorizeProject(scope, string(row, "project_id"), permission);
     if (!allowArchived && row.archived === 1) fail("not_found", "Issue not found");
     return fromRow(row, project.key);
   }
@@ -428,6 +432,7 @@ export function createIssues(deps: Dependencies): {
       if (!row || row.archived === 1) fail("not_found", "Issue not found");
       return fromRow(row, project.key);
     },
+    getIssueIncludingArchived: (scope, issueId) => issue(scope, issueId, "read", true, true),
     async listIssues(scope, input) {
       object(input);
       const projectId = id(input.projectId);

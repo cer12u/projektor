@@ -3,6 +3,7 @@ import { createAccess } from "../../modules/access/internal/factory";
 import { createAssets } from "../../modules/assets/internal/factory";
 import { createCoordination } from "../../modules/coordination/internal/factory";
 import { createIssues } from "../../modules/issues/internal/factory";
+import { createPlanning } from "../../modules/planning/internal/factory";
 import { createProjects } from "../../modules/projects/internal/factory";
 import { createWiki } from "../../modules/wiki/internal/factory";
 import {
@@ -84,6 +85,14 @@ function compose(env: Env) {
     clock: systemClock,
     ids: randomIds,
   }).api;
+  const planning = createPlanning({
+    store: createModuleStore(env.DB, "planning"),
+    access,
+    projects,
+    issues,
+    clock: systemClock,
+    ids: randomIds,
+  }).api;
   const oauthHttp =
     env.OAUTH_ISSUER &&
     env.OAUTH_RESOURCE &&
@@ -109,6 +118,7 @@ function compose(env: Env) {
     wiki,
     coordination,
     assets,
+    planning,
     oauthHttp,
     oauthOrigin: env.OAUTH_ISSUER,
   };

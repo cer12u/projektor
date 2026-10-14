@@ -2,6 +2,7 @@ import type { AccessApi, RequestScope } from "../modules/access/public";
 import type { AssetsApi } from "../modules/assets/public";
 import type { CoordinationApi } from "../modules/coordination/public";
 import type { IssuesApi } from "../modules/issues/public";
+import type { PlanningApi } from "../modules/planning/public";
 import type { ProjectsApi } from "../modules/projects/public";
 import type { WikiApi } from "../modules/wiki/public";
 import { PlatformError } from "../platform/public";
@@ -15,6 +16,7 @@ export interface Services {
   readonly wiki: WikiApi;
   readonly coordination: CoordinationApi;
   readonly assets: AssetsApi;
+  readonly planning: PlanningApi;
 }
 type Field =
   | "string"
@@ -45,6 +47,52 @@ const op = (fields: Fields, write: boolean, call: Operation["call"]): Operation 
 const operationId = { operationId: "string" } as const;
 const version = { ...operationId, expectedVersion: "number" } as const;
 export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
+  "planning.create": op(
+    { ...operationId, sprintId: "string", projectId: "string", name: "string" },
+    true,
+    (s, c, a) =>
+      s.planning.createSprint(c, {
+        operationId: str(a, "operationId"),
+        sprintId: str(a, "sprintId"),
+        projectId: str(a, "projectId"),
+        name: str(a, "name"),
+      }),
+  ),
+  "planning.schedule": op({ ...version, sprintId: "string", issueId: "string" }, true, (s, c, a) =>
+    s.planning.scheduleIssue(c, {
+      operationId: str(a, "operationId"),
+      expectedVersion: num(a, "expectedVersion"),
+      sprintId: str(a, "sprintId"),
+      issueId: str(a, "issueId"),
+    }),
+  ),
+  "planning.unschedule": op(
+    { ...version, sprintId: "string", issueId: "string" },
+    true,
+    (s, c, a) =>
+      s.planning.unscheduleIssue(c, {
+        operationId: str(a, "operationId"),
+        expectedVersion: num(a, "expectedVersion"),
+        sprintId: str(a, "sprintId"),
+        issueId: str(a, "issueId"),
+      }),
+  ),
+  "planning.close": op({ ...version, sprintId: "string" }, true, (s, c, a) =>
+    s.planning.closeSprint(c, {
+      operationId: str(a, "operationId"),
+      expectedVersion: num(a, "expectedVersion"),
+      sprintId: str(a, "sprintId"),
+    }),
+  ),
+  "planning.list": op({ projectId: "string" }, false, (s, c, a) =>
+    s.planning.listSprints(c, str(a, "projectId")),
+  ),
+  "planning.items": op({ sprintId: "string" }, false, (s, c, a) =>
+    s.planning.getSprintItems(c, str(a, "sprintId")),
+  ),
+  "planning.readOperation": op({ operationId: "string" }, false, (s, c, a) =>
+    s.planning.readOperation(c, str(a, "operationId")),
+  ),
   "projects.create": op(
     { ...operationId, projectId: "string", key: "string", name: "string" },
     true,

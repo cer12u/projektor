@@ -62,7 +62,15 @@ const mf = new Miniflare({
   },
 });
 const db = await mf.getD1Database("DB");
-await platform.migrate(db, ["access", "projects", "issues", "wiki", "coordination", "assets"]);
+await platform.migrate(db, [
+  "access",
+  "projects",
+  "issues",
+  "wiki",
+  "coordination",
+  "assets",
+  "planning",
+]);
 const clock = { now: () => Math.floor(Date.now() / 1000) };
 const access = platform.createAccess({
   store: platform.createModuleStore(db, "access"),

@@ -330,6 +330,8 @@ export function createProjects(deps: Dependencies): {
       );
     },
     getProject: (scope, projectId) => authorizeProject(scope, projectId),
+    getProjectIncludingArchived: (scope, projectId) =>
+      authorizeProject(scope, projectId, "read", true),
     async listVisibleProjects(scope, cursor = "", limit = 50) {
       const live = await access.authorize(scope, "read");
       if (typeof cursor !== "string") invalid();

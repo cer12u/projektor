@@ -119,6 +119,8 @@ export interface IssuesApi {
       | { readonly projectId: string; readonly number: number }
       | { readonly reference: string; readonly projectId: string },
   ): Promise<Issue>;
+  /** Authorized historical read for planning; archived issues remain read-only. */
+  getIssueIncludingArchived(scope: RequestScope, issueId: string): Promise<Issue>;
   listIssues(
     scope: RequestScope,
     input: {
