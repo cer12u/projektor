@@ -70,7 +70,17 @@ test("07c smoke successful orchestration never logs API token", async () => {
         files: { "smoke-worker.js": createHash("sha256").update("audit").digest("hex") },
       }),
     );
-    const result = spawnSync(process.execPath, ["script.mjs"], {
+    // The readiness probe is the only network call; answer it as the fresh deploy would.
+    fs.writeFileSync(
+      path.join(dir, "fetch-stub.mjs"),
+      `globalThis.fetch = async (url, init) => {
+        if (String(url) === "https://projektor-verify.audit.workers.dev/__smoke/migrate" &&
+            /^[0-9a-f]{64}$/.test(init?.headers?.["x-smoke-secret"] ?? ""))
+          return new Response("{}", { status: 405 });
+        throw new Error("Unexpected fetch");
+      };`,
+    );
+    const result = spawnSync(process.execPath, ["--import", "./fetch-stub.mjs", "script.mjs"], {
       cwd: dir,
       encoding: "utf8",
       env: {
