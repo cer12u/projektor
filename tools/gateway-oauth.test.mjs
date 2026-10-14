@@ -193,7 +193,8 @@ before(async () => {
     compatibilityDate: "2026-07-30",
     ratelimits: {
       OAUTH_REGISTER_LIMIT: { namespace_id: "1001", simple: { limit: 10, period: 60 } },
-      OAUTH_TOKEN_LIMIT: { namespace_id: "1002", simple: { limit: 60, period: 60 } },
+      // Keep the quota small so the test exhausts it before a slow CI runner's 60s window rolls.
+      OAUTH_TOKEN_LIMIT: { namespace_id: "1002", simple: { limit: 10, period: 60 } },
       FEEDBACK_LIMIT: { namespace_id: "1003", simple: { limit: 60, period: 60 } },
     },
     d1Databases: ["DB"],
@@ -659,7 +660,7 @@ test("metadata aliases, duplicate/oversize/unsupported forms, CORS and bounded e
   }
   assert(registrationLimited);
   let tokenLimited = false;
-  for (let n = 0; n < 61; n++) {
+  for (let n = 0; n < 11; n++) {
     const r = await post("/oauth/token", { grant_type: "password" });
     if (r.status === 429) {
       tokenLimited = true;
