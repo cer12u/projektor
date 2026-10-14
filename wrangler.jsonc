@@ -8,7 +8,7 @@
   "kv_namespaces": [{ "binding": "KV", "id": "REPLACE_WITH_APPROVED_KV_ID" }],
   "r2_buckets": [{ "binding": "R2", "bucket_name": "REPLACE_WITH_APPROVED_R2_BUCKET" }],
   "assets": {
-    "directory": "./apps/web",
+    "directory": "./dist/assets",
     "binding": "ASSETS",
     "run_worker_first": ["/api/*", "/mcp/*", "/.well-known/*", "/oauth/*", "/health"]
   },

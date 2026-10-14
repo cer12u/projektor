@@ -39,11 +39,27 @@ await build({
   entryPoints: ["tools/smoke-worker.ts"],
   outfile: "dist/smoke-worker.js",
 });
+await build({
+  ...options,
+  entryPoints: ["apps/web/src/app.tsx"],
+  outfile: "dist/assets/app.js",
+  jsx: "automatic",
+  jsxImportSource: "preact",
+});
+fs.copyFileSync("apps/web/src/style.css", "dist/assets/style.css");
 fs.copyFileSync("apps/web/index.html", "dist/assets/index.html");
 fs.copyFileSync("LICENSE", "dist/LICENSE");
 const migrations = Object.fromEntries(productionOwners.map((o) => [o.id, schema[o.id].migrations]));
 fs.writeFileSync("dist/migrations.json", `${JSON.stringify(migrations, null, 2)}\n`);
-const files = ["worker.js", "smoke-worker.js", "assets/index.html", "LICENSE", "migrations.json"];
+const files = [
+  "worker.js",
+  "smoke-worker.js",
+  "assets/index.html",
+  "assets/app.js",
+  "assets/style.css",
+  "LICENSE",
+  "migrations.json",
+];
 const artifact = {
   commit:
     process.env.CI_COMMIT_SHA ??

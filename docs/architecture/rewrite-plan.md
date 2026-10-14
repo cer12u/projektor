@@ -359,14 +359,16 @@ owner の利用目的は OpenAI Dots、Codex、Claude Code など複数 agent �
 | 06 `rewrite/06-gateway` | Gateway、Worker composition、REST/MCP の最小 catalog | 同じ fixture で surface parity。scope 不一致、未知 tool、binary/credential の明示例外。route に SQL/業務分岐なし。各 command の API 契約と生成 docs 一致。Claude Code / Codex / Dots 型 client の MCP Streamable HTTP 相互運用を OAuth login と bearer の両経路で検証 |
 | 08 `rewrite/08-coordination` | Coordination: sessions / fenced lease / file claims / progress | 同時 acquire の winner が一人、失効 lease の renew/report 拒否、restart 後の durable recovery。Issue 本体の状態を更新しない。WIP cap は自身の table の invariant |
 | 08a `rewrite/08a-audit-gateway-coordination` | Gateway / Coordination independent test audit; bounded append-only progress timeline | Required transport and fencing mutations must fail behavioral assertions; retain latest read and newest-first keyset history (1,000 per issue). See [test audit](test-audit.md). |
-| 07 `rewrite/07-web` | Web: login 状態、project 選択、issue/wiki 主操作、pending/unknown 表示 | 実画面で主担当が作成→編集→履歴・競合・workspace 切替まで操作。actor/workspace 変更で旧 response を表示しない。入力失敗時に内容を失わない。secret-free local browser CI。ここで最小 core 完成 |
+| 07 `rewrite/07-web` | Web: login 状態、project 選択、issue/wiki 主操作、pending/unknown 表示 | 実画面で主担当が作成→編集→履歴・競合・workspace 切替まで操作。actor/workspace 変更で旧 response を表示しない。入力失敗時に内容を失わない。secret-free local browser CI。主要 Web 操作を実装。core 完了判定は未公開の管理 REST 契約を追加した後に行う |
 | 09 `rewrite/09-assets` | Assets: upload/download/link/GC | 他 module table に link metadata を追加しない。R2 故障・応答断・再送後も job が残り回収できる。archive/revoke 後 download 拒否。binary REST と MCP metadata の例外を catalog に明記 |
 | 10 `rewrite/10-planning` | Planning: sprint と items | sprint 削除/終了が Issues UPDATE を発生させない。無権限 issue の schedule 拒否。archived issue の読取り/表示を定義。失敗再送で重複 item なし |
 | 11 `rewrite/11-insights` | Insights: activity projection と最小 metrics | duplicate/out-of-order event の再生が安定。consumer crash 後に欠落しない。projection 遅延を表示し、revoke 後に本文・件数を漏らさない。巨大な分析/通知 engine を追加しない |
 | 12 `rewrite/12-integrations` | Integrations: まず external ref と feedback→issue | webhook/feedback 重複抑止。issue 作成 API の operationId を同じ値で再試行し、途中失敗が二重 issue を作らない。外部資格を context に広げない |
 | 13 `rewrite/13-lifecycle` | Lifecycle: freeze と purge job | 全 owner freeze 後の遅延 write 拒否。各境界で crash しても resume 可能。R2 GC 完了まで parent 消去を完了扱いしない。他 owner の SQL が一行もない |
 
-Step 08 以降は core 完成の条件ではない。既存機能の単純 port のために追加しない。epic/custom field/workspace wiki/group を要求する場合は、そのデータ所有者の公開契約を拡張する独立 MR として再見積もりし、未実装の機能を上表の完了に紛れ込ませない。
+Step 07 の実装で、Gateway に workspace を知らずに列挙する入口、member 一覧、OAuth client 一覧/取消、Coordination の project 単位 WIP 上限/進捗/claim 一覧、現在の principal を取得する入口がないことを確認した。Web は公開済み REST のみを使い、既知 ID による管理と対象を指定した agent 活動を表示する。これらの route は各 owner の公開契約を整えて別 MR で追加し、それまで core 完了とは記録しない。
+
+Step 08 以降の拡張 module は core 完成の条件ではない。既存機能の単純 port のために追加しない。epic/custom field/workspace wiki/group を要求する場合は、そのデータ所有者の公開契約を拡張する独立 MR として再見積もりし、未実装の機能を上表の完了に紛れ込ませない。
 
 データ移行と本番切替は別の運用判断。新規 D1/R2 namespace へ owner 別 importer（旧 snapshot を入力し公開 import command を呼ぶ）で dry-run → 件数/参照/履歴検証 → 書込み停止または差分取込み → 切替、とする。実データへの実行計画は Q4 決定後に別 MR で具体化する。新しい意味に合わない状態は勝手に正規化せず report する。旧 DB と release を保持し、切戻し時に新規 write をどう扱うか決まるまで本番公開しない。
 
