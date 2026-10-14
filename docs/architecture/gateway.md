@@ -84,9 +84,11 @@ Consent GET displays the escaped client name, callback host, requested/granted
 scopes and human workspaces. Changing workspace requires Review workspace; the
 approve button explicitly names the workspace bound to the displayed grant.
 POST requires the exact Origin, a Secure/HttpOnly/SameSite=Lax host cookie and an
-HMAC-SHA256 envelope containing the original request, principal, workspace,
+HMAC-SHA256 envelope containing the original request, displayed granted scope, principal, workspace,
 10-minute expiry, random cookie binding, operation ID and random code secret.
-The Access handle is recreated inside POST and never serialized. Access stores
+The Access handle is recreated inside POST and never serialized. A changed grant
+ceiling (including role promotion) requires fresh review instead of silently
+granting more than the displayed scope. Access stores
 only the envelope hash, subject, workspace and expiry, and atomically deletes it
 on consumption. Duplicate/concurrent POSTs have one winner even across isolates.
 Nonce consumption precedes approval: after response loss or backend failure the

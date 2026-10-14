@@ -444,6 +444,24 @@ test("PKCE and redirect mismatches do not consume code; viewer read grant and wr
   assert.equal(write.status, 403);
   assert.match(write.headers.get("www-authenticate"), /error="insufficient_scope"/);
   assert.match(write.headers.get("www-authenticate"), /scope="read write"/);
+  // A role promotion between display and POST must not silently enlarge consent.
+  const review = await page(viewer, viewerAssertion);
+  const viewerScope = await api.requireMembership(
+    await api.authenticate({ kind: "human", assertion: viewerAssertion }),
+    "w1",
+    "promote",
+  );
+  await api.changeRole(ownerScope, {
+    operationId: "promote-viewer",
+    principalId: viewerScope.principalId,
+    expectedVersion: 1,
+    role: "member",
+  });
+  const changedGrant = await approve(review, viewerAssertion);
+  assert.equal(changedGrant.status, 303);
+  const changedCallback = new URL(changedGrant.headers.get("location"));
+  assert.equal(changedCallback.searchParams.get("error"), "access_denied");
+  assert.equal(changedCallback.searchParams.has("code"), false);
   const admin = await login();
   const clientId = admin.clientInformation().client_id;
   const binding = await api.getOAuthClient(adminScope, clientId);

@@ -195,6 +195,7 @@ export function createOAuthHttp(
           const csrf = random();
           const token = await seal({
             request: original,
+            grantedScope: consent.scope,
             workspace: selected,
             principal: scope.principalId,
             csrf: await digest(csrf),
@@ -251,7 +252,8 @@ export function createOAuthHttp(
           state: original.state,
           iss: config.issuer,
         };
-        if (form.decision === "deny") return redirect(target, { error: "access_denied" });
+        if (form.decision === "deny" || consent.scope !== state.grantedScope)
+          return redirect(target, { error: "access_denied" });
         try {
           const result = await access.approveOAuthConsent(scope, consent, {
             operationId: state.operationId,
