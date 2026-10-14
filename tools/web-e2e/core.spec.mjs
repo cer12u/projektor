@@ -64,6 +64,7 @@ test("project, issue, MCP agent attribution, wiki conflict and activity", async 
   await expect(detail.getByText("edit", { exact: true })).toBeVisible();
   await detail.getByLabel("状態").selectOption("in_progress");
   await detail.getByRole("button", { name: "状態を変更" }).click();
+  await expect(detail.getByText("transition", { exact: true })).toBeVisible();
   await detail.getByLabel("コメント").fill("人からのコメント");
   await detail.getByRole("button", { name: "コメントを追加" }).click();
   await expect(detail.getByText("comment", { exact: true })).toBeVisible();

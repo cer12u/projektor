@@ -454,6 +454,7 @@ function IssueDetail({
       onChange();
     }
   };
+  const busy = op.status === "pending" || op.status === "unknown";
   const retry = () => {
     void op.retry().then((result) => {
       if (result) {
@@ -528,6 +529,7 @@ function IssueDetail({
             <button
               type="button"
               class="secondary compact"
+              disabled={busy}
               onClick={() => void save("issues.transition", { state })}
             >
               {ja.ui.changeState}
@@ -539,6 +541,7 @@ function IssueDetail({
             <button
               type="button"
               class="secondary compact"
+              disabled={busy}
               onClick={() => void save("issues.assign", { assigneeId: assignee || null })}
             >
               {ja.ui.changeAssignee}
@@ -558,7 +561,7 @@ function IssueDetail({
                 onInput={(event) => setComment(event.currentTarget.value)}
               />
             </label>
-            <button type="submit" class="secondary">
+            <button type="submit" class="secondary" disabled={busy}>
               {ja.ui.addComment}
             </button>
           </form>
@@ -933,6 +936,7 @@ function Admin({ workspace }: { workspace: string }) {
     principalId,
   );
   const op = useAction(workspace);
+  const busy = op.status === "pending" || op.status === "unknown";
   const submit = async (name: string, args: Record<string, unknown>) => {
     const result = await op.run<{ token?: string; id?: string }>(workspace, name, args);
     if (result) {
@@ -980,6 +984,7 @@ function Admin({ workspace }: { workspace: string }) {
         <button
           type="button"
           class="secondary"
+          disabled={busy}
           onClick={() =>
             void submit("access.invite", { expectedVersion: 0, issuer, subject, role })
           }
@@ -990,6 +995,7 @@ function Admin({ workspace }: { workspace: string }) {
           <button
             type="button"
             class="secondary"
+            disabled={busy}
             onClick={() =>
               void submit("access.role", {
                 principalId,
@@ -1011,6 +1017,7 @@ function Admin({ workspace }: { workspace: string }) {
         <button
           type="button"
           class="secondary"
+          disabled={busy}
           onClick={() => {
             void submit("access.machine", { principalId: machineId, role: "member" }).then(
               (result) => {
@@ -1032,6 +1039,7 @@ function Admin({ workspace }: { workspace: string }) {
         <button
           type="button"
           class="secondary"
+          disabled={busy}
           onClick={() => {
             const bytes = crypto.getRandomValues(new Uint8Array(32));
             const value = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
