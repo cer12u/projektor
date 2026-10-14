@@ -7,18 +7,15 @@ workflow:
     - if: '$CI_COMMIT_BRANCH'
 stages: [verify, test, build, smoke, deploy]
 default:
-  image: node:22.22.1-bookworm@sha256:f90672bf4c76dfc077d17be4c115b1ae7731d2e8558b457d86bca42aeb193866
+  # Prebuilt by tools/ci-image.sh: pinned Node + pnpm + a store prefetched from the
+  # lockfile, so jobs skip the pnpm download and most package fetching.
+  image: harbor.vp25.home/tkdev/projektor-ci:node-c1b09b814e97@sha256:cf89e3fdf49a21f50324ef5157e10a97de89b58ee18f838121418f1872a9f00b
   before_script:
     - node --version
     - python3 --version
-    - npm install --global pnpm@10.18.0 --ignore-scripts
-    - pnpm config set store-dir .pnpm-store
-    - pnpm install --frozen-lockfile
-  cache:
-    key:
-      files: [pnpm-lock.yaml]
-      prefix: $CI_JOB_NAME
-    paths: [.pnpm-store/]
+    - pnpm install --frozen-lockfile --prefer-offline
+variables:
+  npm_config_store_dir: /pnpm-store
 boundaries:
   stage: verify
   script:
@@ -52,7 +49,7 @@ modules:
 # Browser fixture is local Miniflare with a test-only assertion injector; no CI credentials.
 browser:
   stage: test
-  image: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:6446946a1d9fd62d9ae501312a2d76a43ee688542b21622056a372959b65d63d
+  image: harbor.vp25.home/tkdev/projektor-ci:browser-c1b09b814e97@sha256:9e9616a4e76346bc1dac64fc2b24db4cd731521afeda38005f34312e5ea3dbda
   script: ["pnpm test:web"]
   artifacts:
     when: on_failure
