@@ -66,7 +66,11 @@ for (const [file, checksum] of Object.entries(artifact.files))
     `Artifact checksum: ${file}`,
   );
 const base = JSON.parse(fs.readFileSync("wrangler.jsonc", "utf8"));
-assert.equal(installation.worker, base.name, "Workers Builds Worker name must match");
+assert.equal(installation.worker, base.name, "Configured Worker name must match");
+assert(
+  !Object.hasOwn(base, "routes") && !Object.hasOwn(base, "route"),
+  "Automatic deploy must not manage routes/custom domains",
+);
 const config = {
   ...base,
   main: path.resolve("dist/worker.js"),
