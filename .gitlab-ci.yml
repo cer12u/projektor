@@ -80,6 +80,16 @@ cloudflare-smoke:
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true"'
       allow_failure: true
   script: ["pnpm smoke:cloudflare"]
+# Read-only listing of Workers, domains, D1/KV/R2 and Access for cut-over planning.
+cloudflare-inventory:
+  stage: smoke
+  needs: []
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true" && $CLOUDFLARE_API_TOKEN && $CLOUDFLARE_ACCOUNT_ID'
+      when: manual
+      allow_failure: true
+  before_script: []
+  script: ["node tools/cloudflare-inventory.mjs"]
 deploy:
   stage: deploy
   resource_group: production
