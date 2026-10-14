@@ -2157,7 +2157,7 @@ function PurgeDangerZone({ workspace, projectId }: { workspace: string; projectI
         のデータを段階的に凍結・削除します。
       </p>
       <p>
-        対象 ID: <strong class="secret">{targetId}</strong>
+        対象 ID: <strong class="purge-target">{targetId}</strong>
       </p>
       {error && <p role="alert">状態を取得できません: {error}</p>}
       {loading && <p role="status">状態を確認中…</p>}
