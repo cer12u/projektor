@@ -168,7 +168,7 @@ async function requestPurge(workspaceId, projectId, operationId) {
 }
 async function runToCompletion(workspaceId, scopeId) {
   for (let i = 0; i < 100; i++) {
-    await p.Worker.scheduled({}, env);
+    await p.Worker.scheduled({ cron: "* * * * *" }, env);
     const row = await db
       .prepare("SELECT state FROM lifecycle_jobs WHERE workspace_id=? AND scope_id=?")
       .bind(workspaceId, scopeId)
