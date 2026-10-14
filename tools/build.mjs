@@ -34,10 +34,23 @@ const options = {
   ],
 };
 await build({ ...options, entryPoints: ["apps/worker/index.ts"], outfile: "dist/worker.js" });
+// Smoke and deploy migrations cover every production owner, in manifest order.
+const migrationOwners = {
+  __MIGRATION_OWNERS__: JSON.stringify(
+    productionOwners.map((o) => o.id).filter((id) => id !== "platform"),
+  ),
+};
 await build({
   ...options,
+  define: migrationOwners,
   entryPoints: ["tools/smoke-worker.ts"],
   outfile: "dist/smoke-worker.js",
+});
+await build({
+  ...options,
+  define: migrationOwners,
+  entryPoints: ["tools/migrate-worker.ts"],
+  outfile: "dist/migrate-worker.js",
 });
 await build({
   ...options,
@@ -54,6 +67,7 @@ fs.writeFileSync("dist/migrations.json", `${JSON.stringify(migrations, null, 2)}
 const files = [
   "worker.js",
   "smoke-worker.js",
+  "migrate-worker.js",
   "assets/index.html",
   "assets/app.js",
   "assets/style.css",

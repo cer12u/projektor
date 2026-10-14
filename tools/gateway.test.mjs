@@ -676,6 +676,55 @@ test("07c /api/me never provisions membership for an authenticated stranger", as
   );
 });
 
+test("Access cookie authenticates REST only, never overrides credentials, and writes need Origin", async () => {
+  const cookie = { cookie: `theme=dark; CF_Authorization=${ownerAssertion}` };
+  const me = await mf.dispatchFetch("http://localhost/api/me", { headers: cookie });
+  assert.equal(me.status, 200);
+  assert((await me.json()).workspaces.some((w) => w.id === "w1"));
+  const create = (headers) =>
+    mf.dispatchFetch(endpoint("w1", "projects.create"), {
+      method: "POST",
+      headers: { "content-type": "application/json", ...cookie, ...headers },
+      body: JSON.stringify({
+        operationId: "cookie-project",
+        projectId: "cookie",
+        key: "CK",
+        name: "Cookie",
+      }),
+    });
+  assert.equal((await create({})).status, 403, "cookie write without Origin");
+  assert.equal((await create({ origin: "https://evil.example" })).status, 403);
+  const created = await create({ origin: "http://localhost" });
+  assert.equal(created.status, 200, await created.clone().text());
+  const forged = await mf.dispatchFetch("http://localhost/api/me", {
+    headers: { cookie: "CF_Authorization=not-a-jwt" },
+  });
+  assert.equal(forged.status, 403);
+  // An explicit bearer wins over the ambient cookie: the read-scoped machine cannot write.
+  const asMachine = await mf.dispatchFetch(endpoint("w1", "projects.create"), {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      origin: "http://localhost",
+      authorization: `Bearer ${read}`,
+      ...cookie,
+    },
+    body: JSON.stringify({ operationId: "cookie-p2", projectId: "c2", key: "C2", name: "C2" }),
+  });
+  assert.equal(asMachine.status, 403);
+  const mcp = await mf.dispatchFetch("http://localhost/mcp/w1", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      origin: "http://localhost",
+      ...cookie,
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+  });
+  assert.equal(mcp.status, 401, "MCP ignores the Access cookie");
+});
+
 test("Assets binary REST and MCP metadata parity with live download authorization", async () => {
   const data = new TextEncoder().encode("asset transport");
   const sha256 = Buffer.from(await crypto.subtle.digest("SHA-256", data)).toString("hex");

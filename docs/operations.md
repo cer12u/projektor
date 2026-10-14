@@ -25,7 +25,6 @@ Those values are supplied as GitLab CI/CD variables, or by deploy-time configura
 | `CF_VERIFY_RATELIMIT_IDS` | yes | no | Optional `register,token,feedback` rate-limit namespace IDs for the verify Worker (default `1001,1002,1003`). Rate-limit namespaces are account-wide, so pick IDs that no other Worker uses. |
 | `CF_ZONE_NAME` | yes | no | Optional zone that the inventory job inspects for Worker routes. |
 
-Production deploy variables are added together with the deploy job.
 
 ## Prebuilt CI images
 `ci/Dockerfile` adds pnpm and a store prefetched from `pnpm-lock.yaml` to the pinned public bases.
@@ -33,3 +32,50 @@ Production deploy variables are added together with the deploy job.
 2. Set `CI_NODE_IMAGE` and `CI_BROWSER_IMAGE` to the printed digests.
 3. Rebuild after a lockfile, Node, Playwright or pnpm change. A stale store still works, because jobs install with
    `--prefer-offline`.
+
+## Production deploy
+
+The manual `deploy` job runs on protected `main`. It does the following, in order:
+1. verifies the build artifact;
+2. finds or creates the production D1, KV and R2 by name;
+3. applies D1 migrations through a temporary, secret-gated `<worker>-migrate` Worker, which it deletes again afterwards;
+4. deploys the Worker with configuration generated from the variables below;
+5. checks `<origin>/health`.
+
+If the health check fails, the job rolls back to the previous Worker version. The manual `rollback` job restores the previous
+version, or `ROLLBACK_VERSION_ID` when set. Data is never touched: migrations are additive.
+
+| Variable | Protected | Masked | Purpose |
+|---|---|---|---|
+| `CF_PROD_WORKER` | yes | no | Worker name. A Worker that already serves the hostname is replaced in place, and its custom domain is kept. |
+| `CF_PROD_RESOURCE_NAME` | yes | no | Name of the production D1, KV and R2. Use a new name, so that data from another deployment is never reused. |
+| `CF_PROD_ORIGIN` | yes | no | Public origin, e.g. `https://projektor.example.org`. Used for the OAuth issuer/resource and the post-deploy checks. |
+| `CF_PROD_RATELIMIT_IDS` | yes | no | `register,token,feedback` rate-limit namespace IDs. They are unique within the account. |
+| `ACCESS_TEAM_DOMAIN` | yes | no | `https://<team>.cloudflareaccess.com` |
+| `ACCESS_AUDIENCE` | yes | no | AUD tag of the Access application. |
+| `PROD_INTEGRATIONS_KEY` | yes | yes | 64 hex characters (`openssl rand -hex 32`). Keep it stable: it decrypts stored webhook secrets. |
+| `PROD_OAUTH_FORM_SECRET` | yes | yes | 32+ random characters (`openssl rand -hex 32`). |
+
+The API token additionally needs the same account permissions as the smoke job. No zone permission is needed while the custom
+domain stays attached to the same Worker name.
+
+## Cloudflare Access application
+People sign in through Cloudflare Access. Agents use machine bearer tokens or MCP OAuth, which Access must not intercept.
+
+1. Create a self-hosted Access application for the hostname, with an Allow policy for the people who may sign in. Note its AUD
+   tag and the team domain.
+2. Add Bypass (path-scoped) applications, or policies, for the following paths:
+   - `/mcp/*`
+   - `/.well-known/*`
+   - `/oauth/register`, `/oauth/token` and `/oauth/revoke`
+   - `/integrations/*`
+   - `/health`
+   - `/api/*`
+   Keep `/oauth/authorize` and the Web UI (`/`) behind Access.
+3. How `/api/*` works under Bypass:
+   - The browser still sends the Access `CF_Authorization` cookie, and Gateway verifies that JWT exactly as it verifies the
+     `Cf-Access-Jwt-Assertion` header.
+   - A cookie-authenticated write must carry this site's `Origin`.
+   - The cookie never authenticates MCP, and never overrides a bearer token.
+
+Any person whom the Access policy admits can create a workspace and becomes its owner, so keep the Allow policy narrow.

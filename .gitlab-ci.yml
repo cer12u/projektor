@@ -94,9 +94,25 @@ cloudflare-inventory:
       allow_failure: true
   before_script: []
   script: ["node tools/cloudflare-inventory.mjs"]
+# Production deploy and rollback: protected main only, started by hand. All
+# installation values come from protected CI/CD variables (docs/operations.md).
 deploy:
   stage: deploy
   resource_group: production
+  needs:
+    - job: build
+      artifacts: true
+    - job: integration
   rules:
-    - when: never
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true" && $CLOUDFLARE_API_TOKEN && $CF_PROD_WORKER'
+      when: manual
   script: ["pnpm deploy:artifact"]
+rollback:
+  stage: deploy
+  resource_group: production
+  needs: []
+  rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true" && $CLOUDFLARE_API_TOKEN && $CF_PROD_WORKER'
+      when: manual
+      allow_failure: true
+  script: ["pnpm deploy:rollback"]
