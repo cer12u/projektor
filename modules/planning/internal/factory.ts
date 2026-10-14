@@ -226,12 +226,16 @@ export function createPlanning(d: Dependencies): {
         archived: project.archived,
       }));
     },
-    async getSprintItems(s, sprintId) {
+    async getSprintItems(s, sprintId, page = {}) {
+      const limit = page.limit === undefined ? 50 : page.limit;
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
+        fail("validation", "Invalid page size");
+      const cursor = page.cursor === undefined ? "" : id(page.cursor);
       await access.authorize(s, "read");
       const current = await readSprint(s, sprintId);
-      const rows = (await store.run("items", [ws(s), current.id])).rows;
+      const rows = (await store.run("items", [ws(s), current.id, cursor, limit + 1])).rows;
       const items = await Promise.all(
-        rows.map(async (r) => {
+        rows.slice(0, limit).map(async (r) => {
           const issueId = str(r, "issue_id");
           try {
             const issue = await issues.getIssueIncludingArchived(s, issueId);
@@ -243,7 +247,11 @@ export function createPlanning(d: Dependencies): {
           }
         }),
       );
-      return { sprint: current, items };
+      return {
+        sprint: current,
+        items,
+        nextCursor: rows.length > limit ? items[items.length - 1].issueId : null,
+      };
     },
     async readOperation(s, operationId) {
       await access.authorize(s, "read");
