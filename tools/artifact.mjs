@@ -16,6 +16,7 @@ assert.deepEqual(Object.keys(artifact.files).sort(), [
   "assets/app.js",
   "assets/index.html",
   "assets/style.css",
+  "migrate-worker.js",
   "migrations.json",
   "smoke-worker.js",
   "worker.js",
@@ -24,7 +25,7 @@ for (const [file, checksum] of Object.entries(artifact.files))
   assert.equal(hash(fs.readFileSync(`dist/${file}`)), checksum, file);
 // Inspect every executable production artifact, including the verification Worker.
 // A checksum proves integrity, not exclusion of test-only authentication code.
-for (const file of ["worker.js", "smoke-worker.js", "assets/app.js"]) {
+for (const file of ["worker.js", "smoke-worker.js", "migrate-worker.js", "assets/app.js"]) {
   const source = fs.readFileSync(`dist/${file}`, "utf8");
   assert(
     !/WEB_TEST_READY|__test|web-test\.cloudflareaccess\.com|web-oauth-test\.example/.test(source),

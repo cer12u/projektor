@@ -177,3 +177,12 @@ both before and after revocation.
 
 See [Lifecycle](lifecycle.md) for owner-local atomic freeze, bounded purge, retained
 markers, project attribution, REST-only owner access and recovery limits.
+
+## Access cookie on REST
+
+Agent paths bypass Cloudflare Access in production, including `/api/*`. A browser
+request there carries the Access `CF_Authorization` cookie instead of the injected
+`Cf-Access-Jwt-Assertion` header. Gateway passes that cookie JWT to the same Access
+human authentication. The cookie is ambient: it applies only to REST, only when no
+header or `Authorization` is present, and a cookie-authenticated non-GET request must
+carry this origin in `Origin`. MCP never accepts it.

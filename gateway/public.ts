@@ -111,6 +111,13 @@ function workspace(request: Request, fromPath: string): string {
     throw new PlatformError("forbidden", "Workspace mismatch");
   return fromPath;
 }
+function accessCookie(request: Request): string | undefined {
+  for (const part of (request.headers.get("cookie") ?? "").split(";")) {
+    const [name, ...value] = part.trim().split("=");
+    if (name === "CF_Authorization" && value.length) return value.join("=");
+  }
+  return undefined;
+}
 async function principal(
   request: Request,
   services: Services,
@@ -120,6 +127,18 @@ async function principal(
   const authorization = request.headers.get("authorization");
   if (assertion && authorization) throw new PlatformError("validation", "Ambiguous credentials");
   if (assertion) return services.access.authenticate({ kind: "human", assertion });
+  if (!authorization && endpoint === "rest") {
+    // Agent paths bypass Cloudflare Access, so REST is reachable without the injected
+    // header; a browser still carries the Access app cookie, which holds the same JWT.
+    // The cookie is ambient, so it never overrides an explicit credential, never
+    // authenticates MCP, and a cookie-authenticated write must come from this origin.
+    const cookie = accessCookie(request);
+    if (cookie) {
+      if (request.method !== "GET" && request.headers.get("origin") !== new URL(request.url).origin)
+        throw new PlatformError("forbidden", "Origin required");
+      return services.access.authenticate({ kind: "human", assertion: cookie });
+    }
+  }
   if (!authorization?.startsWith("Bearer ") || authorization.length < 8)
     throw new PlatformError("forbidden", "Authentication required");
   const bearer = authorization.slice(7);

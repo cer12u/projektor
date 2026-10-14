@@ -9,7 +9,9 @@ interface Env extends GatewayEnv {
   readonly SMOKE_SECRET: string;
 }
 
-const owners = ["access", "projects", "issues", "wiki", "coordination", "integrations"] as const;
+/** Production owners in manifest order, injected by tools/build.mjs. */
+declare const __MIGRATION_OWNERS__: Parameters<typeof migrate>[1];
+const owners = __MIGRATION_OWNERS__;
 const reply = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {
     status,
