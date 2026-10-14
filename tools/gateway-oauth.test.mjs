@@ -330,7 +330,7 @@ test("SDK discovery/DCR/consent/token, tools retry/CAS, refresh rotation and rev
         headers: { authorization: `Bearer ${p.tokens().access_token}` },
       })
     ).status,
-    403,
+    200,
   );
   const old = p.tokens();
   assert.equal(await auth(p, { serverUrl: `${resource}/w1`, fetchFn: fetcher }), "AUTHORIZED");
@@ -470,9 +470,28 @@ test("PKCE and redirect mismatches do not consume code; viewer read grant and wr
   const clientId = admin.clientInformation().client_id;
   const binding = await api.getOAuthClient(adminScope, clientId);
   const command = { operationId: "admin-revoke", clientId, expectedVersion: binding.version };
-  const revoked = await api.revokeOAuthClient(adminScope, command);
-  assert.deepEqual(await api.revokeOAuthClient(adminScope, command), revoked);
+  const restRead = () =>
+    fetcher(`${origin}/api/w/w1/projects/list`, {
+      headers: { authorization: `Bearer ${admin.tokens().access_token}` },
+    });
+  assert.equal((await restRead()).status, 200);
+  const me = await fetcher(`${origin}/api/me`, {
+    headers: { authorization: `Bearer ${admin.tokens().access_token}` },
+  });
+  assert.deepEqual(
+    (await me.json()).workspaces.map((w) => w.id),
+    ["w1"],
+  );
+  const revokeRest = () =>
+    fetcher(`${origin}/api/w/w1/access/oauthClients/revoke`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "cf-access-jwt-assertion": ownerAssertion },
+      body: JSON.stringify(command),
+    });
+  assert.equal((await revokeRest()).status, 200);
+  assert.equal((await revokeRest()).status, 200);
   assert.equal((await rpc(admin.tokens().access_token)).status, 401);
+  assert.equal((await restRead()).status, 403);
   assert.equal(
     (
       await post("/oauth/token", {

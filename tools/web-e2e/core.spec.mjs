@@ -2,6 +2,15 @@ import { expect, test } from "@playwright/test";
 
 const workspace = "web1";
 const api = (name) => `/api/w/${workspace}/${name.replace(".", "/")}`;
+test("first login discovers workspaces and opens the project list", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "web1" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "web2" })).toBeVisible();
+  await page.getByRole("button", { name: "さらに読み込む" }).click();
+  await expect(page.getByRole("button", { name: "zz-web-100" })).toBeVisible();
+  await page.getByRole("button", { name: "web1" }).click();
+  await expect(page.getByRole("heading", { name: "プロジェクト", exact: true })).toBeVisible();
+});
 async function get(request, name, args = {}) {
   const url = new URL(api(name), "http://127.0.0.1:8789");
   for (const [key, value] of Object.entries(args)) url.searchParams.set(key, String(value));
@@ -176,6 +185,47 @@ test("project, issue, MCP agent attribution, wiki conflict and activity", async 
   await expect(page.getByText(/pt1\.web1\.browser-key\./)).toBeVisible();
   await page.getByRole("button", { name: "表示を閉じる" }).click();
   await expect(page.getByText(/pt1\.web1\.browser-key\./)).toHaveCount(0);
+  const oauth = await (await request.get("/__test/oauth?w=web1")).json();
+  const oauthHeaders = {
+    authorization: `Bearer ${oauth.token}`,
+    accept: "application/json, text/event-stream",
+    "mcp-protocol-version": "2025-11-25",
+  };
+  const oauthCall = () =>
+    request.post(`/mcp/${workspace}`, {
+      data: {
+        jsonrpc: "2.0",
+        id: 9,
+        method: "tools/call",
+        params: { name: "issues.list", arguments: { projectId: project.id } },
+      },
+      headers: oauthHeaders,
+    });
+  expect((await oauthCall()).status()).toBe(200);
+  await page.getByRole("button", { name: "管理", exact: true }).click();
+  const oauthRow = page
+    .locator("section.panel")
+    .filter({ has: page.getByRole("heading", { name: "OAuth クライアント" }) })
+    .locator("li")
+    .filter({ hasText: oauth.clientId });
+  await expect(oauthRow).toContainText("有効");
+  const revokes = [];
+  let lostRevokeResponse = true;
+  await page.route("**/api/w/web1/access/oauthClients/revoke", async (route) => {
+    revokes.push(route.request().postData());
+    if (lostRevokeResponse) {
+      lostRevokeResponse = false;
+      await route.fetch();
+      await route.abort();
+    } else await route.continue();
+  });
+  await oauthRow.getByRole("button", { name: "取消" }).click();
+  await expect(page.getByText(/結果が不明です/)).toBeVisible();
+  await page.getByRole("button", { name: "同じ操作を再試行" }).click();
+  await expect(oauthRow).toContainText("無効");
+  expect(revokes[0]).toBe(revokes[1]);
+  await page.unroute("**/api/w/web1/access/oauthClients/revoke");
+  expect((await oauthCall()).status()).toBe(401);
   let release;
   await page.route("**/api/w/web1/projects/list*", async (route) => {
     await new Promise((resolve) => {
@@ -185,8 +235,7 @@ test("project, issue, MCP agent attribution, wiki conflict and activity", async 
   });
   await page.getByRole("button", { name: "プロジェクト", exact: true }).click();
   await page.getByRole("button", { name: "切り替え" }).click();
-  await page.getByLabel("ワークスペース ID").fill("web2");
-  await page.getByRole("button", { name: "開く" }).click();
+  await page.getByRole("button", { name: "web2" }).click();
   release();
   await expect(page.getByText("web2 · 所有者")).toBeVisible();
   await expect(page.getByRole("button", { name: /WEB · Web E2E/ })).toHaveCount(0);
@@ -195,8 +244,8 @@ test("project, issue, MCP agent attribution, wiki conflict and activity", async 
 test("mobile workspace and project flow remains usable", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto("/");
-  await page.getByLabel("ワークスペース ID").fill("web2");
-  await page.getByRole("button", { name: "開く" }).click();
+  await expect(page.getByRole("button", { name: "web2" })).toBeVisible();
+  await page.getByRole("button", { name: "web2" }).click();
   await expect(page.getByRole("heading", { name: "プロジェクト", exact: true })).toBeVisible();
   await page.getByLabel("キー").fill("MOB");
   await page.getByLabel("名前").fill("携帯確認");

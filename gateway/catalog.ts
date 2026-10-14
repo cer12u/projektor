@@ -429,6 +429,54 @@ export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
     s.coordination.getProgress(c, str(a, "issueId")),
   ),
   "coordination.listSessions": op({}, false, (s, c) => s.coordination.listSessions(c)),
+  "coordination.projectSessions": op(
+    { projectId: "string", cursor: "optionalString", limit: "optionalNumber" },
+    false,
+    (s, c, a) =>
+      s.coordination.projectSessions(
+        c,
+        str(a, "projectId"),
+        optStr(a, "cursor"),
+        optNum(a, "limit"),
+      ),
+  ),
+  "coordination.projectLeases": op(
+    { projectId: "string", cursor: "optionalString", limit: "optionalNumber" },
+    false,
+    (s, c, a) =>
+      s.coordination.projectLeases(c, str(a, "projectId"), optStr(a, "cursor"), optNum(a, "limit")),
+  ),
+  "coordination.projectProgress": op(
+    { projectId: "string", cursor: "optionalString", limit: "optionalNumber" },
+    false,
+    (s, c, a) =>
+      s.coordination.projectProgress(
+        c,
+        str(a, "projectId"),
+        optStr(a, "cursor"),
+        optNum(a, "limit"),
+      ),
+  ),
+  "coordination.projectClaims": op(
+    { projectId: "string", cursor: "optionalString", limit: "optionalNumber" },
+    false,
+    (s, c, a) =>
+      s.coordination.projectClaims(c, str(a, "projectId"), optStr(a, "cursor"), optNum(a, "limit")),
+  ),
+  "coordination.wipCap": op({ projectId: "string" }, false, (s, c, a) =>
+    s.coordination.getProjectLimit(c, str(a, "projectId")),
+  ),
+  "coordination.wipCap.set": op(
+    { ...version, projectId: "string", cap: "number" },
+    true,
+    (s, c, a) =>
+      s.coordination.setProjectLimit(c, {
+        operationId: str(a, "operationId"),
+        expectedVersion: num(a, "expectedVersion"),
+        projectId: str(a, "projectId"),
+        cap: num(a, "cap"),
+      }),
+  ),
   "coordination.readEvents": op({ cursor: "number", limit: "optionalNumber" }, false, (s, c, a) =>
     s.coordination.readAgentEvents(c, num(a, "cursor"), optNum(a, "limit") ?? 50),
   ),
@@ -438,6 +486,26 @@ export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
   "access.workspaces": op({}, false, async () => {
     throw new PlatformError("unknown", "Use workspace listing route");
   }),
+  "access.me": op({ cursor: "optionalString", limit: "optionalNumber" }, false, (s, c, a) =>
+    s.access.meForScope(c, optStr(a, "cursor"), optNum(a, "limit")),
+  ),
+  "access.members.list": op(
+    { cursor: "optionalString", limit: "optionalNumber" },
+    false,
+    (s, c, a) => s.access.listMembers(c, optStr(a, "cursor"), optNum(a, "limit")),
+  ),
+  "access.oauthClients.list": op(
+    { cursor: "optionalString", limit: "optionalNumber" },
+    false,
+    (s, c, a) => s.access.listOAuthClients(c, optStr(a, "cursor"), optNum(a, "limit")),
+  ),
+  "access.oauthClients.revoke": op({ ...version, clientId: "string" }, true, (s, c, a) =>
+    s.access.revokeOAuthClient(c, {
+      operationId: str(a, "operationId"),
+      expectedVersion: num(a, "expectedVersion"),
+      clientId: str(a, "clientId"),
+    }),
+  ),
   "access.membership": op({ principalId: "string" }, false, (s, c, a) =>
     s.access.getMembership(c, str(a, "principalId")),
   ),
@@ -488,7 +556,12 @@ export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
     }),
   ),
 });
-export const restOnly = Object.freeze(["access.credential.issue", "access.credential.revoke"]);
+export const restOnly = Object.freeze([
+  "access.credential.issue",
+  "access.credential.revoke",
+  "access.oauthClients.list",
+  "access.oauthClients.revoke",
+]);
 export function inputFor(name: string, value: unknown): Record<string, unknown> {
   const entry = catalog[name];
   if (!entry) throw new PlatformError("not_found", "Unknown operation");

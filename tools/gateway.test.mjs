@@ -13,7 +13,7 @@ let mf, platform, write, read, other, ownerAssertion, writeMachineId;
 const issuer = "https://unit.cloudflareaccess.com";
 const audience = "projektor-test";
 const b64 = (x) => Buffer.from(JSON.stringify(x)).toString("base64url");
-const endpoint = (w, op) => `http://localhost/api/w/${w}/${op.replace(".", "/")}`;
+const endpoint = (w, op) => `http://localhost/api/w/${w}/${op.replaceAll(".", "/")}`;
 async function req(w, op, args, token, method) {
   const url = new URL(endpoint(w, op));
   const action = method ?? (args.operationId ? "POST" : "GET");
@@ -332,6 +332,42 @@ test("human assertion manages workspace and credential over REST; token retry an
   };
   const pre = await human("w1", "access.workspaces", {}, "GET");
   assert.equal(pre.status, 200, JSON.stringify(pre.data));
+  const discovery = await mf.dispatchFetch("http://localhost/api/me", {
+    headers: { "cf-access-jwt-assertion": ownerAssertion },
+  });
+  assert.equal(discovery.status, 200);
+  assert.deepEqual(
+    (await discovery.json()).workspaces.map((w) => w.id),
+    ["w1"],
+  );
+  const machineDiscovery = await mf.dispatchFetch("http://localhost/api/me", {
+    headers: { authorization: `Bearer ${write}` },
+  });
+  const machineMe = await machineDiscovery.json();
+  assert.deepEqual(
+    machineMe.workspaces.map((w) => w.id),
+    ["w1"],
+  );
+  assert.deepEqual(mcpResult(await rpc("w1", "access.me", {}, write)), machineMe);
+  assert.equal((await req("w2", "access.members.list", {}, write)).status, 403);
+  const memberList = await req("w1", "access.members.list", { limit: 1 }, write);
+  assert.equal(memberList.status, 200);
+  assert.equal(memberList.data.items.length, 1);
+  assert.deepEqual(
+    mcpResult(await rpc("w1", "access.members.list", { limit: 1 }, write)),
+    memberList.data,
+  );
+  assert.equal(
+    (
+      await req(
+        "w1",
+        "coordination.wipCap.set",
+        { projectId: "p1", cap: 2, expectedVersion: 0, operationId: "viewer-cap" },
+        read,
+      )
+    ).status,
+    403,
+  );
   const workspace = await human("w3", "access.create", {
     operationId: "new-workspace",
     name: "Third",
@@ -514,6 +550,33 @@ test("two MCP SDK agents contend for issue and exact file claims", async () => {
       status: "in_progress",
     });
     assert.equal(progress.error, false, JSON.stringify(progress));
+    for (const name of [
+      "projectSessions",
+      "projectLeases",
+      "projectProgress",
+      "projectClaims",
+      "wipCap",
+    ]) {
+      const operation = `coordination.${name}`;
+      const args = { projectId: "p1" };
+      const rest = await req("w1", operation, args, write);
+      assert.equal(rest.status, 200, JSON.stringify(rest));
+      assert.deepEqual((await call(clients[loser], operation, args)).data, rest.data);
+    }
+    assert.equal(
+      (await call(clients[loser], "coordination.projectLeases", { projectId: "p1" })).data.items[0]
+        .sessionId,
+      `sdk-${winner}`,
+    );
+    assert.equal(
+      (await call(clients[loser], "coordination.projectProgress", { projectId: "p1" })).data
+        .items[0].text,
+      "Working",
+    );
+    assert.equal(
+      (await req("w2", "coordination.projectLeases", { projectId: "p1" }, write)).data.code,
+      "forbidden",
+    );
     assert.equal(
       (await req("w1", "coordination.getProgress", { issueId: "coord-i" }, write)).data.text,
       "Working",

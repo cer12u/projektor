@@ -256,6 +256,36 @@ export function createAccess(deps: Dependencies): {
       return s;
     },
   });
+  async function current(p: Identity, cursor = "", limit = 50) {
+    await live(p);
+    if (cursor) identifier(cursor);
+    valid(Number.isSafeInteger(limit) && limit >= 1 && limit <= 100);
+    const rows = (
+      await store.run("discoverWorkspaces", [
+        p.id,
+        p.workspaceId ?? null,
+        p.workspaceId ?? null,
+        cursor,
+        limit + 1,
+      ])
+    ).rows;
+    const client = p.clientId ? await one("oauthClient", [p.clientId]) : undefined;
+    return {
+      principal: {
+        id: p.id,
+        kind: p.clientId ? ("oauth" as const) : p.kind,
+        displayName: p.subject,
+        ...(client ? { clientName: str(client, "name") } : {}),
+      },
+      workspaces: rows.slice(0, limit).map((r) => ({
+        id: str(r, "workspace_id"),
+        name: str(r, "name"),
+        version: num(r, "version"),
+        role: role(r.role),
+      })),
+      nextCursor: rows.length > limit ? str(rows[limit - 1], "workspace_id") : null,
+    };
+  }
   const api: AccessApi = {
     ...oauth.api,
     async authenticate(input) {
@@ -327,6 +357,32 @@ export function createAccess(deps: Dependencies): {
         version: num(r, "version"),
         role: role(r.role),
       }));
+    },
+    async me(principal, cursor, limit) {
+      return current(identity(principal), cursor, limit);
+    },
+    async meForScope(scope, cursor, limit) {
+      const state = scopes.get(scope);
+      if (!state) deny();
+      await authorize(scope);
+      return current(state.identity, cursor, limit);
+    },
+    async listMembers(scope, cursor = "", limit = 50) {
+      const s = await authorize(scope);
+      if (cursor) identifier(cursor);
+      valid(Number.isSafeInteger(limit) && limit >= 1 && limit <= 100);
+      const rows = (await store.run("listMembers", [s.workspaceId, cursor, limit + 1])).rows;
+      const items = rows.slice(0, limit).map((r) => ({
+        principalId: str(r, "principal_id"),
+        kind: r.kind === "machine" ? ("machine" as const) : ("human" as const),
+        displayName: str(r, "subject"),
+        role: role(r.role),
+        version: num(r, "version"),
+      }));
+      return {
+        items,
+        nextCursor: rows.length > limit ? items[items.length - 1].principalId : null,
+      };
     },
     async getPrincipalSummary(scope, id) {
       const s = await authorize(scope);

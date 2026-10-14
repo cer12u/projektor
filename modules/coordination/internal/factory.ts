@@ -83,6 +83,7 @@ export function createCoordination(d: Dependencies): {
     name: Name,
     values: readonly (string | number | null)[],
   ): Promise<Row | undefined> => (await store.run(name, values)).rows[0];
+  const pageLimit = (limit = 50) => integer(limit, 1, 100);
   const w = (s: RequestScope) => id(s.workspaceId),
     actor = (s: RequestScope) => id(s.principalId);
   const sessionRow = (r: Row, now = clock.now()): Session => ({
@@ -392,6 +393,9 @@ export function createCoordination(d: Dependencies): {
       const pid = id(input.projectId),
         cap = integer(input.cap, 1, 100),
         version = integer(input.expectedVersion);
+      const current = await access.authorize(scope, "write");
+      if (current.role !== "owner" && current.role !== "admin")
+        fail("forbidden", "Workspace admin required");
       await projects.authorizeProject(scope, pid, "manage");
       const fingerprint = await fp("limit", input.operationId, [pid, cap, version]);
       const saved = await replay(scope, input.operationId, fingerprint);
@@ -421,6 +425,93 @@ export function createCoordination(d: Dependencies): {
           ],
         }),
       );
+    },
+    async getProjectLimit(scope, projectId) {
+      const pid = id(projectId);
+      await projects.authorizeProject(scope, pid);
+      const row = await one("limit", [w(scope), pid]);
+      return {
+        projectId: pid,
+        cap: row ? num(row, "cap") : 3,
+        version: row ? num(row, "version") : 0,
+      };
+    },
+    async projectSessions(scope, projectId, cursor = "", limit = 50) {
+      const pid = id(projectId);
+      await projects.authorizeProject(scope, pid);
+      if (cursor) id(cursor);
+      const size = pageLimit(limit);
+      const now = clock.now();
+      const rows = (await store.run("projectSessions", [w(scope), cursor, now, pid, now, size + 1]))
+        .rows;
+      const items = rows.slice(0, size).map((r) => sessionRow(r, now));
+      return { items, nextCursor: rows.length > size ? items[items.length - 1].id : null };
+    },
+    async projectLeases(scope, projectId, cursor = "", limit = 50) {
+      const pid = id(projectId);
+      await projects.authorizeProject(scope, pid);
+      if (cursor) id(cursor);
+      const size = pageLimit(limit);
+      const now = clock.now();
+      const rows = (await store.run("projectLeases", [w(scope), pid, cursor, now, now, size + 1]))
+        .rows;
+      const items = rows.slice(0, size).map((r) => ({
+        ...leaseRow(r),
+        holderPrincipalId: field(r, "principal_id"),
+        agentLabel: field(r, "agent_label"),
+        clientKind: field(r, "client_kind"),
+      }));
+      return { items, nextCursor: rows.length > size ? items[items.length - 1].issueId : null };
+    },
+    async projectProgress(scope, projectId, cursor = "", limit = 50) {
+      const pid = id(projectId);
+      await projects.authorizeProject(scope, pid);
+      const size = pageLimit(limit);
+      let time = Number.MAX_SAFE_INTEGER;
+      let issueId = "~";
+      if (cursor) {
+        const match = cursor.match(/^(\d+):([A-Za-z0-9_-]{1,128})$/);
+        if (!match) fail("validation", "Invalid cursor");
+        time = integer(Number(match[1]));
+        issueId = id(match[2]);
+      }
+      const rows = (
+        await store.run("projectProgress", [w(scope), pid, time, time, issueId, size + 1])
+      ).rows;
+      const items = rows
+        .slice(0, size)
+        .map((r) => ({ ...reportRow(r), projectId: field(r, "project_id") }));
+      const last = items[items.length - 1];
+      return {
+        items,
+        nextCursor: rows.length > size ? `${last.reportedAt}:${last.issueId}` : null,
+      };
+    },
+    async projectClaims(scope, projectId, cursor = "", limit = 50) {
+      const pid = id(projectId);
+      await projects.authorizeProject(scope, pid);
+      const size = pageLimit(limit);
+      const [afterRepo, afterPath, extra] = cursor ? cursor.split("\u001f") : ["", "", undefined];
+      if (extra !== undefined || (cursor && (!afterRepo || !afterPath)))
+        fail("validation", "Invalid cursor");
+      if (afterRepo) repo(afterRepo);
+      if (afterPath) path(afterPath);
+      const now = clock.now();
+      const rows = (
+        await store.run("projectClaims", [
+          w(scope),
+          pid,
+          now,
+          now,
+          afterRepo,
+          afterRepo,
+          afterPath,
+          size + 1,
+        ])
+      ).rows;
+      const items = rows.slice(0, size).map(claimRow);
+      const last = items[items.length - 1];
+      return { items, nextCursor: rows.length > size ? `${last.repo}\u001f${last.path}` : null };
     },
     async claimFiles(scope, input) {
       const sid = id(input.sessionId),

@@ -1,4 +1,4 @@
-import { catalog, restOnly, toolCatalog } from "./catalog";
+import { catalog, toolCatalog } from "./catalog";
 
 /** Wire descriptions generated from the same dispatch table used by REST and MCP. */
 export function tools() {
@@ -13,8 +13,9 @@ export function openApi() {
     schema: { type: "string" },
   };
   for (const [name, entry] of Object.entries(catalog)) {
-    if (name === "access.workspaces") continue;
-    const [owner, action] = name.split(".");
+    if (name === "access.workspaces" || name.startsWith("access.credential.")) continue;
+    const [owner, ...parts] = name.split(".");
+    const action = parts.join("/");
     const fields = Object.entries(entry.fields);
     const properties = Object.fromEntries(
       fields.map(([field, kind]) => [
@@ -71,7 +72,7 @@ export function openApi() {
       },
     };
   }
-  for (const name of ["access.create", ...restOnly]) {
+  for (const name of ["access.create", "access.credential.issue", "access.credential.revoke"]) {
     paths[`/api/w/{workspaceId}/${name.replaceAll(".", "/")}`] = {
       post: {
         operationId: name,
@@ -84,6 +85,16 @@ export function openApi() {
     get: {
       operationId: "access.workspaces",
       parameters: [workspaceParameter],
+      responses: { "200": { description: "Success" } },
+    },
+  };
+  paths["/api/me"] = {
+    get: {
+      operationId: "access.me",
+      parameters: [
+        { name: "cursor", in: "query", required: false, schema: { type: "string" } },
+        { name: "limit", in: "query", required: false, schema: { type: "integer" } },
+      ],
       responses: { "200": { description: "Success" } },
     },
   };

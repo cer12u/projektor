@@ -76,11 +76,7 @@ function workspace(request: Request, fromPath: string): string {
     throw new PlatformError("forbidden", "Workspace mismatch");
   return fromPath;
 }
-async function principal(
-  request: Request,
-  services: Services,
-  endpoint: "rest" | "mcp",
-): Promise<AuthenticatedPrincipal> {
+async function principal(request: Request, services: Services): Promise<AuthenticatedPrincipal> {
   const assertion = request.headers.get("cf-access-jwt-assertion");
   const authorization = request.headers.get("authorization");
   if (assertion && authorization) throw new PlatformError("validation", "Ambiguous credentials");
@@ -89,7 +85,7 @@ async function principal(
     throw new PlatformError("forbidden", "Authentication required");
   const bearer = authorization.slice(7);
   if (bearer.startsWith("pt1.")) return services.access.authenticate({ kind: "machine", bearer });
-  if (endpoint === "mcp") {
+  if (services.oauthOrigin) {
     if (!services.oauthOrigin) throw new PlatformError("forbidden", "OAuth unavailable");
     return services.access.authenticate({
       kind: "oauth",
@@ -97,7 +93,7 @@ async function principal(
       resource: `${services.oauthOrigin}/mcp`,
     });
   }
-  throw new PlatformError("forbidden", "OAuth requires MCP");
+  throw new PlatformError("forbidden", "OAuth unavailable");
 }
 async function admit(
   request: Request,
@@ -109,7 +105,7 @@ async function admit(
 ): Promise<RequestScope> {
   let actor: AuthenticatedPrincipal;
   try {
-    actor = await principal(request, services, endpoint);
+    actor = await principal(request, services);
   } catch (error) {
     if (endpoint === "mcp" && error instanceof PlatformError && error.code === "forbidden")
       throw new AuthenticationError();
@@ -140,6 +136,28 @@ export async function handleHttp(request: Request, services: Services): Promise<
       return json(openApi(), 200, { "x-request-id": requestId });
     if (url.pathname === "/health" && request.method === "GET")
       return json({ phase: "gateway", deployable: false }, 200, { "x-request-id": requestId });
+    if (url.pathname === "/api/me" && request.method === "GET") {
+      ownOrigin(request);
+      const args = inputFor(
+        "access.me",
+        Object.fromEntries(
+          [...url.searchParams].map(([key, value]) => [
+            key,
+            key === "limit" ? Number(value) : value,
+          ]),
+        ),
+      );
+      const actor = await principal(request, services);
+      return json(
+        await services.access.me(
+          actor,
+          args.cursor as string | undefined,
+          args.limit as number | undefined,
+        ),
+        200,
+        { "x-request-id": requestId, "cache-control": "no-store" },
+      );
+    }
     if (url.pathname.startsWith("/mcp/")) return handleMcp(request, services, requestId);
     const match = url.pathname.match(/^\/api\/w\/([^/]+)\/([^/]+)\/([^/]+)(?:\/([^/]+))?$/);
     if (!match) throw new PlatformError("not_found", "Unknown route");
@@ -158,7 +176,7 @@ export async function handleHttp(request: Request, services: Services): Promise<
         x.workspaceId !== undefined
       )
         throw new PlatformError("validation", "Invalid workspace input");
-      const actor = await principal(request, services, "rest");
+      const actor = await principal(request, services);
       return json(
         await services.access.createWorkspace(actor, {
           workspaceId: workspace(request, w),
@@ -171,12 +189,12 @@ export async function handleHttp(request: Request, services: Services): Promise<
     }
     if (name === "access.workspaces") {
       if (request.method !== "GET") throw new PlatformError("not_found", "Unknown route");
-      const actor = await principal(request, services, "rest");
+      const actor = await principal(request, services);
       workspace(request, w);
       await services.access.requireMembership(actor, w, requestId);
       return json(await services.access.listWorkspaces(actor), 200, { "x-request-id": requestId });
     }
-    if (restOnly.includes(name)) {
+    if (name.startsWith("access.credential.") && restOnly.includes(name)) {
       if (request.method !== "POST") throw new PlatformError("not_found", "Unknown route");
       const a = await body(request);
       if (!a || typeof a !== "object" || Array.isArray(a))

@@ -422,3 +422,17 @@ and expiry predicates. A restart cannot revive a consumed form. Expired rows for
 inactive humans are inert; bulk retention remains future Access maintenance.
 `OAuthInsufficientScope` distinguishes a live OAuth scope denial from generic
 forbidden without exposing token metadata or other tenants to Gateway.
+
+### Step 07b discovery and administration
+
+`me` returns the current human, machine or OAuth principal, its display name,
+the OAuth client name where applicable, and a bounded keyset page of accessible
+workspaces. Machine and OAuth credentials are confined to their issuing workspace;
+an authenticated human without membership receives an empty page. Normal login
+does not create membership. `listMembers` gives any member a keyset page of active
+members, while `listOAuthClients` requires an interactive owner/admin. Client
+revocation remains owner/admin only and now updates the binding, every family
+and every access/refresh token in one D1 batch with the receipt and event. The
+binding CAS is the final guarded update, so stale versions roll back all earlier
+token changes. Existing OAuth access and refresh tokens fail immediately; another
+client is unaffected. Page sizes are 1–100, default 50.
