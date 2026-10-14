@@ -4,6 +4,7 @@ import type { CoordinationApi } from "../modules/coordination/public";
 import type { InsightsApi } from "../modules/insights/public";
 import type { IntegrationsApi } from "../modules/integrations/public";
 import type { IssuesApi } from "../modules/issues/public";
+import type { LifecycleApi } from "../modules/lifecycle/public";
 import type { PlanningApi } from "../modules/planning/public";
 import type { ProjectsApi } from "../modules/projects/public";
 import type { WikiApi } from "../modules/wiki/public";
@@ -21,6 +22,7 @@ export interface Services {
   readonly coordination: CoordinationApi;
   readonly assets: AssetsApi;
   readonly planning: PlanningApi;
+  readonly lifecycle?: LifecycleApi;
 }
 type Field =
   | "string"
@@ -50,7 +52,17 @@ const op = (fields: Fields, write: boolean, call: Operation["call"]): Operation 
 });
 const operationId = { operationId: "string" } as const;
 const version = { ...operationId, expectedVersion: "number" } as const;
+const lifecycleRoute = async () => {
+  throw new PlatformError("not_found", "Lifecycle is REST only");
+};
 export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
+  "lifecycle.requestPurge": op(
+    { ...version, projectId: "optionalString", confirmation: "string" },
+    true,
+    lifecycleRoute,
+  ),
+  "lifecycle.resumePurge": op({ ...version, jobId: "string" }, true, lifecycleRoute),
+  "lifecycle.getPurgeStatus": op({ projectId: "optionalString" }, false, lifecycleRoute),
   "integrations.links": op(
     { targetKind: "string", targetId: "string", cursor: "optionalString", limit: "optionalNumber" },
     false,
@@ -821,6 +833,9 @@ export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
   ),
 });
 export const restOnly = Object.freeze([
+  "lifecycle.requestPurge",
+  "lifecycle.resumePurge",
+  "lifecycle.getPurgeStatus",
   "integrations.deliveries",
   "integrations.sources",
   "integrations.source.register",

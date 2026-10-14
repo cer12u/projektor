@@ -344,6 +344,39 @@ export async function handleHttp(request: Request, services: Services): Promise<
         "cache-control": "no-store",
       });
     }
+    if (
+      name === "lifecycle.requestPurge" ||
+      name === "lifecycle.resumePurge" ||
+      name === "lifecycle.getPurgeStatus"
+    ) {
+      const write = name !== "lifecycle.getPurgeStatus";
+      if (request.method !== (write ? "POST" : "GET"))
+        throw new PlatformError("not_found", "Unknown route");
+      const input = write ? await body(request) : Object.fromEntries(url.searchParams);
+      const args = inputFor(name, input);
+      const actor = await principal(request, services, "rest");
+      const lifecycle = services.lifecycle;
+      if (!lifecycle) throw new PlatformError("unavailable", "Lifecycle unavailable");
+      const scope = { principal: actor, workspaceId: workspace(request, w), requestId };
+      const result =
+        name === "lifecycle.requestPurge"
+          ? await lifecycle.requestPurge(scope, {
+              operationId: args.operationId as string,
+              expectedVersion: args.expectedVersion as number,
+              projectId: args.projectId as string | undefined,
+              confirmation: args.confirmation as string,
+            })
+          : name === "lifecycle.resumePurge"
+            ? await lifecycle.resumePurge(scope, {
+                operationId: args.operationId as string,
+                expectedVersion: args.expectedVersion as number,
+                jobId: args.jobId as string,
+              })
+            : await lifecycle.getPurgeStatus(scope, {
+                projectId: args.projectId as string | undefined,
+              });
+      return json(result, 200, { "x-request-id": requestId, "cache-control": "no-store" });
+    }
     const entry = catalog[name];
     if (!entry || name === "access.workspaces")
       throw new PlatformError("not_found", "Unknown operation");
