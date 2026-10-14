@@ -11,6 +11,7 @@ export { createIssues } from "../modules/issues/internal/factory";
 export * as issuesRules from "../modules/issues/internal/rules";
 export { createProjects } from "../modules/projects/internal/factory";
 export { accessConsumerContract, fakeAccess } from "../modules/projects/tests/access-fake";
+export { createWiki } from "../modules/wiki/internal/factory";
 export {
   createModuleStore,
   createRateLimiter,

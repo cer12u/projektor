@@ -200,7 +200,7 @@ before(async () => {
     },
   });
   const db = await mf.getD1Database("DB");
-  await platform.migrate(db, ["access", "projects", "issues", "wiki", "coordination"]);
+  await platform.migrate(db, ["access", "projects", "issues", "wiki", "coordination", "assets"]);
   const clock = { now: () => Math.floor(Date.now() / 1000) };
   const options = {
     store: platform.createModuleStore(db, "access"),
@@ -269,6 +269,65 @@ before(async () => {
 });
 after(async () => {
   await mf?.dispose();
+});
+
+test("09a OAuth viewer and read grant cannot write Assets via MCP or binary PUT", async () => {
+  const viewer = await login(provider(), viewerAssertion);
+  const readProvider = provider();
+  await start(readProvider);
+  const form = await page(readProvider, ownerAssertion, { scope: "read" });
+  const approved = await approve(form, ownerAssertion);
+  assert.equal(approved.status, 303);
+  await auth(readProvider, {
+    serverUrl: `${resource}/w1`,
+    authorizationCode: new URL(approved.headers.get("location")).searchParams.get("code"),
+    fetchFn: fetcher,
+  });
+  for (const p of [viewer, readProvider]) {
+    assert.equal(p.tokens().scope, "read");
+    const token = p.tokens().access_token;
+    const input = {
+      operationId: "oauth-asset",
+      assetId: "oauth-asset",
+      projectId: "p1",
+      size: 0,
+      sha256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      contentType: "text/plain",
+      filename: "empty.txt",
+    };
+    for (const [name, args] of [
+      ["assets.begin", input],
+      [
+        "assets.complete",
+        { operationId: "oauth-complete", assetId: input.assetId, expectedVersion: 1 },
+      ],
+      [
+        "assets.link",
+        {
+          operationId: "oauth-link",
+          assetId: input.assetId,
+          expectedVersion: 2,
+          linkId: "l",
+          targetKind: "issue",
+          targetId: "issue",
+        },
+      ],
+      [
+        "assets.unlink",
+        { operationId: "oauth-unlink", assetId: input.assetId, expectedVersion: 3, linkId: "l" },
+      ],
+    ]) {
+      const response = await rpc(token, "w1", name, args);
+      assert.equal(response.status, 403, name);
+      assert.match(response.headers.get("www-authenticate"), /insufficient_scope/);
+    }
+    const response = await fetcher(`${origin}/api/w/w1/assets/upload/oauth-asset`, {
+      method: "PUT",
+      headers: { authorization: `Bearer ${token}` },
+      body: "",
+    });
+    assert.equal(response.status, 403);
+  }
 });
 
 test("SDK discovery/DCR/consent/token, tools retry/CAS, refresh rotation and revoke through real Worker", async () => {

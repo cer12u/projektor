@@ -5,6 +5,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { build } from "esbuild";
 import { createFetchMock, Miniflare } from "miniflare";
+import { assetsProviderContract } from "./assets-provider-contract.mjs";
 import { coordinationProviderContract } from "./coordination-provider-contract.mjs";
 
 let contractProviders;
@@ -773,4 +774,287 @@ test("Assets binary REST and MCP metadata parity with live download authorizatio
   const names = (await tools.json()).result.tools.map((x) => x.name);
   assert(!names.includes("assets.uploadBinary"));
   assert(!names.includes("assets.downloadBinary"));
+});
+
+async function auditAsset(id, contentType = "text/html") {
+  const body = "<script>globalThis.assetExecuted=true</script>";
+  const begin = {
+    operationId: `${id}-begin`,
+    assetId: id,
+    projectId: "p1",
+    size: Buffer.byteLength(body),
+    contentType,
+    filename: `${id}.html`,
+    sha256: Buffer.from(
+      await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body)),
+    ).toString("hex"),
+  };
+  assert.equal((await req("w1", "assets.begin", begin, write)).status, 200);
+  assert.equal(
+    (
+      await mf.dispatchFetch(`http://localhost/api/w/w1/assets/upload/${id}`, {
+        method: "PUT",
+        headers: { authorization: `Bearer ${write}` },
+        body,
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await req(
+        "w1",
+        "assets.complete",
+        { operationId: `${id}-complete`, assetId: id, expectedVersion: 1 },
+        write,
+      )
+    ).status,
+    200,
+  );
+  const issueId = `${id}-issue`;
+  assert.equal(
+    (
+      await req(
+        "w1",
+        "issues.create",
+        {
+          operationId: `${id}-issue`,
+          issueId,
+          projectId: "p1",
+          title: "Audit attachment",
+          description: "",
+          priority: "medium",
+        },
+        write,
+      )
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await req(
+        "w1",
+        "assets.link",
+        {
+          operationId: `${id}-link`,
+          assetId: id,
+          expectedVersion: 2,
+          linkId: `${id}-link`,
+          targetKind: "issue",
+          targetId: issueId,
+        },
+        write,
+      )
+    ).status,
+    200,
+  );
+  return { body, begin, url: `/api/w/w1/assets/download/${id}` };
+}
+
+test("09a HTML and SVG download as attachments with nosniff; MCP returns only a relative URL", async () => {
+  for (const [id, mime] of [
+    ["audit-html", "text/html"],
+    ["audit-svg", "image/svg+xml"],
+  ]) {
+    const { body, url } = await auditAsset(id, mime);
+    const response = await mf.dispatchFetch(`http://localhost${url}`, {
+      headers: { authorization: `Bearer ${read}` },
+    });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("content-type"), mime);
+    assert.match(response.headers.get("content-disposition"), /^attachment; filename\*=UTF-8''/);
+    assert.equal(response.headers.get("x-content-type-options"), "nosniff");
+    assert.match(response.headers.get("cache-control"), /no-store/);
+    assert.equal(await response.text(), body);
+    const result = (await rpc("w1", "assets.downloadUrl", { assetId: id }, read)).data.result;
+    assert.equal(result.isError, false);
+    assert.deepEqual(result.content, [{ type: "text", text: JSON.stringify({ url }) }]);
+    assert.equal(JSON.stringify(result).includes(body), false);
+  }
+});
+
+test("09a issued download URL rechecks permission at stream request after target archive", async () => {
+  const { url } = await auditAsset("audit-live");
+  assert.deepEqual(
+    mcpResult(await rpc("w1", "assets.downloadUrl", { assetId: "audit-live" }, read)),
+    { url },
+  );
+  assert.equal(
+    (
+      await req(
+        "w1",
+        "issues.archive",
+        { operationId: "audit-archive", issueId: "audit-live-issue", expectedVersion: 1 },
+        write,
+      )
+    ).status,
+    200,
+  );
+  const response = await mf.dispatchFetch(`http://localhost${url}`, {
+    headers: { authorization: `Bearer ${read}` },
+  });
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).code, "forbidden");
+});
+
+test("09a read-scoped machine cannot begin complete link unlink or PUT an upload", async () => {
+  const { begin } = await auditAsset("audit-read-scope");
+  for (const [name, args] of [
+    ["assets.begin", { ...begin, operationId: "read-begin", assetId: "read-denied" }],
+    [
+      "assets.complete",
+      { operationId: "read-complete", assetId: begin.assetId, expectedVersion: 3 },
+    ],
+    [
+      "assets.link",
+      {
+        operationId: "read-link",
+        assetId: begin.assetId,
+        expectedVersion: 3,
+        linkId: "read-link",
+        targetKind: "issue",
+        targetId: "audit-read-scope-issue",
+      },
+    ],
+    [
+      "assets.unlink",
+      {
+        operationId: "read-unlink",
+        assetId: begin.assetId,
+        expectedVersion: 3,
+        linkId: "audit-read-scope-link",
+      },
+    ],
+  ]) {
+    const response = await rpc("w1", name, args, read);
+    assert.equal(mcpResult(response).code, "forbidden", name);
+  }
+  const response = await mf.dispatchFetch(
+    "http://localhost/api/w/w1/assets/upload/audit-read-scope",
+    { method: "PUT", headers: { authorization: `Bearer ${read}` }, body: "denied" },
+  );
+  assert.equal(response.status, 403);
+});
+
+test("09a Worker scheduled GC collects expired incomplete uploads in both workspaces", async () => {
+  const db = await mf.getD1Database("DB"),
+    bucket = await mf.getR2Bucket("R2");
+  for (const [w, token] of [
+    ["w1", write],
+    ["w2", other],
+  ]) {
+    const assetId = "audit-expired";
+    const input = {
+      operationId: "audit-expired",
+      assetId,
+      projectId: "p1",
+      size: 5,
+      contentType: "text/plain",
+      filename: "pending.txt",
+      sha256: Buffer.from(
+        await crypto.subtle.digest("SHA-256", new TextEncoder().encode("hello")),
+      ).toString("hex"),
+    };
+    assert.equal((await req(w, "assets.begin", input, token)).status, 200);
+    assert.equal(
+      (
+        await mf.dispatchFetch(`http://localhost/api/w/${w}/assets/upload/${assetId}`, {
+          method: "PUT",
+          headers: { authorization: `Bearer ${token}` },
+          body: "hello",
+        })
+      ).status,
+      200,
+    );
+    await db
+      .prepare("UPDATE assets_gc_jobs SET due_at=0 WHERE workspace_id=? AND asset_id=?")
+      .bind(w, assetId)
+      .run();
+  }
+  const worker = await mf.getWorker();
+  await worker.scheduled();
+  for (const w of ["w1", "w2"]) {
+    assert.equal((await bucket.get(`assets/${w}/audit-expired`)) === null, true);
+    assert.equal(
+      await db
+        .prepare("SELECT id FROM assets_blobs WHERE workspace_id=? AND id='audit-expired'")
+        .bind(w)
+        .first(),
+      null,
+    );
+    assert.equal(
+      await db
+        .prepare(
+          "SELECT asset_id FROM assets_gc_jobs WHERE workspace_id=? AND asset_id='audit-expired'",
+        )
+        .bind(w)
+        .first(),
+      null,
+    );
+  }
+  await worker.scheduled();
+});
+
+test("09a real Access Projects Issues Wiki satisfy Assets provider contract", async () => {
+  const f = contractProviders;
+  const wiki = platform.createWiki({
+    store: platform.createModuleStore(await mf.getD1Database("DB"), "wiki"),
+    projects: f.projects,
+    clock: { now: () => Math.floor(Date.now() / 1000) },
+    ids: platform.randomIds,
+  }).api;
+  const issueId = "assets-contract-issue",
+    pageId = "assets-contract-page";
+  await f.issues.createIssue(f.editor, {
+    operationId: issueId,
+    issueId,
+    projectId: f.projectId,
+    title: "Contract",
+    description: "",
+    priority: "medium",
+  });
+  await wiki.createPage(f.editor, {
+    operationId: pageId,
+    pageId,
+    projectId: f.projectId,
+    slug: "assets-contract",
+    title: "Contract",
+    body: "",
+  });
+  await assetsProviderContract({ ...f, wiki, issueId, pageId });
+});
+
+test("09a binary PUT accepts exactly 10 MiB and rejects one byte more", async () => {
+  const data = new Uint8Array(10 * 1024 * 1024);
+  const sha256 = Buffer.from(await crypto.subtle.digest("SHA-256", data)).toString("hex");
+  const input = {
+    operationId: "http-cap",
+    assetId: "http-cap",
+    projectId: "p1",
+    size: data.byteLength,
+    contentType: "application/octet-stream",
+    filename: "cap.bin",
+    sha256,
+  };
+  assert.equal((await req("w1", "assets.begin", input, write)).status, 200);
+  const upload = (body) =>
+    mf.dispatchFetch("http://localhost/api/w/w1/assets/upload/http-cap", {
+      method: "PUT",
+      headers: { authorization: `Bearer ${write}`, "content-length": String(body.byteLength) },
+      body,
+    });
+  assert.equal((await upload(data)).status, 200);
+  assert.equal((await upload(new Uint8Array(data.byteLength + 1))).status, 400);
+  // Rejected overwrite leaves the original, completable object intact.
+  assert.equal(
+    (
+      await req(
+        "w1",
+        "assets.complete",
+        { operationId: "http-cap-complete", assetId: "http-cap", expectedVersion: 1 },
+        write,
+      )
+    ).status,
+    200,
+  );
 });

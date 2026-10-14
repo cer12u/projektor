@@ -6,7 +6,7 @@ export const queries = {
     "UPDATE assets_blobs SET state='ready',version=version+1 WHERE workspace_id=? AND id=? AND version=? AND state='pending'",
   bump: "UPDATE assets_blobs SET version=version+1 WHERE workspace_id=? AND id=? AND version=? AND state='ready'",
   retire:
-    "UPDATE assets_blobs SET state='retired' WHERE workspace_id=? AND id=? AND state='ready' AND NOT EXISTS(SELECT 1 FROM assets_links WHERE workspace_id=? AND asset_id=?)",
+    "UPDATE assets_blobs SET state='retired' WHERE workspace_id=? AND id=? AND state IN ('pending','ready') AND NOT EXISTS(SELECT 1 FROM assets_links WHERE workspace_id=? AND asset_id=?)",
   insertLink:
     "INSERT INTO assets_links(workspace_id,id,asset_id,target_kind,target_id) VALUES(?,?,?,?,?)",
   link: "SELECT id,asset_id,target_kind,target_id FROM assets_links WHERE workspace_id=? AND id=? AND asset_id=?",

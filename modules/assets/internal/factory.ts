@@ -379,7 +379,8 @@ export function createAssets(d: Dependencies): { api: AssetsApi; eventReader?: A
           done++;
           continue;
         }
-        if (r.state === "ready") await store.run("retire", [ws, assetId, ws, assetId]);
+        // Close pending uploads too: completion/link must not race the R2 deletion.
+        await store.run("retire", [ws, assetId, ws, assetId]);
         const current = await one("blob", [ws, assetId]);
         if (current?.state === "ready") {
           await store.run("gcRemove", [ws, assetId]);

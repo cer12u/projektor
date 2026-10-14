@@ -555,3 +555,123 @@ validation). The three affected headless browser scenarios passed healthy before
 their mutations; GitLab's browser job also runs the unchanged discovery/mobile
 scenarios. No GUI browser, real Cloudflare deployment or production credential
 was used for this audit.
+
+## Assets independent audit — 09a
+
+Reviewed merged step 09 at `e74f4cb`, the Assets contracts, §7.1 and owner Q1.
+Scope is `modules/assets`, Platform `createScopedBucket`, Worker `scheduled`,
+and Assets Gateway/Web operations. The original seven module tests are retained.
+The audit uses Assets-only migrations in Miniflare D1/R2 with public dependency
+fakes; `assetsProviderContract` also runs against real Access/Projects/Issues/Wiki
+in the HTTP integration fixture. No foreign migrations enter the isolated suite.
+All heavy processes/probes run sequentially; browser evidence is headless only.
+
+In the table, A = `tools/assets.test.mjs`, G = `tools/gateway.test.mjs`,
+O = `tools/gateway-oauth.test.mjs`, B = `tools/web-e2e/core.spec.mjs`.
+Names starting with `09a` are new regressions. A row describes executable
+scenarios, not coverage of every possible input or deployed Cloudflare evidence.
+
+| Behavior / invariant | Executable test prefix | Finding / evidence |
+|---|---|---|
+| Scoped R2 `get/open/put/delete` rejects foreign owner/workspace, empty suffix, dots and slashes; valid keys still work | A `09a R2 every method…` | Seeds actual forbidden objects and proves rejection without overwrite/delete; tests `open` and all invalid forms, previously missing |
+| `completeUpload` independently checks stored size, SHA-256 and presence | A `09a complete independently rejects size/sha256/missing…` | Wrong-size object deliberately has the correct digest; original mismatches let the size-check mutation survive. Every rejection preserves all seven owned tables |
+| R2 put failure and complete D1 failure remain recoverable | A `stored bytes are checked…` | Original fault test retained, including pending GC job and successful completion retry |
+| Two tenants cannot read/link one another's metadata | A `begin, R2 verification…`; G `Assets binary REST…` | Original module/HTTP isolation tests retained; new adapter and scheduled tests exercise both workspace prefixes |
+| Download requires at least one visible link; last unlink prevents future download | A `begin, R2 verification…`, `unlink schedules GC…`; G `Assets binary REST…`; B `09a attachment…` | Denies unlinked completed and retired objects; cached relative URL stops working after unlink |
+| Project archive, membership revoke and another project's viewer cannot download | A `archive or membership revoke…`, `09a download after membership revoke…`, `09a download checks…` | Dedicated membership regression reaches revoke independently; outsider can view p2 but cannot download p1 |
+| Metadata/URL lookup is not a grant to stream bytes | A `09a download checks…`; G `09a issued download URL…` | Archive the target after resolving the URL; actual subsequent GET must reject before streaming |
+| HTML and SVG always download as attachments, with nosniff/no-store | G `09a HTML and SVG…`; B `09a attachment…` | **Runtime defect:** nosniff was absent. Regression failed with null header before fix; browser receives a download and does not execute HTML |
+| MCP is metadata/URL-only; binary operations are REST-only | G `09a HTML and SVG…`, original `Assets binary REST…` | Exact text payload contains only the relative URL; no binary tools advertised; raw-byte mutation is rejected |
+| Read-scoped machine, OAuth viewer and OAuth owner with read-only consent cannot write | G `09a read-scoped machine…`; O `09a OAuth viewer…` | Exercises begin/complete/link/unlink over MCP and binary PUT; OAuth uses SDK discovery, consent and token exchange, checks insufficient_scope |
+| Every command's operation ID binds each input and replays one durable result | A `09a beginUpload/completeUpload/linkAsset/unlinkAsset retry binds…` | Each input field varied independently; restart replay and receipt lookup preserve snapshots of all seven tables; catches duplicate blob on retry |
+| Link/unlink stale CAS and concurrent contenders produce no loser receipt | A `09a linkAsset/unlinkAsset stale CAS…` | Stale snapshots unchanged, including a fault-injected missing current history row; concurrent distinct operations produce one winner/version increment and one receipt. Removing the guard originally survived because the history primary key accidentally rejected stale writes |
+| GC job is committed atomically with begin/last-unlink metadata | A `09a beginUpload/unlinkAsset cannot change metadata…` | Inject an INSERT trigger failure on the GC job: all business/history/receipt/event rows must roll back, then retry succeeds. Same-transaction statement order is not treated as a defect |
+| GC preserves still-linked objects | A `09a GC preserves…` | Link both issue and wiki; unlink only one, drain its stale job, then verify actual R2 bytes and remaining link |
+| GC resumes after R2 delete but before D1 commit | A `09a GC preserves…`; original `unlink schedules GC…` | Inject D1 failure after successful delete; assert absent R2, retained job/blob; fresh factory drains twice safely and receipt remains |
+| Never-completed and completed-but-unlinked uploads expire | A `unfinished upload expires…`, `completed but never linked…`; G `09a Worker scheduled GC…` | Before-expiry negative control; real Worker scheduled event removes actual R2 bytes, blob and job in two workspaces; repeat event is safe |
+| Expired pending upload cannot complete/link during collection | A `09a expired pending GC…` | **Runtime defect:** completion/link succeeded immediately before R2 deletion. Regression now proves pending state is closed before deletion; late completion conflicts without receipt/link |
+| Size cap includes exactly 10 MiB and excludes one byte more | A `09a begin size boundary…`; G `09a binary PUT…` | Checks oversized begin leaves no rows; exact-cap begin, put and stored-byte completion succeed. HTTP rejects cap + 1 without replacing the completable object |
+| Dependency fakes follow consumed authorization contracts | A `09a Assets dependency fakes…`; G `09a real Access Projects Issues Wiki…`; `tools/assets-provider-contract.mjs` | Shared editor/viewer, copied scope, missing ID and project association assertions run on fakes and real providers |
+| Web retains the completion operation ID after a lost response and unlinks correctly | B `09a attachment…` | Commit completion, abort its response, retry through UI; assert same input, one attachment, safe downloaded filename, then removal and stale URL 404 |
+| Event and receipt queries remain tenant/capability scoped | A original `begin, R2 verification…`; per-command snapshot/replay cases | Existing three-event/receipt assertions retained; snapshots detect duplicate audit rows. Full event paging/capability matrix is not claimed by this audit |
+
+### 09a reproducible mutation evidence
+
+Run `node tools/audit-assets-mutations.mjs [case-id ...]` alone. It validates a
+healthy regression once per selected command, injects the named defect, captures
+logs under `reports/09a-*`, writes `reports/assets-mutations.json`, and restores
+source/generated files in `finally`. It uses an exclusive audit lock. A kill
+requires an assertion failure; build/import/runtime errors without an assertion
+are invalid, and a missing regression cannot count as success. Selected reruns
+replace only those case records in the JSON report; a full run replaces all.
+Early GC/cap probes exposed non-assertion failures (null decode, proxy failure
+serialization, or an unwrapped success-path rejection); assertions were made
+explicit and those probes rerun, rather than counting those failures as kills. The browser probe
+uses the same headless fixture as CI. ANSI formatting is stripped before
+classifying its assertion log; the recorded Web failure was reclassified from
+that existing log, without rerunning the already executed browser mutation. These are bounded faults, not an exhaustive
+mutation score. Redundant admission checks are removed together only for the
+explicit authorization-bypass probes, so their outcome is an observable defect.
+
+Original-suite probes are reproducible with:
+
+```sh
+node tools/audit-assets-mutations.mjs complete-size complete-missing \
+  unlinkAsset-cas beginUpload-gc-job gc-still-linked size-exclusive --original
+```
+
+`--original` substitutes only the original test file from `e74f4cb` and restores
+it afterwards. The original suite **survived** complete-size, complete-missing,
+unlinkAsset-cas, gc-still-linked and size-exclusive; beginUpload-gc-job was
+already killed. The new regressions distinguish these cases instead of relying
+on unrelated checks or a checker freshness failure.
+
+| Injected defect IDs | Detecting regression |
+|---|---|
+| `r2-{get,open,put,delete}-prefix`, `r2-prefix`, `r2-dot`, `r2-slash` | A `09a R2 every method…` |
+| `complete-size`, `complete-hash`, `complete-missing` | A independent stored-object checks |
+| `download-unlinked`, `download-project`, `download-membership`, `download-other-project` | A last unlink, archive, dedicated revoke and other-project viewer cases |
+| `download-stream-permission` | G issued URL followed by target archive and denied binary GET |
+| `download-attachment`, `download-nosniff`, `mcp-raw-bytes` | G HTML/SVG response headers and exact MCP URL-only content |
+| `retry-input`, `retry-duplicate-blob` | A changed-input matrix and full-table replay snapshot |
+| `{linkAsset,unlinkAsset}-{cas,guard}` | A stale version and all-table rollback |
+| `{beginUpload,unlinkAsset}-gc-job` | A failed job insertion must roll back metadata |
+| `gc-still-linked`, `gc-job-early-remove`, `gc-not-idempotent` | A real R2 bytes, durable crash recovery and second drain |
+| `gc-pending-leak`, `scheduled-no-gc` | A expiry; G scheduled event removes real data |
+| `gc-pending-completion-race` | A deterministic completion/link attempt before deletion |
+| `size-exclusive`, `size-extra-byte`, `put-size-exclusive`, `gateway-size-exclusive`, `gateway-body-size-exclusive` | A/G exact maximum and maximum + 1 across begin, PUT and HTTP header/body checks |
+| `mcp-write-scope`, `oauth-write-scope` | G read machine / O OAuth read grant cannot begin an upload |
+| `web-retry-new-id` | B response-loss retry retains the same completion operation ID |
+
+Final mutation result: **40/40 killed**, with no survivors or invalid cases.
+Original baseline: five of the six specified historical probes survived; the
+GC-job omission was already detected. The two runtime fixes each failed a new
+behavioral regression before repair. Focused headless Web acceptance passed.
+
+### 09a changes and limits
+
+Runtime fixes are the download nosniff header and retiring pending as well as
+ready unlinked uploads before GC deletes R2. The latter updates the existing
+static `retire` query and its generated catalog; it adds no schema migration.
+There are no new commands, queries, events, owner resources, dependencies or
+plan deviations. The unchanged Assets tables are `assets_blobs`, `assets_links`,
+`assets_gc_jobs`, `assets_history`, `assets_receipts`, `assets_events`,
+`assets_guards`. Public commands remain begin/complete/link/unlink plus binary
+PUT; queries remain metadata/list/download/operation/events, with private
+composition-driven maintenance GC.
+
+Authorization evidence concerns new download requests (Q1), not revocation of
+bytes already delivered or per-chunk reauthorization. Local Miniflare evidence
+is not deployed R2/D1 evidence; main-only Cloudflare smoke remains separate.
+The controlled GC race covers completion/link versus collection, not arbitrary
+process scheduling or every in-flight upload/R2 failure interleaving. No
+production bindings or deployment settings changed.
+
+
+Validation: `pnpm verify` was invoked once. Its first formatting gate found one
+Web test formatting difference; after correcting and checking that file, the
+not-yet-run steps from the same script were executed sequentially. All passed:
+type checks, owner/public/SQL boundaries, 62 boundary-checker tests, 158 module
+tests, migration checks, build, artifact smoke, Gateway/OAuth, Web unit and smoke
+tests. The focused headless attachment test passed separately; CI also runs the
+whole browser suite. No check, allowlist or expected error was relaxed.

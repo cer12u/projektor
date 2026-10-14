@@ -27,8 +27,9 @@ clients a relative REST URL; it does not fetch bytes. Binary upload and download
 are REST-only. `GET /api/w/{workspaceId}/assets/download/{assetId}` checks live
 membership, project and at least one visible target link, then streams R2 bytes
 through a narrow `ByteReader`. A removed membership, archived project/target,
-or last link prevents a new download. Responses use `no-store` and force an
-attachment disposition. The 10 MiB application cap bounds complete-time hash
+or last link prevents a new download. Responses use `no-store`, force an
+`attachment` disposition and set `X-Content-Type-Options: nosniff`, including
+HTML/SVG. The 10 MiB application cap bounds complete-time hash
 verification and the single-PUT upload; this is independent of Cloudflare's
 account request-size allowance.
 
@@ -45,7 +46,10 @@ outbox event reader is capability-gated.
 keeps it until a link is committed. Unlinking the final link retires the blob
 and writes an immediately due job in the command batch. The Worker
 hourly `scheduled` handler calls `drainGc`. For each due pending or retired blob, or a ready blob that was never linked,
-it retires the row if needed, then deletes R2 first and only then removes the job, history and blob in
+it atomically retires an unlinked pending/ready row before opening the R2 delete.
+This closes completion/link admission during collection: otherwise a pending
+object could complete and acquire a link between the GC read and the R2 delete.
+It then deletes R2 first and only then removes the job, history and blob in
 a D1 batch. R2 deletion is idempotent. A crash or deletion failure leaves the
 job, so the next run can repeat safely. A committed ready blob with other links
 causes a stale job to be removed without deleting the object. Receipts and
@@ -57,3 +61,14 @@ Q1: a command admitted before a revocation may finish, while the next command
 or download is denied. Local Miniflare tests exercise R2 put/delete faults,
 D1 completion failure, replay, tenant separation, mismatches, expiry and
 visibility changes. They do not establish behavior of a deployed R2 bucket.
+
+## Independent audit (09a)
+
+[Behavior/test map and mutation evidence](test-audit.md#assets-independent-audit--09a)
+cover the scoped R2 adapter, isolated Assets D1 storage, actual Worker scheduled
+GC, binary REST/MCP authorization, and headless Web attachment recovery. Run the
+bounded probes with `node tools/audit-assets-mutations.mjs`; do not run other
+source writers or tests against its shared bundles concurrently. Each probe
+checks its healthy regression, applies one defect, records assertion-based
+results in `reports/`, and restores the sources. No public contract, migration,
+owner resource or dependency was added by the audit.
