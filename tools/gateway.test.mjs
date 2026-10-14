@@ -100,10 +100,11 @@ before(async () => {
     compatibilityDate: "2026-07-30",
     d1Databases: ["DB"],
     kvNamespaces: ["KV"],
+    r2Buckets: ["R2"],
     bindings: { ACCESS_TEAM_DOMAIN: issuer, ACCESS_AUDIENCE: audience },
   });
   const db = await mf.getD1Database("DB");
-  await platform.migrate(db, ["access", "projects", "issues", "wiki", "coordination"]);
+  await platform.migrate(db, ["access", "projects", "issues", "wiki", "coordination", "assets"]);
   const clock = { now: () => Math.floor(Date.now() / 1000) };
   const created = platform.createAccess({
     store: platform.createModuleStore(db, "access"),
@@ -652,4 +653,124 @@ test("07c /api/me never provisions membership for an authenticated stranger", as
     await db.prepare("SELECT COUNT(*) AS n FROM access_memberships").first(),
     before,
   );
+});
+
+test("Assets binary REST and MCP metadata parity with live download authorization", async () => {
+  const data = new TextEncoder().encode("asset transport");
+  const sha256 = Buffer.from(await crypto.subtle.digest("SHA-256", data)).toString("hex");
+  const created = await req(
+    "w1",
+    "issues.create",
+    {
+      operationId: "asset-issue-create",
+      issueId: "asset-issue",
+      projectId: "p1",
+      title: "With attachment",
+      description: "",
+      priority: "medium",
+    },
+    write,
+  );
+  assert.equal(created.status, 200);
+  const beginArgs = {
+    operationId: "asset-begin",
+    assetId: "asset-transport",
+    projectId: "p1",
+    size: data.length,
+    contentType: "text/plain",
+    filename: "asset.txt",
+    sha256,
+  };
+  const begin = await req("w1", "assets.begin", beginArgs, write);
+  assert.deepEqual(begin.data, { id: "asset-transport", version: 1 });
+  assert.deepEqual(mcpResult(await rpc("w1", "assets.begin", beginArgs, write)), begin.data);
+  const put = await mf.dispatchFetch("http://localhost/api/w/w1/assets/upload/asset-transport", {
+    method: "PUT",
+    headers: { authorization: `Bearer ${write}`, "content-type": "application/octet-stream" },
+    body: data,
+  });
+  assert.equal(put.status, 200);
+  const completeArgs = {
+    operationId: "asset-complete",
+    assetId: "asset-transport",
+    expectedVersion: 1,
+  };
+  const complete = await req("w1", "assets.complete", completeArgs, write);
+  assert.deepEqual(complete.data, { id: "asset-transport", version: 2 });
+  assert.deepEqual(
+    mcpResult(await rpc("w1", "assets.complete", completeArgs, write)),
+    complete.data,
+  );
+  const linkArgs = {
+    operationId: "asset-link",
+    assetId: "asset-transport",
+    expectedVersion: 2,
+    linkId: "asset-link-id",
+    targetKind: "issue",
+    targetId: "asset-issue",
+  };
+  const linked = await req("w1", "assets.link", linkArgs, write);
+  assert.deepEqual(linked.data, { id: "asset-transport", version: 3 });
+  assert.deepEqual(mcpResult(await rpc("w1", "assets.link", linkArgs, write)), linked.data);
+  const listArgs = { targetKind: "issue", targetId: "asset-issue" };
+  const rest = await req("w1", "assets.list", listArgs, read);
+  const mcp = await rpc("w1", "assets.list", listArgs, read);
+  assert.deepEqual(mcpResult(mcp), rest.data);
+  const metaArgs = { assetId: "asset-transport" };
+  assert.deepEqual(
+    mcpResult(await rpc("w1", "assets.get", metaArgs, read)),
+    (await req("w1", "assets.get", metaArgs, read)).data,
+  );
+  const receiptArgs = { operationId: "asset-link" };
+  assert.deepEqual(
+    mcpResult(await rpc("w1", "assets.readOperation", receiptArgs, write)),
+    (await req("w1", "assets.readOperation", receiptArgs, write, "GET")).data,
+  );
+  const url = mcpResult(
+    await rpc("w1", "assets.downloadUrl", { assetId: "asset-transport" }, read),
+  ).url;
+  assert.equal(url, "/api/w/w1/assets/download/asset-transport");
+  assert.deepEqual(
+    mcpResult(await rpc("w1", "assets.downloadUrl", metaArgs, read)),
+    (await req("w1", "assets.downloadUrl", metaArgs, read)).data,
+  );
+  const download = await mf.dispatchFetch(`http://localhost${url}`, {
+    headers: { authorization: `Bearer ${read}` },
+  });
+  assert.equal(download.status, 200);
+  assert.equal(await download.text(), "asset transport");
+  assert.match(download.headers.get("content-disposition"), /asset\.txt/);
+  const wrong = await mf.dispatchFetch(
+    "http://localhost/api/w/w2/assets/download/asset-transport",
+    { headers: { authorization: `Bearer ${other}` } },
+  );
+  assert.equal(wrong.status, 404);
+  const unlinkArgs = {
+    operationId: "asset-unlink",
+    assetId: "asset-transport",
+    expectedVersion: 3,
+    linkId: "asset-link-id",
+  };
+  const unlinked = await req("w1", "assets.unlink", unlinkArgs, write);
+  assert.equal(unlinked.status, 200);
+  assert.deepEqual(mcpResult(await rpc("w1", "assets.unlink", unlinkArgs, write)), unlinked.data);
+  const after = await mf.dispatchFetch(`http://localhost${url}`, {
+    headers: { authorization: `Bearer ${read}` },
+  });
+  assert.notEqual(after.status, 200);
+  const openapi = await (await mf.dispatchFetch("http://localhost/api/openapi.json")).json();
+  assert(openapi.paths["/api/w/{workspaceId}/assets/upload/{assetId}"].put);
+  assert(openapi.paths["/api/w/{workspaceId}/assets/download/{assetId}"].get);
+  const tools = await mf.dispatchFetch("http://localhost/mcp/w1", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${read}`,
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+  });
+  const names = (await tools.json()).result.tools.map((x) => x.name);
+  assert(!names.includes("assets.uploadBinary"));
+  assert(!names.includes("assets.downloadBinary"));
 });

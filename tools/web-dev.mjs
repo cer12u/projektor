@@ -52,6 +52,7 @@ const mf = new Miniflare({
   assets: { directory: "dist/assets", routerConfig: { has_user_worker: true } },
   d1Databases: ["DB"],
   kvNamespaces: ["KV"],
+  r2Buckets: ["R2"],
   bindings: {
     ACCESS_TEAM_DOMAIN: issuer,
     ACCESS_AUDIENCE: audience,
@@ -61,7 +62,7 @@ const mf = new Miniflare({
   },
 });
 const db = await mf.getD1Database("DB");
-await platform.migrate(db, ["access", "projects", "issues", "wiki", "coordination"]);
+await platform.migrate(db, ["access", "projects", "issues", "wiki", "coordination", "assets"]);
 const clock = { now: () => Math.floor(Date.now() / 1000) };
 const access = platform.createAccess({
   store: platform.createModuleStore(db, "access"),

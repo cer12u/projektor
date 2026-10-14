@@ -340,6 +340,31 @@ const cases = [
       ),
   ],
   [
+    "raw R2 binding outside Platform adapter",
+    "capability",
+    (r) =>
+      write(
+        r,
+        `${a}/internal/bad.ts`,
+        "type Bucket = R2Bucket; export function use(bucket: Bucket) { return bucket.get('fixture_a/key'); }",
+      ),
+  ],
+  [
+    "Assets cannot read Issues storage",
+    "sql-ownership",
+    (r) =>
+      write(
+        r,
+        "modules/assets/storage/queries.ts",
+        'export const queries = {bad: "SELECT * FROM issues_issues"} as const;',
+      ),
+  ],
+  [
+    "other owner cannot read Assets storage",
+    "sql-ownership",
+    (r) => query(r, "SELECT * FROM assets_blobs"),
+  ],
+  [
     "any storage escape",
     "capability",
     (r) => write(r, `${a}/internal/bad.ts`, "export function use(db: any) { return db; }"),

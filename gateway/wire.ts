@@ -88,6 +88,24 @@ export function openApi() {
       responses: { "200": { description: "Success" } },
     },
   };
+  paths["/api/w/{workspaceId}/assets/upload/{assetId}"] = {
+    put: {
+      operationId: "assets.uploadBinary",
+      parameters: [workspaceParameter],
+      requestBody: {
+        required: true,
+        content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } },
+      },
+      responses: { "200": { description: "Stored for completion" } },
+    },
+  };
+  paths["/api/w/{workspaceId}/assets/download/{assetId}"] = {
+    get: {
+      operationId: "assets.downloadBinary",
+      parameters: [workspaceParameter],
+      responses: { "200": { description: "Binary asset" } },
+    },
+  };
   paths["/api/me"] = {
     get: {
       operationId: "access.me",

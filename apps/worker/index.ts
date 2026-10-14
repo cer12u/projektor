@@ -1,14 +1,21 @@
 import { createOAuthHttp, handleHttp } from "../../gateway/public";
 import { createAccess } from "../../modules/access/internal/factory";
+import { createAssets } from "../../modules/assets/internal/factory";
 import { createCoordination } from "../../modules/coordination/internal/factory";
 import { createIssues } from "../../modules/issues/internal/factory";
 import { createProjects } from "../../modules/projects/internal/factory";
 import { createWiki } from "../../modules/wiki/internal/factory";
-import { createModuleStore, createRateLimiter, createScopedKV } from "../../platform/adapters";
+import {
+  createModuleStore,
+  createRateLimiter,
+  createScopedBucket,
+  createScopedKV,
+} from "../../platform/adapters";
 import { randomIds, systemClock } from "../../platform/primitives";
 
 export interface Env {
   readonly DB: D1Database;
+  readonly R2: R2Bucket;
   readonly KV: KVNamespace;
   readonly ASSETS: Fetcher;
   readonly ACCESS_TEAM_DOMAIN: string;
@@ -67,6 +74,16 @@ function compose(env: Env) {
     clock: systemClock,
     ids: randomIds,
   }).api;
+  const assets = createAssets({
+    store: createModuleStore(env.DB, "assets"),
+    bucketFor: (workspaceId) => createScopedBucket(env.R2, "assets", workspaceId),
+    access,
+    projects,
+    issues,
+    wiki,
+    clock: systemClock,
+    ids: randomIds,
+  }).api;
   const oauthHttp =
     env.OAUTH_ISSUER &&
     env.OAUTH_RESOURCE &&
@@ -85,7 +102,16 @@ function compose(env: Env) {
           access,
         )
       : undefined;
-  return { access, projects, issues, wiki, coordination, oauthHttp, oauthOrigin: env.OAUTH_ISSUER };
+  return {
+    access,
+    projects,
+    issues,
+    wiki,
+    coordination,
+    assets,
+    oauthHttp,
+    oauthOrigin: env.OAUTH_ISSUER,
+  };
 }
 
 // One composition per isolate keeps the verifier’s bounded trusted JWKS cache.
@@ -94,5 +120,9 @@ export default {
   fetch(request: Request, env: Env): Promise<Response> {
     services ??= compose(env);
     return handleHttp(request, services);
+  },
+  async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
+    services ??= compose(env);
+    await services.assets.drainGc();
   },
 };

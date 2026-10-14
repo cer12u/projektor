@@ -13,7 +13,8 @@
         "projects",
         "issues",
         "wiki",
-        "coordination"
+        "coordination",
+        "assets"
       ],
       "external": []
     },
@@ -30,7 +31,15 @@
       "root": "gateway",
       "public": "gateway/public.ts",
       "kind": "gateway",
-      "dependencies": ["platform", "access", "projects", "issues", "wiki", "coordination"],
+      "dependencies": [
+        "platform",
+        "access",
+        "projects",
+        "issues",
+        "wiki",
+        "coordination",
+        "assets"
+      ],
       "external": []
     },
     {
@@ -246,6 +255,33 @@
       }
     },
     {
+      "id": "assets",
+      "root": "modules/assets",
+      "public": "modules/assets/public.ts",
+      "factory": "modules/assets/internal/factory.ts",
+      "kind": "module",
+      "dependencies": ["platform", "access", "projects", "issues", "wiki"],
+      "external": [],
+      "storage": {
+        "prefix": "assets_",
+        "tables": [
+          "assets_blobs",
+          "assets_links",
+          "assets_gc_jobs",
+          "assets_history",
+          "assets_receipts",
+          "assets_events",
+          "assets_guards"
+        ],
+        "objects": ["assets_target"],
+        "globalTables": [],
+        "catalog": "modules/assets/storage/queries.ts",
+        "migrations": "modules/assets/storage/migrations",
+        "kvPrefix": null,
+        "r2Prefix": "assets/"
+      }
+    },
+    {
       "id": "tools",
       "root": "tools",
       "public": null,
@@ -261,7 +297,8 @@
         "projects",
         "issues",
         "wiki",
-        "coordination"
+        "coordination",
+        "assets"
       ],
       "external": [
         "node:*",
