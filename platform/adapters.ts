@@ -67,20 +67,52 @@ export function createScopedKV(kv: KVNamespace, owner: Owner): ScopedKV {
     },
   });
 }
-export function createScopedBucket(bucket: R2Bucket, owner: Owner): ScopedBucket {
-  const prefix = catalogs[owner]?.r2Prefix;
+export function createScopedBucket(
+  bucket: R2Bucket,
+  owner: Owner,
+  workspaceId?: string,
+): ScopedBucket {
+  if (workspaceId !== undefined && !/^[A-Za-z0-9_-]{1,128}$/.test(workspaceId))
+    throw new PlatformError("validation", "Invalid bucket workspace");
+  const ownerPrefix = catalogs[owner]?.r2Prefix;
+  const prefix = workspaceId === undefined ? ownerPrefix : `${ownerPrefix}${workspaceId}/`;
+  const check = (key: string) => {
+    checkKey(prefix, key);
+    if (workspaceId !== undefined && !/^[A-Za-z0-9_-]{1,128}$/.test(key.slice(prefix?.length ?? 0)))
+      throw new PlatformError("forbidden", "Invalid workspace object key");
+  };
   return Object.freeze({
     async get(key: string) {
-      checkKey(prefix, key);
+      check(key);
       const object = await bucket.get(key);
       return object ? object.arrayBuffer() : null;
     },
+    async open(key: string) {
+      check(key);
+      const object = await bucket.get(key);
+      if (!object) return null;
+      const reader = object.body.getReader();
+      return Object.freeze({
+        async read() {
+          const next = await reader.read();
+          return next.done
+            ? null
+            : next.value.buffer.slice(
+                next.value.byteOffset,
+                next.value.byteOffset + next.value.byteLength,
+              );
+        },
+        async cancel() {
+          await reader.cancel();
+        },
+      });
+    },
     async put(key: string, value: ArrayBuffer) {
-      checkKey(prefix, key);
+      check(key);
       await bucket.put(key, value);
     },
     async delete(key: string) {
-      checkKey(prefix, key);
+      check(key);
       await bucket.delete(key);
     },
   });

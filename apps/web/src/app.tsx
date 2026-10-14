@@ -527,6 +527,179 @@ function Issues({ workspace, project }: { workspace: string; project: Project })
     </>
   );
 }
+type Attachment = {
+  id: string;
+  assetId: string;
+  filename: string;
+  target: { kind: "issue" | "wiki"; id: string };
+};
+type UploadJob = {
+  file: File;
+  assetId: string;
+  beginId: string;
+  completeId: string;
+  linkId: string;
+  linkOp: string;
+  stage: "begin" | "put" | "complete" | "link";
+};
+function Attachments({
+  workspace,
+  targetKind,
+  targetId,
+  projectId,
+}: {
+  workspace: string;
+  targetKind: "issue" | "wiki";
+  targetId: string;
+  projectId: string;
+}) {
+  const list = useQuery<{ items: Attachment[]; nextCursor: string | null }>(
+    workspace,
+    "assets.list",
+    { targetKind, targetId },
+    `${targetKind}:${targetId}`,
+  );
+  const [job, setJob] = useState<UploadJob | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const unlink = useAction(workspace);
+  async function runUpload(initial: UploadJob) {
+    setBusy(true);
+    setError("");
+    const current = { ...initial };
+    try {
+      const data = await current.file.arrayBuffer();
+      const digest = Array.from(
+        new Uint8Array(await crypto.subtle.digest("SHA-256", data)),
+        (byte) => byte.toString(16).padStart(2, "0"),
+      ).join("");
+      if (current.stage === "begin") {
+        await wire.call(workspace, "assets.begin", {
+          operationId: current.beginId,
+          assetId: current.assetId,
+          projectId,
+          size: data.byteLength,
+          contentType: current.file.type || "application/octet-stream",
+          filename: current.file.name,
+          sha256: digest,
+        });
+        current.stage = "put";
+        setJob({ ...current });
+      }
+      if (current.stage === "put") {
+        await wire.uploadBinary(workspace, current.assetId, data);
+        current.stage = "complete";
+        setJob({ ...current });
+      }
+      if (current.stage === "complete") {
+        await wire.call(workspace, "assets.complete", {
+          operationId: current.completeId,
+          assetId: current.assetId,
+          expectedVersion: 1,
+        });
+        current.stage = "link";
+        setJob({ ...current });
+      }
+      if (current.stage === "link") {
+        await wire.call(workspace, "assets.link", {
+          operationId: current.linkOp,
+          assetId: current.assetId,
+          expectedVersion: 2,
+          linkId: current.linkId,
+          targetKind,
+          targetId,
+        });
+      }
+      setJob(null);
+      list.refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+      setJob({ ...current });
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function remove(item: Attachment) {
+    try {
+      const meta = await wire.call<{ version: number }>(workspace, "assets.get", {
+        assetId: item.assetId,
+      });
+      const done = await unlink.run(workspace, "assets.unlink", {
+        assetId: item.assetId,
+        expectedVersion: meta.version,
+        linkId: item.id,
+      });
+      if (done) list.refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+  return (
+    <section class="attachments">
+      <h3>{ja.ui.attachments}</h3>
+      {list.error && <p role="alert">{list.error}</p>}
+      {list.data?.items.length === 0 && <p>{ja.ui.noAttachments}</p>}
+      <ul class="list">
+        {list.data?.items.map((item) => (
+          <li key={item.id}>
+            <a href={wire.downloadUrl(workspace, item.assetId)}>
+              {item.filename} · {ja.ui.download}
+            </a>{" "}
+            <button
+              type="button"
+              class="secondary compact"
+              disabled={busy || unlink.status === "pending" || unlink.status === "unknown"}
+              onClick={() => void remove(item)}
+            >
+              {ja.ui.removeAttachment}
+            </button>
+          </li>
+        ))}
+      </ul>
+      <label>
+        {ja.ui.upload}
+        <input
+          type="file"
+          disabled={busy || !!job}
+          onChange={(event) => {
+            const file = event.currentTarget.files?.[0];
+            if (!file) return;
+            if (file.size > 10 * 1024 * 1024) {
+              setError(ja.ui.attachmentTooLarge);
+              return;
+            }
+            const next: UploadJob = {
+              file,
+              assetId: crypto.randomUUID(),
+              beginId: crypto.randomUUID(),
+              completeId: crypto.randomUUID(),
+              linkId: crypto.randomUUID(),
+              linkOp: crypto.randomUUID(),
+              stage: "begin",
+            };
+            setJob(next);
+            void runUpload(next);
+            event.currentTarget.value = "";
+          }}
+        />
+      </label>
+      {job && !busy && (
+        <button type="button" class="secondary" onClick={() => void runUpload(job)}>
+          {ja.retry}
+        </button>
+      )}
+      {error && <p role="alert">{error}</p>}
+      <Status
+        op={unlink}
+        onRetry={() =>
+          void unlink.retry().then((result) => {
+            if (result) list.refresh();
+          })
+        }
+      />
+    </section>
+  );
+}
 function IssueDetail({
   workspace,
   id,
@@ -680,6 +853,12 @@ function IssueDetail({
             </button>
           </form>
           <Status op={op} onRetry={retry} />
+          <Attachments
+            workspace={workspace}
+            targetKind="issue"
+            targetId={id}
+            projectId={issue.data.projectId}
+          />
           <h3>{ja.ui.history}</h3>
           <ul class="list history">
             {history.data?.map((item, index) => (
@@ -913,6 +1092,12 @@ function WikiDetail({
               </button>
             </div>
           )}
+          <Attachments
+            workspace={workspace}
+            targetKind="wiki"
+            targetId={id}
+            projectId={page.data.projectId}
+          />
           <h3>{ja.ui.revisions}</h3>
           <ul class="list history">
             {revisions.data?.revisions.map((revision) => (

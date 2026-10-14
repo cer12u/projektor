@@ -70,4 +70,25 @@ export class WireClient {
       throw new WireError(data.code ?? "network", data.message ?? `HTTP ${response.status}`);
     return data;
   }
+  async uploadBinary(workspaceId: string, assetId: string, body: ArrayBuffer): Promise<void> {
+    const url = `/api/w/${encodeURIComponent(workspaceId)}/assets/upload/${encodeURIComponent(assetId)}`;
+    let response: Response;
+    try {
+      response = await this.send(url, {
+        method: "PUT",
+        credentials: "same-origin",
+        headers: { "content-type": "application/octet-stream" },
+        body,
+      });
+    } catch {
+      throw new WireError("network", ja.ui.networkUnknown);
+    }
+    if (!response.ok) {
+      const data = (await response.json()) as { code?: string; message?: string };
+      throw new WireError(data.code ?? "network", data.message ?? `HTTP ${response.status}`);
+    }
+  }
+  downloadUrl(workspaceId: string, assetId: string): string {
+    return `/api/w/${encodeURIComponent(workspaceId)}/assets/download/${encodeURIComponent(assetId)}`;
+  }
 }

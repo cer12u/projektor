@@ -167,6 +167,48 @@ export async function handleHttp(request: Request, services: Services): Promise<
     ownOrigin(request);
     const [, w, owner, action, detail] = match;
     const name = `${owner}.${action}${detail ? `.${detail}` : ""}`;
+    if (owner === "assets" && detail && (action === "upload" || action === "download")) {
+      const assetId = detail;
+      if (action === "upload") {
+        if (request.method !== "PUT") throw new PlatformError("not_found", "Unknown route");
+        const scope = await admit(request, services, w, "write", requestId, "rest");
+        const declared = Number(request.headers.get("content-length"));
+        if (Number.isFinite(declared) && declared > 10 * 1024 * 1024)
+          throw new PlatformError("validation", "Upload too large");
+        const body = await request.arrayBuffer();
+        if (body.byteLength > 10 * 1024 * 1024)
+          throw new PlatformError("validation", "Upload too large");
+        await services.assets.putUpload(scope, assetId, body);
+        return json({ uploaded: true }, 200, { "x-request-id": requestId });
+      }
+      if (request.method !== "GET") throw new PlatformError("not_found", "Unknown route");
+      const scope = await admit(request, services, w, "read", requestId, "rest");
+      const result = await services.assets.downloadAsset(scope, assetId);
+      const stream = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          try {
+            const part = await result.body.read();
+            if (part === null) controller.close();
+            else controller.enqueue(new Uint8Array(part));
+          } catch (error) {
+            controller.error(error);
+          }
+        },
+        async cancel() {
+          await result.body.cancel();
+        },
+      });
+      return new Response(stream, {
+        headers: {
+          "content-type": result.metadata.contentType,
+          "content-length": String(result.metadata.size),
+          "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(result.metadata.filename)}`,
+          "cache-control": "private, no-store",
+          "x-request-id": requestId,
+        },
+      });
+    }
+
     if (name === "access.create") {
       if (request.method !== "POST") throw new PlatformError("not_found", "Unknown route");
       const a = await body(request);

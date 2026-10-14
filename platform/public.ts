@@ -25,7 +25,12 @@ export interface ScopedKV {
   put(key: string, value: string): Promise<void>;
   delete(key: string): Promise<void>;
 }
+export interface ByteReader {
+  read(): Promise<ArrayBuffer | null>;
+  cancel(): Promise<void>;
+}
 export interface ScopedBucket {
+  open(key: string): Promise<ByteReader | null>;
   get(key: string): Promise<ArrayBuffer | null>;
   put(key: string, value: ArrayBuffer): Promise<void>;
   delete(key: string): Promise<void>;

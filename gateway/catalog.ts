@@ -1,4 +1,5 @@
 import type { AccessApi, RequestScope } from "../modules/access/public";
+import type { AssetsApi } from "../modules/assets/public";
 import type { CoordinationApi } from "../modules/coordination/public";
 import type { IssuesApi } from "../modules/issues/public";
 import type { ProjectsApi } from "../modules/projects/public";
@@ -13,6 +14,7 @@ export interface Services {
   readonly issues: IssuesApi;
   readonly wiki: WikiApi;
   readonly coordination: CoordinationApi;
+  readonly assets: AssetsApi;
 }
 type Field =
   | "string"
@@ -548,6 +550,79 @@ export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
       principalId: str(a, "principalId"),
       role: str(a, "role") as "member" | "viewer",
     }),
+  ),
+  "assets.begin": op(
+    {
+      ...operationId,
+      assetId: "string",
+      projectId: "string",
+      size: "number",
+      contentType: "string",
+      filename: "string",
+      sha256: "string",
+    },
+    true,
+    (s, c, a) =>
+      s.assets.beginUpload(c, {
+        operationId: str(a, "operationId"),
+        assetId: str(a, "assetId"),
+        projectId: str(a, "projectId"),
+        size: num(a, "size"),
+        contentType: str(a, "contentType"),
+        filename: str(a, "filename"),
+        sha256: str(a, "sha256"),
+      }),
+  ),
+  "assets.complete": op({ ...version, assetId: "string" }, true, (s, c, a) =>
+    s.assets.completeUpload(c, {
+      operationId: str(a, "operationId"),
+      assetId: str(a, "assetId"),
+      expectedVersion: num(a, "expectedVersion"),
+    }),
+  ),
+  "assets.link": op(
+    { ...version, assetId: "string", linkId: "string", targetKind: "string", targetId: "string" },
+    true,
+    (s, c, a) =>
+      s.assets.linkAsset(c, {
+        operationId: str(a, "operationId"),
+        assetId: str(a, "assetId"),
+        expectedVersion: num(a, "expectedVersion"),
+        linkId: str(a, "linkId"),
+        target: { kind: str(a, "targetKind") as "issue" | "wiki", id: str(a, "targetId") },
+      }),
+  ),
+  "assets.unlink": op({ ...version, assetId: "string", linkId: "string" }, true, (s, c, a) =>
+    s.assets.unlinkAsset(c, {
+      operationId: str(a, "operationId"),
+      assetId: str(a, "assetId"),
+      expectedVersion: num(a, "expectedVersion"),
+      linkId: str(a, "linkId"),
+    }),
+  ),
+  "assets.get": op({ assetId: "string" }, false, (s, c, a) =>
+    s.assets.getMetadata(c, str(a, "assetId")),
+  ),
+  "assets.list": op(
+    { targetKind: "string", targetId: "string", cursor: "optionalString", limit: "optionalNumber" },
+    false,
+    (s, c, a) =>
+      s.assets.listAssets(
+        c,
+        { kind: str(a, "targetKind") as "issue" | "wiki", id: str(a, "targetId") },
+        optStr(a, "cursor"),
+        optNum(a, "limit"),
+      ),
+  ),
+  "assets.downloadUrl": op({ assetId: "string" }, false, async (s, c, a) => {
+    const assetId = str(a, "assetId");
+    await s.assets.getMetadata(c, assetId);
+    return {
+      url: `/api/w/${encodeURIComponent(c.workspaceId)}/assets/download/${encodeURIComponent(assetId)}`,
+    };
+  }),
+  "assets.readOperation": op({ operationId: "string" }, false, (s, c, a) =>
+    s.assets.readOperation(c, str(a, "operationId")),
   ),
   "access.archive": op(version, true, (s, c, a) =>
     s.access.archiveWorkspace(c, {

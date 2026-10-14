@@ -77,6 +77,16 @@ test("project, issue, MCP agent attribution, wiki conflict and activity", async 
   await detail.getByLabel("コメント").fill("人からのコメント");
   await detail.getByRole("button", { name: "コメントを追加" }).click();
   await expect(detail.getByText("comment", { exact: true })).toBeVisible();
+  await detail.getByLabel("アップロード").setInputFiles({
+    name: "issue-log.txt",
+    mimeType: "text/plain",
+    buffer: Buffer.from("issue attachment"),
+  });
+  const attachment = detail.getByRole("link", { name: /ダウンロード/ });
+  await expect(attachment).toBeVisible();
+  const attachmentResponse = await request.get(await attachment.getAttribute("href"));
+  expect(attachmentResponse.ok()).toBeTruthy();
+  expect(await attachmentResponse.text()).toBe("issue attachment");
   const token = fixture.token;
   const current = await get(request, "issues.get", { issueId: issue.id });
   const mcp = await request.post(`/mcp/${workspace}`, {
@@ -120,6 +130,17 @@ test("project, issue, MCP agent attribution, wiki conflict and activity", async 
     .locator("section.panel")
     .filter({ has: page.getByRole("heading", { name: "ホーム" }) });
   await expect(wiki.getByText("最初の版")).toBeVisible();
+  await wiki.getByLabel("アップロード").setInputFiles({
+    name: "wiki.patch",
+    mimeType: "text/plain",
+    buffer: Buffer.from("wiki patch"),
+  });
+  const wikiAttachment = wiki.getByRole("link", { name: /ダウンロード/ });
+  await expect(wikiAttachment).toBeVisible();
+  expect(await (await request.get(await wikiAttachment.getAttribute("href"))).text()).toBe(
+    "wiki patch",
+  );
+
   await expect(wiki.locator("img")).toHaveAttribute("src", "x");
   expect(await wiki.locator("img").getAttribute("onerror")).toBeNull();
   await expect(wiki.locator(".markdown script, .markdown svg")).toHaveCount(0);
