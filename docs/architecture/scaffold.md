@@ -90,8 +90,9 @@ admission-time authorization still belong to later business modules.
   health, unknown business route and the placeholder page. REST/MCP business parity,
   recovery scenarios and browser tests are deferred to their respective module MRs;
   no no-op test command pretends those tests passed. No Playwright is installed.
-- Cloudflare smoke and deploy jobs use `when: never`; their commands explicitly
-  fail if invoked. Production readiness requires approved resources and real smoke.
+- The main-only Cloudflare verification job and its Miniflare path are described in
+  [Cloudflare smoke](cloudflare-smoke.md). Deploy remains disabled. Production
+  readiness still requires real smoke on protected main.
   The build artifact is marked non-deployable and includes commit/file/catalog
   hashes. The old GitHub release/docs/deploy automation and bootstrap were deleted.
 - This MR is stacked on `rewrite/00-architecture` by explicit owner instruction;

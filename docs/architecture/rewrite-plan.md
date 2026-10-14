@@ -335,7 +335,7 @@ deploy:
 
 全 verify/test/build job は main と MR の両方で必須、`allow_failure` なし。初期は path filter で飛ばさず、依存 module の変更も全 contract に当てる。JUnit/coverage/browser trace は失敗時も artifact にする。artifact に `.dev.vars`、認証 cookie、token、実 payload を含めない。cache は lockfile hash と job 用途で分け、古い node_modules を正しさの根拠にしない。docker-in-docker、host socket、SSH to VM、production DB を local test に必要としない。
 
-Cloudflare smoke は専用検証用 binding だけに接続し、変数が欠ければ skip 成功せず明示失敗とする。実環境の作成・費用を承認するまでは smoke/deploy job を有効化せず、公開配備可能とは判定しない。core MR は secret-free gates でレビュー可能だが、本番切替には real-platform smoke が必要。main 専用 smoke が失敗したら deploy は実行されない。deploy は build artifact の commit SHA と checksum を照合し、再 build しない。
+Cloudflare smoke は専用検証用 binding だけに接続する。Q5 の所有者判断で main の smoke を有効化し、保護変数が欠ける間は exit 78 の warning として表示する。実 D1 の検査を通るまでは公開配備可能とは判定しない。core MR は secret-free gates でレビュー可能だが、本番切替には real-platform smoke が必要。main 専用 smoke の exit 78 以外の失敗は pipeline を失敗させる。配備には build artifact の commit SHA と checksum を照合し、再 build しない。詳細は [Cloudflare smoke](cloudflare-smoke.md)。
 
 旧 release workflow の「main merge で運用系に影響しないか」も scaffolding で点検する。旧 GitHub release/docs/deploy workflow と bootstrap を除去/停止し、旧 production binding へ scaffold を deploy しない。main への source merge と稼働環境切替は分離する。
 

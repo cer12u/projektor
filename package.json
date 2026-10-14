@@ -18,7 +18,8 @@
     "check:artifact": "node tools/artifact.mjs",
     "generate": "node tools/generate.mjs",
     "verify": "pnpm lint && pnpm typecheck && pnpm check:boundaries && pnpm test:boundary-checkers && pnpm test:modules && pnpm test:migrations && pnpm build && pnpm check:artifact && pnpm test:gateway",
-    "smoke:cloudflare": "node tools/disabled.mjs",
+    "smoke:cloudflare": "node tools/cloudflare-smoke.mjs",
+    "test:smoke": "node tools/smoke-check.mjs local",
     "deploy:artifact": "node tools/disabled.mjs",
     "test:gateway": "node --test --test-concurrency=1 --test-reporter=dot tools/gateway.test.mjs tools/gateway-oauth.test.mjs tools/gateway-oauth-rules.test.mjs"
   },
@@ -31,6 +32,7 @@
     "@modelcontextprotocol/sdk": "1.32.1",
     "esbuild": "0.28.2",
     "miniflare": "4.20260730.0",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "wrangler": "4.150.0"
   }
 }
