@@ -24,8 +24,15 @@ for (const [file, expected] of Object.entries(artifact.files)) {
 assert(Object.hasOwn(artifact.files, "smoke-worker.js"));
 
 const wrangler = path.resolve("node_modules/.bin/wrangler");
+// Run Wrangler outside the repository so it never reads the production wrangler.jsonc,
+// whose placeholder bindings are intentionally invalid.
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), "projektor-verify-"));
 const run = (...args) =>
-  execFileSync(wrangler, args, { encoding: "utf8", stdio: ["ignore", "pipe", "inherit"] });
+  execFileSync(wrangler, args, {
+    cwd: temp,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "inherit"],
+  });
 const d1Name = "projektor-verify";
 const kvName = "projektor-verify";
 const bucketName = "projektor-verify";
@@ -47,7 +54,6 @@ found = resources();
 if (!found.d1 || !found.kv || !found.r2)
   throw new Error("Verification resources were not found after provisioning");
 
-const temp = fs.mkdtempSync(path.join(os.tmpdir(), "projektor-verify-"));
 const secret = randomBytes(32).toString("hex");
 const configFile = path.join(temp, "wrangler.json");
 const secretsFile = path.join(temp, "secrets.json");
