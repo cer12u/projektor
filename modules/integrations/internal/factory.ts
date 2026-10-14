@@ -561,7 +561,7 @@ export function createIntegrations(d: Dependencies): {
                 "x-projektor-signature": await mac(secret, `${timestamp}.${body}`),
               },
               body,
-              redirect: "error",
+              redirect: "manual",
               signal: AbortSignal.timeout(10000),
             });
             ok = response.ok;

@@ -527,3 +527,15 @@ Owner review requires cross-agent client attribution for every producer and back
 Adding migrations after FTS owners invalidates SQLite’s combined-schema FTS connection. The boundary validator’s own generated SELECT probe now permits FTS’s internal `data_version` introspection for an exact registered virtual table, just as CREATE/DROP already did. User/catalog PRAGMA and all foreign-table access remain rejected. This fixes a false failure in the checker without granting any runtime/catalog SQL permission.
 
 The generated probe also handles SQLite 3.40’s FTS private-declaration callbacks; see [scaffold details](scaffold.md#11a-ci-sqlite-compatibility). Runtime/catalog schema access remains forbidden.
+
+### Step 12a audit refinements
+
+A missing/invalid Integrations key is an optional-module availability failure:
+Platform adds `unavailable` (REST 503), composition disables only Integrations,
+and scheduled work for other modules continues. The vault uses HKDF-SHA256 with
+separate inbound-HMAC and outbound-AES labels; pre-audit sources require explicit
+registration with new source IDs before use. Outbound requests use manual redirects and count all
+3xx responses as failed attempts. Composition wraps the native fetch function to
+preserve its receiver when called through the outbound port. Delivery administration joins source/webhook
+administration on REST only; none are MCP tools. DNS rebinding remains an explicit
+egress-policy limitation. No owner dependencies or storage ownership change.

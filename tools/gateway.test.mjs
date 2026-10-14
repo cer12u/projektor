@@ -8,8 +8,9 @@ import { createFetchMock, Miniflare } from "miniflare";
 import { assetsProviderContract } from "./assets-provider-contract.mjs";
 import { coordinationProviderContract } from "./coordination-provider-contract.mjs";
 import { insightsProviderContract } from "./insights-provider-contract.mjs";
+import { integrationsProviderContract } from "./integrations-provider-contract.mjs";
 
-let contractProviders;
+let contractProviders, workerOptions;
 
 let mf, platform, write, read, other, ownerAssertion, writeMachineId, unjoinedAssertion;
 const issuer = "https://unit.cloudflareaccess.com";
@@ -95,7 +96,7 @@ before(async () => {
       headers: { "content-type": "application/json" },
     })
     .persist();
-  mf = new Miniflare({
+  workerOptions = {
     modules: true,
     fetchMock,
     scriptPath: ".tmp/gateway-worker.mjs",
@@ -109,7 +110,8 @@ before(async () => {
       ACCESS_AUDIENCE: audience,
       INTEGRATIONS_KEY: "ab".repeat(32),
     },
-  });
+  };
+  mf = new Miniflare(workerOptions);
   const db = await mf.getD1Database("DB");
   await platform.migrate(db, [
     "access",
@@ -1467,10 +1469,6 @@ test("Integrations REST/MCP parity and public signed feedback intake", async () 
   assert.equal(sourceResponse.status, 200);
   const source = await sourceResponse.json();
   assert.match(source.secret, /^[0-9a-f]{64}$/);
-  assert.equal(
-    (await rpc("w1", "integrations.source.register", {}, write)).data.error?.code,
-    -32601,
-  );
   const body = JSON.stringify({ title: "Reported issue", body: "Feedback body" });
   const timestamp = Math.floor(Date.now() / 1000);
   const key = await crypto.subtle.importKey(
@@ -1514,3 +1512,209 @@ test("Integrations REST/MCP parity and public signed feedback intake", async () 
     200,
   );
 });
+
+test("Integrations administration is absent from MCP discovery and cannot be invoked", async () => {
+  const response = await mf.dispatchFetch("http://localhost/mcp/w1", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${write}`,
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+  });
+  const names = (await response.json()).result.tools.map((tool) => tool.name);
+  for (const operation of [
+    "integrations.sources",
+    "integrations.source.register",
+    "integrations.webhook.register",
+    "integrations.deliveries",
+  ]) {
+    assert(!names.includes(operation), `${operation} must not be advertised`);
+    assert.equal((await rpc("w1", operation, {}, write)).data.error?.code, -32601);
+  }
+});
+
+test("public feedback route applies its configured rate limit before signature verification", async () => {
+  let limited = false;
+  // A loop may cross one fixed-window boundary; twice the quota still observes rejection.
+  for (let n = 0; n < 2 * 60 + 1; n++) {
+    const response = await mf.dispatchFetch(
+      "http://localhost/integrations/feedback/w1/limited-source",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-projektor-delivery-id": "limited-delivery",
+          "x-projektor-timestamp": String(Math.floor(Date.now() / 1000)),
+          "x-projektor-signature": "00".repeat(32),
+        },
+        body: "{}",
+      },
+    );
+    const data = await response.json();
+    if (data.message === "Rate limited") {
+      assert.equal(response.status, 403);
+      assert.equal(data.code, "forbidden");
+      limited = true;
+      break;
+    }
+    assert.equal(data.code, "not_found");
+  }
+  assert(limited, "public intake must consult FEEDBACK_LIMIT");
+});
+
+test("Worker scheduled delivers a pending webhook once and persists delivered status", async () => {
+  const sourceId = "scheduled-webhook-source";
+  for (const [operation, input] of [
+    [
+      "integrations.source.register",
+      { operationId: "scheduled-source", sourceId, projectId: "p1", name: "Scheduled source" },
+    ],
+    [
+      "integrations.webhook.register",
+      {
+        operationId: "scheduled-webhook",
+        sourceId,
+        url: "https://scheduled.example.test/hook",
+        eventTypes: ["IssueChanged"],
+      },
+    ],
+  ]) {
+    const response = await mf.dispatchFetch(endpoint("w1", operation), {
+      method: "POST",
+      headers: { "cf-access-jwt-assertion": ownerAssertion, "content-type": "application/json" },
+      body: JSON.stringify(input),
+    });
+    assert.equal(response.status, 200, await response.text());
+  }
+  const body = JSON.stringify({ issueId: "scheduled-issue" });
+  let sent = 0;
+  workerOptions.fetchMock
+    .get("https://scheduled.example.test")
+    .intercept({ path: "/hook", method: "POST" })
+    .reply(200, () => {
+      sent++;
+      return "ok";
+    })
+    .persist();
+  const db = await mf.getD1Database("DB");
+  // Delivery enqueue is a module command, not a Gateway administration operation.
+  await db
+    .prepare(
+      "INSERT INTO integrations_deliveries(workspace_id,id,source_id,external_id,event_type,body,status,attempts,next_attempt_at) VALUES(?,?,?,?,?,?,'pending',0,0)",
+    )
+    .bind("w1", "scheduled-delivery", sourceId, "scheduled-event", "IssueChanged", body)
+    .run();
+  const state = () =>
+    db
+      .prepare("SELECT status,attempts FROM integrations_deliveries WHERE workspace_id=? AND id=?")
+      .bind("w1", "scheduled-delivery")
+      .first();
+  const worker = await mf.getWorker();
+  await worker.scheduled();
+  assert.equal(
+    sent,
+    1,
+    `Worker scheduled handler must invoke Integrations drain: ${JSON.stringify(await state())}`,
+  );
+  assert.deepEqual(await state(), { status: "delivered", attempts: 1 });
+  await worker.scheduled();
+  assert.equal(sent, 1, "delivered webhooks must not be sent again");
+  assert.deepEqual(await state(), { status: "delivered", attempts: 1 });
+});
+
+test("real Access Projects Issues Wiki satisfy Integrations provider contract", async () => {
+  const f = contractProviders;
+  const wiki = platform.createWiki({
+    store: platform.createModuleStore(await mf.getD1Database("DB"), "wiki"),
+    projects: f.projects,
+    clock: { now: () => Math.floor(Date.now() / 1000) },
+    ids: platform.randomIds,
+  }).api;
+  const issueId = "integrations-contract-issue",
+    pageId = "integrations-contract-page";
+  await f.issues.createIssue(f.editor, {
+    operationId: issueId,
+    issueId,
+    projectId: f.projectId,
+    title: "Integrations contract",
+    description: "",
+    priority: "medium",
+  });
+  await wiki.createPage(f.editor, {
+    operationId: pageId,
+    pageId,
+    projectId: f.projectId,
+    slug: "integrations-contract",
+    title: "Integrations contract",
+    body: "",
+  });
+  await integrationsProviderContract({ ...f, wiki, issueId, pageId });
+});
+
+// setOptions invalidates DB/KV stubs held by the provider fixtures above.
+// Run configuration-reload cases after every test that uses those fixtures.
+for (const [label, key] of [
+  ["missing", undefined],
+  ["invalid", "not-a-valid-server-secret"],
+]) {
+  test(`Worker keeps other modules and scheduled consumers available with ${label} Integrations key`, async () => {
+    const bindings = { ...workerOptions.bindings };
+    if (key === undefined) delete bindings.INTEGRATIONS_KEY;
+    else bindings.INTEGRATIONS_KEY = key;
+    await mf.setOptions({ ...workerOptions, bindings });
+    try {
+      assert.equal((await mf.dispatchFetch("http://localhost/health")).status, 200);
+      const issueId = `key-${label}-issue`;
+      const created = await req(
+        "w1",
+        "issues.create",
+        {
+          operationId: issueId,
+          issueId,
+          projectId: "p1",
+          title: "Available without integrations",
+          description: "",
+          priority: "medium",
+        },
+        write,
+      );
+      assert.equal(created.status, 200, JSON.stringify(created.data));
+      assert.equal((await req("w1", "issues.get", { issueId }, read)).status, 200);
+      for (const operation of [
+        "integrations.feedback",
+        "integrations.sources",
+        "integrations.deliveries",
+      ]) {
+        const response = await req("w1", operation, {}, read);
+        assert.equal(response.status, 503);
+        assert.equal(response.data.code, "unavailable");
+        assert.match(response.data.message, /Integrations unavailable/);
+        assert(!JSON.stringify(response.data).includes("not-a-valid-server-secret"));
+      }
+      const tool = mcpResult(await rpc("w1", "integrations.feedback", {}, read));
+      assert.equal(tool.code, "unavailable");
+      assert.match(tool.message, /Integrations unavailable/);
+      const feedback = await mf.dispatchFetch(
+        "http://localhost/integrations/feedback/w1/disabled",
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        },
+      );
+      assert.equal(feedback.status, 503);
+      assert.equal((await feedback.json()).code, "unavailable");
+      await (await mf.getWorker()).scheduled();
+      const db = await mf.getD1Database("DB");
+      const activity = await db
+        .prepare("SELECT entity_id FROM insights_activity WHERE workspace_id=? AND entity_id=?")
+        .bind("w1", issueId)
+        .all();
+      assert.equal(activity.results.length, 1, "scheduled Insights consumer must still run");
+    } finally {
+      await mf.setOptions(workerOptions);
+    }
+  });
+}

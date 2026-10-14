@@ -35,7 +35,13 @@ export interface ScopedBucket {
   put(key: string, value: ArrayBuffer): Promise<void>;
   delete(key: string): Promise<void>;
 }
-export type ErrorCode = "validation" | "not_found" | "forbidden" | "conflict" | "unknown";
+export type ErrorCode =
+  | "validation"
+  | "not_found"
+  | "forbidden"
+  | "conflict"
+  | "unavailable"
+  | "unknown";
 export class PlatformError extends Error {
   constructor(
     readonly code: ErrorCode,

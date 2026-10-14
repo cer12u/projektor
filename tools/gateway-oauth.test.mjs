@@ -646,7 +646,7 @@ test("metadata aliases, duplicate/oversize/unsupported forms, CORS and bounded e
   assert.equal(preflight.status, 204);
   assert.equal(preflight.headers.get("access-control-allow-origin"), "*");
   let registrationLimited = false;
-  for (let n = 0; n < 11; n++) {
+  for (let n = 0; n < 2 * 10 + 1; n++) {
     const r = await fetcher(`${origin}/oauth/register`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -660,10 +660,11 @@ test("metadata aliases, duplicate/oversize/unsupported forms, CORS and bounded e
   }
   assert(registrationLimited);
   let tokenLimited = false;
-  for (let n = 0; n < 11; n++) {
+  for (let n = 0; n < 2 * 10 + 1; n++) {
     const r = await post("/oauth/token", { grant_type: "password" });
     if (r.status === 429) {
       tokenLimited = true;
+      assert(r.headers.get("retry-after"));
       break;
     }
   }

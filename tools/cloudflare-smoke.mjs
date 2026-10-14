@@ -73,6 +73,8 @@ fs.writeFileSync(
     kv_namespaces: [{ binding: "KV", id: found.kv }],
     r2_buckets: [{ binding: "R2", bucket_name: bucketName }],
     ratelimits: [
+      { name: "OAUTH_REGISTER_LIMIT", namespace_id: "1001", simple: { limit: 10, period: 60 } },
+      { name: "OAUTH_TOKEN_LIMIT", namespace_id: "1002", simple: { limit: 60, period: 60 } },
       { name: "FEEDBACK_LIMIT", namespace_id: "1003", simple: { limit: 60, period: 60 } },
     ],
   }),

@@ -135,10 +135,26 @@ export function createSecretVault(key: string): import("./public").SecretVault {
   const encoder = new TextEncoder();
   const b64 = (v: Uint8Array) => btoa(String.fromCharCode(...v));
   const un64 = (v: string) => Uint8Array.from(atob(v), (x) => x.charCodeAt(0));
-  const hmac = crypto.subtle.importKey("raw", bytes, { name: "HMAC", hash: "SHA-256" }, false, [
-    "sign",
-  ]);
-  const aes = crypto.subtle.importKey("raw", bytes, "AES-GCM", false, ["encrypt", "decrypt"]);
+  const master = crypto.subtle.importKey("raw", bytes, "HKDF", false, ["deriveKey"]);
+  const derive = async (
+    purpose: string,
+    algorithm: Parameters<SubtleCrypto["deriveKey"]>[2],
+    usages: Parameters<SubtleCrypto["deriveKey"]>[4],
+  ) =>
+    crypto.subtle.deriveKey(
+      {
+        name: "HKDF",
+        hash: "SHA-256",
+        salt: encoder.encode("projektor:integrations:v1"),
+        info: encoder.encode(purpose),
+      },
+      await master,
+      algorithm,
+      false,
+      usages,
+    );
+  const hmac = derive("inbound-hmac", { name: "HMAC", hash: "SHA-256", length: 256 }, ["sign"]);
+  const aes = derive("outbound-aes-gcm", { name: "AES-GCM", length: 256 }, ["encrypt", "decrypt"]);
   return Object.freeze({
     async inboundSecret(label: string): Promise<string> {
       const signature = await crypto.subtle.sign(

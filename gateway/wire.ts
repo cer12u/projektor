@@ -68,6 +68,9 @@ export function openApi() {
           "403": { description: "Forbidden" },
           "404": { description: "Not found" },
           "409": { description: "Conflict" },
+          ...(owner === "integrations"
+            ? { "503": { description: "Integrations unavailable" } }
+            : {}),
         },
       },
     };
@@ -132,6 +135,7 @@ export function openApi() {
       responses: {
         "200": { description: "Accepted or deduplicated" },
         "403": { description: "Invalid signature or stale timestamp" },
+        "503": { description: "Integrations unavailable" },
       },
     },
   };

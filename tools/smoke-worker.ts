@@ -1,6 +1,6 @@
 /** Verification-only entry point. Built once with the production catalogs. */
 import gateway, { type Env as GatewayEnv } from "../apps/worker/index";
-import { createModuleStore } from "../platform/adapters";
+import { createModuleStore, createSecretVault } from "../platform/adapters";
 import { migrate } from "../platform/migrate";
 
 interface Env extends GatewayEnv {
@@ -18,12 +18,21 @@ const reply = (value: unknown, status = 200) =>
 const validId = (value: unknown): value is string =>
   typeof value === "string" && /^smoke_[a-z0-9_]{8,80}$/.test(value);
 
-async function bootstrap(db: D1Database, value: unknown): Promise<void> {
+async function bootstrap(env: Env, value: unknown): Promise<string> {
   if (!value || typeof value !== "object") throw new Error("Invalid bootstrap body");
   const { workspaceId, secret } = value as Record<string, unknown>;
   if (!validId(workspaceId) || typeof secret !== "string" || !/^[0-9a-f]{64}$/.test(secret))
     throw new Error("Invalid smoke workspace or secret");
   const principalId = `bot_${workspaceId}`;
+  const db = env.DB;
+  // Verification-only seed: machine credentials must never gain source administration.
+  const feedbackSecret = await createSecretVault(env.INTEGRATIONS_KEY ?? "").inboundSecret(
+    `${workspaceId}:smoke`,
+  );
+  const feedbackHash = Array.from(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(feedbackSecret))),
+    (byte) => byte.toString(16).padStart(2, "0"),
+  ).join("");
   const tokenHash = Array.from(
     new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret))),
     (byte) => byte.toString(16).padStart(2, "0"),
@@ -55,7 +64,13 @@ async function bootstrap(db: D1Database, value: unknown): Promise<void> {
         "INSERT INTO projects_grants(workspace_id,project_id,principal_id,role,active) VALUES(?,'smoke',?,'editor',1)",
       )
       .bind(workspaceId, principalId),
+    db
+      .prepare(
+        "INSERT INTO integrations_sources(workspace_id,id,project_id,name,secret_hash,webhook_events) VALUES(?,'smoke','smoke','Smoke',?,'[]')",
+      )
+      .bind(workspaceId, feedbackHash),
   ]);
+  return feedbackSecret;
 }
 
 async function probes(env: Env, workspaceId: string) {
@@ -123,8 +138,8 @@ export default {
       }
       const body: unknown = await request.json();
       if (path === "/__smoke/bootstrap") {
-        await bootstrap(env.DB, body);
-        return reply({ bootstrapped: true });
+        const feedbackSecret = await bootstrap(env, body);
+        return reply({ bootstrapped: true, feedbackSecret });
       }
       if (path === "/__smoke/probes") {
         const workspaceId = (body as { workspaceId?: unknown })?.workspaceId;

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomBytes } from "node:crypto";
+import { createHmac, randomBytes } from "node:crypto";
 import { Miniflare } from "miniflare";
 
 export async function checkSmoke(send, origin, smokeSecret) {
@@ -12,9 +12,9 @@ export async function checkSmoke(send, origin, smokeSecret) {
       headers: { ...headers, ...(value ? { "content-type": "application/json" } : {}) },
       ...(value ? { body: JSON.stringify(value) } : {}),
     });
-    const data = await response.json();
-    if (!response.ok) throw new Error(`${path}: HTTP ${response.status}: ${JSON.stringify(data)}`);
-    return data;
+    // Remote error bodies can contain credentials. Keep diagnostics to path/status.
+    if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
+    return response.json();
   };
   const smoke = (path, value = {}) =>
     request(`/__smoke/${path}`, "POST", value, { "x-smoke-secret": smokeSecret });
@@ -30,7 +30,27 @@ export async function checkSmoke(send, origin, smokeSecret) {
   const second = await smoke("migrate");
   assert.equal(second.migrations, first.migrations, "migration ledger changed on retry");
   assert(first.migrations > 0);
-  await smoke("bootstrap", { workspaceId, secret: credentialSecret });
+  const { feedbackSecret } = await smoke("bootstrap", { workspaceId, secret: credentialSecret });
+  assert.equal(typeof feedbackSecret === "string" && /^[0-9a-f]{64}$/.test(feedbackSecret), true);
+  const feedback = { title: "Smoke feedback", body: "Signed public feedback" };
+  const timestamp = Math.floor(Date.now() / 1000);
+  const deliveryId = "smoke_delivery";
+  const signature = createHmac("sha256", feedbackSecret)
+    .update(`${timestamp}.${deliveryId}.${JSON.stringify(feedback)}`)
+    .digest("hex");
+  const receive = () =>
+    request(`/integrations/feedback/${workspaceId}/smoke`, "POST", feedback, {
+      "x-projektor-timestamp": String(timestamp),
+      "x-projektor-delivery-id": deliveryId,
+      "x-projektor-signature": signature,
+    });
+  const accepted = await receive();
+  assert.equal(typeof accepted.id, "string");
+  assert.deepEqual(await receive(), accepted, "feedback retry was not deduplicated");
+  const inbox = await api("integrations.feedback", {}, "GET");
+  assert.equal(inbox.items.length, 1, "feedback retry created a second row");
+  assert.equal(inbox.items[0].id, accepted.id);
+  assert.equal(inbox.items[0].title, feedback.title);
   assert.deepEqual(await smoke("probes", { workspaceId }), {
     rollback: true,
     binds: 100,

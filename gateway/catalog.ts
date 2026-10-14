@@ -821,6 +821,7 @@ export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
   ),
 });
 export const restOnly = Object.freeze([
+  "integrations.deliveries",
   "integrations.sources",
   "integrations.source.register",
   "integrations.webhook.register",

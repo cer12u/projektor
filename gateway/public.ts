@@ -17,6 +17,7 @@ const status: Record<string, number> = {
   not_found: 404,
   forbidden: 403,
   conflict: 409,
+  unavailable: 503,
   unknown: 500,
 };
 const json = (value: unknown, code = 200, headers?: HeadersInit) =>

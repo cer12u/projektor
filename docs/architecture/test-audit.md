@@ -898,3 +898,101 @@ The healthy baseline plus seven relevant schema/FTS negative fixtures passed on
 both local SQLite 3.46.1 and container SQLite 3.40.1 (8/8 on each). Only these
 checker cases were rerun locally after the CI fix; the complete module suite was
 not repeated without a module change. The next MR pipeline verifies the full tree.
+
+## Integrations independent test audit — 12a
+
+Reviewed Step 12 against the public API, §7.1 and the owner decisions. The original
+five module tests missed correctly re-signed expired requests, noncanonical raw
+JSON, same delivery IDs across sources, viewer/foreign-tenant conversion, most
+SSRF forms, post-success delivery drains, unsubscribed events, and vault key
+separation. One negative time test changed the timestamp without recomputing its
+signature: removing the time guard still left an invalid signature, so that test
+could pass with broken time enforcement.
+
+The isolated suite uses only Integrations migrations plus Platform's ledger on
+Miniflare D1. Public Access/Projects/Issues/Wiki fakes provide authorization and
+issue creation; authorization fakes respect read/write modes and execute the
+shared provider contract against both fakes and real providers. The Issues fake
+keeps durable-operation-shaped receipts to check conversion retries.
+No dependency storage is imported into this suite.
+
+| Invariant | Executable evidence |
+|---|---|
+| Verify raw HMAC, delivery ID binding, ±300-second inclusive window, reject correctly signed ±301; one receipt per workspace/source/delivery | Original `feedback verifies…` plus `12a signatures…`, with noncanonical Japanese JSON, two sources and two workspaces |
+| Conversion calls the same Issues operation and issue ID after partial failure; viewer and foreign workspace cannot convert; retry and changed fingerprint | Original `convert retries…` and `12a conversion…`; failed Integrations commit occurs after the Issues call |
+| Source/webhook secrets only in creation responses, absent on replay, source/delivery/feedback reads, all owned storage, events/history, captured logs and signature errors | `12a source and webhook…`; ciphertext/hash permitted, plaintext and master key forbidden |
+| Independent purpose keys, deterministic inbound derivation, fresh IV, authenticated ciphertext | `12a vault…` independently derives expected HMAC/AES keys with Node HKDF; master and inbound keys cannot decrypt ciphertext |
+| IP literals (including alternate IPv4 and IPv6), localhost and internal hosts rejected; external references require HTTPS | `12a SSRF…`; HTTP, JavaScript, FTP and URL credentials rejected |
+| Subscribed events only, manual redirect mode, 301/302/307/308 fail, outbound signature valid, delivered item not resent | `12a outbound…`; original exponential retry test checks every due time and terminal fifth attempt |
+| Feedback rate limit applied before storage/signature work | `12a feedback rate…` exercises denied limiter port; Gateway test exhausts the real Worker binding |
+| Business state, receipts, guards, history and events roll back together | `12a all audited commands…` injects an invalid final event for registerSource, registerWebhook, link/unlink and conversion, compares all eight tables, then retries |
+| Missing/malformed key affects only Integrations | Worker tests exercise REST 503/MCP unavailable, public intake, real Issues writes/reads, and scheduled Insights consumption |
+| Administration absent from MCP list and invocation | Gateway test covers source list/register, webhook register and delivery status; delivery status was missing from REST-only registration and is fixed |
+| Smoke still boots and receives/deduplicates signed feedback | `tools/smoke.test.mjs` runs the smoke checker against local workerd, checks generated limiter config/secrets file and redacts remote error bodies |
+| Web rejects unsafe links, keeps rejected input, forgets creation secrets after navigation/reload, and shows one converted feedback/issue after retry | Extended headless `tools/web-e2e/integrations.spec.mjs` |
+
+`tools/integrations-audit-mutations.mjs` is the repeatable serial campaign. It
+checks a passing baseline for each regression, holds an exclusive lock, refuses
+missing/ambiguous source targets, regenerates SQL catalogs for SQL mutations,
+then restores source/catalogs in `finally`. Reports and failure-only inspection
+logs go to ignored `reports/`. No runtime checker, allowlist or expected behavior
+is weakened. A build/setup error is **invalid**, not a killed mutant.
+
+Runtime changes are limited to key availability isolation and its `unavailable`
+error contract, HKDF key separation, explicit manual redirects, a correctly
+bound Worker fetch port, and REST-only delivery administration. The smoke bootstrap is authenticated trusted tooling;
+it seeds a source hash without creating a human-auth bypass in product code.
+The OAuth fixed-window test now permits `2 × limit + 1` attempts on both endpoints
+and still requires 429 plus Retry-After. Tables, business interfaces, migrations,
+and dependency edges are unchanged.
+
+These checks establish bounded local workerd behavior, not production egress or
+real Cloudflare acceptance. DNS rebinding remains a documented limitation: host
+validation does not pin the resolved IP. Scheduled polling is hourly; due times
+are lower bounds, not a promise of 30-second wall-clock delivery. Exactly-once
+external side effects are not guaranteed after response loss or concurrent drains;
+receivers must tolerate duplicate events. Legacy pre-audit source hashes/ciphertext
+require new source IDs and webhook registration under the new key schedule before activation.
+
+### Executed Integrations mutation probes
+
+All **32 selected mutants were killed** by behavioral assertions, with passing
+unmutated regressions. These are explicit probes, not an exhaustive security
+score. The first vault-purpose probe threw a crypto error outside an assertion;
+that run was classified invalid. The expected independent-key decryption was
+then wrapped in `assert.doesNotReject`, and the rerun failed that assertion.
+
+| Changed behavior | Probes killed |
+|---|---:|
+| Bypass HMAC, canonicalize raw JSON, remove time window, hard-code signed delivery ID, remove source/workspace dedup predicates, replace duplicate feedback row with a new ID | 7 |
+| Randomize conversion operation ID, return a successful conversion for viewer before admission, remove feedback workspace predicate | 3 |
+| Re-return inbound/outbound secrets on retry, leak secret into event/history/log/error | 6 |
+| Derive outbound AES with the inbound HMAC purpose label | 1 |
+| Accept IPv4/IPv6/localhost/internal hosts, follow redirects, classify 3xx as success | 6 |
+| Increase attempt ceiling, select delivered items again, ignore subscribed event types | 3 |
+| Remove HTTPS protocol restriction or feedback limiter | 2 |
+| Expose each of the four administration operations over MCP | 4 |
+
+The expanded module suite passes 15 tests (five original, ten added). Both
+isolated dependency fakes and real Access/Projects/Issues/Wiki execute the shared
+`integrationsProviderContract`, including Issues same-input replay, changed-input
+conflict and viewer rejection. The independent Worker scheduled test registers a
+real source/webhook, seeds only a pending owned delivery fixture, invokes the
+scheduled handler, observes one outbound POST and durable delivered/attempt=1,
+then invokes the handler again to check no resend.
+
+The scheduled Worker test found an additional runtime defect: injecting bare
+`fetch` and later invoking it as `d.send(...)` changes its receiver. Workerd threw
+`TypeError: Illegal invocation: function called with incorrect this reference`,
+which the retry catch hid; every delivery remained pending until exhaustion.
+Composition now injects `(url, init) => fetch(url, init)`. The original wiring
+failed the send-count assertion, the wrapper passed, and a temporary diagnostic
+confirmed the exact exception before it was removed. No diagnostic logging or
+secret-bearing error output is retained in runtime code.
+
+Final local verification: all 217 module tests passed, as did boundaries and their
+negative fixtures, typecheck, migration checks, build/artifact validation, Gateway,
+Web unit and local smoke checks. The focused headless Integrations spec passed.
+The full Gateway run caught Miniflare stub invalidation after configuration reload;
+reload tests now run after shared-provider fixtures, with the unchanged behavior
+assertions passing in a full Gateway-file rerun.
