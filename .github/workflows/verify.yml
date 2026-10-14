@@ -8,7 +8,7 @@ permissions:
   contents: read
 concurrency:
   group: verify-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -23,3 +23,37 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm verify
+      - uses: actions/upload-artifact@v4
+        with:
+          name: worker-${{ github.sha }}
+          path: dist/
+          retention-days: 3
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.CF_PRODUCTION_READY == 'true'
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: cloudflare-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.1
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: worker-${{ github.sha }}
+          path: dist/
+      - run: node tools/github-deploy.mjs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CF_DEPLOY_CONFIG: ${{ vars.CF_DEPLOY_CONFIG }}
+          CF_PRESERVED_D1_IDS: ${{ vars.CF_PRESERVED_D1_IDS }}
+          CF_PRODUCTION_READY: ${{ vars.CF_PRODUCTION_READY }}

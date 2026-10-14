@@ -1,28 +1,31 @@
-# GitHub main to Workers Builds
+# GitHub main to Cloudflare
 
-Use native Workers Builds. GitHub Actions runs verification only and holds no Cloudflare credential. After initial production setup, connect the existing Worker under Settings → Builds, select only this repository in the Cloudflare GitHub App, branch main, root `/`, and disable preview branches.
+GitHub Actions runs verification and, once initial setup is approved, deploys the same checksum-verified artifact on main pushes. Deployment is serialized and is disabled while repository variable `CF_PRODUCTION_READY` is absent or not `true`. Pull requests and manual verification runs never deploy. The workflow has `contents: read` and uses the `production` GitHub environment.
 
-- Build: `CI_COMMIT_SHA=$WORKERS_CI_COMMIT_SHA pnpm verify`
-- Deploy: `node tools/github-deploy.mjs`
-- Node: `22.22.1`; pnpm: `10.18.0`.
+Actions is preferred here because no existing Workers Builds trigger is present and the official Cloudflare GitHub App requests administration, contents, checks, deployments and pull requests write permissions. Actions requires only an approved Cloudflare deployment token saved in the production environment secret. No GitHub App grant is needed. Workers Builds remains an alternative if its App is already authorized or its broader repository access is explicitly approved.
 
-Connecting the GitHub App and selecting/creating a persistent deployment token require owner approval. Never transfer CLI/OAuth credentials into CI. Prefer Editor scoped to the existing Worker, plus D1 Read, Workers KV Storage Read and Workers R2 Storage Read for preflight. Legacy tokens use account-scoped Workers Scripts Edit instead of per-Worker Editor; verify current dashboard requirements before creation. This path needs no storage writes, Access edit or zone edit. Avoid the default token if its privileges exceed approval.
+## Persistent access approval
+
+Approve a deployment token preferably with Editor scoped to the existing Worker, plus D1 Read, Workers KV Storage Read and Workers R2 Storage Read for preflight. Legacy tokens use account-scoped Workers Scripts Edit instead of per-Worker Editor. No storage write, Access edit or zone edit is needed by this code-only path. Confirm current dashboard permission requirements before creation. The token allows persistent deployment and preflight reads, and is saved through secure owner input as `CLOUDFLARE_API_TOKEN` in the GitHub `production` environment. Never transfer an interactive CLI/OAuth token into CI.
 
 ## Initial setup
 
-Preserve all existing databases. Create a separate approved D1, KV and R2; initialize only the new D1 using reviewed `dist/migrations.json` and the platform migration ledger. Builds never provision resources or run migrations. Approve necessary Access path configuration from `operations.md` separately. Provision Worker secrets `INTEGRATIONS_KEY` and `OAUTH_FORM_SECRET` through secure owner input, never build variables. Initial deployment and login/MCP OAuth validation are separate operator actions. Automatic preflight intentionally rejects the old runtime or an uninitialized schema.
+Preserve every existing database. Create a separate approved D1, KV and R2; initialize only the new D1 using reviewed `dist/migrations.json` and the platform migration ledger. Builds never provision resources or migrate. Approve necessary Access path configuration from `operations.md` separately. Provision Worker secrets `INTEGRATIONS_KEY` and `OAUTH_FORM_SECRET` through secure owner input, never GitHub/build variables. Initial deployment and login/MCP OAuth validation are separate operator actions. Automatic preflight intentionally rejects the old runtime or an uninitialized schema.
 
-Build variables:
+Set production environment variables:
 
-- `CF_PRODUCTION_READY=true`, after initial setup approval and verification.
 - `CF_PRESERVED_D1_IDS`: comma-separated IDs of all preserved databases.
 - `CF_DEPLOY_CONFIG`: JSON with exactly `worker`, `d1Id`, `d1Name`, `kvId`, `r2Name`, `origin` (HTTPS origin with trailing slash), `accessTeamDomain`, `accessAudience`, `rateIds` (three distinct decimal strings).
-- `CLOUDFLARE_ACCOUNT_ID`: approved account; Workers Builds supplies its approved token.
+- `CLOUDFLARE_ACCOUNT_ID`: approved account.
 
-Installation values stay outside source. Worker name must match committed Wrangler name. Rate namespaces must not conflict with other applications.
+After initial approval and validation, set repository variable `CF_PRODUCTION_READY=true`. Installation values stay outside source. Worker name must match committed Wrangler name. Rate namespaces must not conflict with other applications.
 
-Run `node tools/github-deploy.mjs --check` in the authorized build environment before enabling the trigger. It checks commit, exact migration ledger, Worker secret names, KV/R2 existence, public endpoint responses and Wrangler dry-run. This performs read operations and a local dry-run only. Build verification separately checks artifact checksums. Missing settings, preserved DB IDs or schema differences block before upload.
+Run `node tools/github-deploy.mjs --check` in the authorized deployment environment before enabling main deployments. It checks commit/checksums, exact migration ledger, Worker secret names, KV/R2 existence, public endpoint responses and Wrangler dry-run. This performs read operations and a local dry-run only. Missing settings, preserved DB IDs or schema differences block before upload.
 
-Main pushes verify then upload only code/assets with explicit existing bindings. No provisioning, migration, deletion, secret upload or Access change occurs. Schema changes block until an operator separately reviews/applies migrations to the approved new database. Inspect build/health results; rollback is an explicit operator action. Builds itself runs verification and does not rely on Actions completion.
+Main pushes verify then upload only code/assets with explicit existing bindings. No provisioning, migration, deletion, secret upload or Access change occurs. Schema changes block until an operator separately reviews/applies migrations to the approved new database. Inspect build/health results; rollback is an explicit operator action. Initial deploy token/secret provisioning and the first production cutover are not performed by this PR.
 
-Official references: https://developers.cloudflare.com/workers/ci-cd/builds/ and https://developers.cloudflare.com/workers/ci-cd/builds/configuration/ .
+## Workers Builds alternative
+
+If explicitly selected: main only, root `/`, no preview branches, Node `22.22.1`, pnpm `10.18.0`; build command `CI_COMMIT_SHA=$WORKERS_CI_COMMIT_SHA pnpm verify`; deploy command `node tools/github-deploy.mjs`. Supply the same installation variables and approved deployment token to Builds. Do not enable both pipelines.
+
+Official references: https://developers.cloudflare.com/workers/ci-cd/builds/ ; https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/ ; https://github.com/apps/cloudflare-workers-and-pages .
