@@ -19,7 +19,17 @@ export function openApi() {
     const properties = Object.fromEntries(
       fields.map(([field, kind]) => [
         field,
-        { type: kind.includes("Number") || kind === "number" ? "integer" : "string" },
+        {
+          type:
+            kind === "stringArray"
+              ? "array"
+              : kind === "optionalBoolean"
+                ? "boolean"
+                : kind.includes("Number") || kind === "number"
+                  ? "integer"
+                  : "string",
+          ...(kind === "stringArray" ? { items: { type: "string" } } : {}),
+        },
       ]),
     );
     const required = fields

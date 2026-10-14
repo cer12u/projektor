@@ -100,7 +100,7 @@ before(async () => {
     bindings: { ACCESS_TEAM_DOMAIN: issuer, ACCESS_AUDIENCE: audience },
   });
   const db = await mf.getD1Database("DB");
-  await platform.migrate(db, ["access", "projects", "issues", "wiki"]);
+  await platform.migrate(db, ["access", "projects", "issues", "wiki", "coordination"]);
   const clock = { now: () => Math.floor(Date.now() / 1000) };
   const created = platform.createAccess({
     store: platform.createModuleStore(db, "access"),
@@ -387,4 +387,136 @@ test("transport limits, request IDs and generated descriptions", async () => {
     write,
   );
   assert.equal(mismatchBody.status, 400);
+});
+
+test("two MCP SDK agents contend for issue and exact file claims", async () => {
+  const created = await req(
+    "w1",
+    "issues.create",
+    {
+      operationId: "coord-issue",
+      issueId: "coord-i",
+      projectId: "p1",
+      title: "Shared work",
+      description: "",
+      priority: "medium",
+    },
+    write,
+  );
+  assert.equal(created.status, 200, JSON.stringify(created.data));
+  const clients = await Promise.all(
+    ["agent-a", "agent-b"].map(async (name) => {
+      const client = new Client({ name, version: "1.0.0" });
+      const transport = new StreamableHTTPClientTransport(new URL("http://localhost/mcp/w1"), {
+        requestInit: { headers: { authorization: `Bearer ${write}` } },
+        fetch: (input, init) =>
+          mf.dispatchFetch(typeof input === "string" ? input : input.toString(), init),
+      });
+      await client.connect(transport);
+      return client;
+    }),
+  );
+  const call = async (client, name, args) => {
+    const out = await client.callTool({ name, arguments: args });
+    return { error: out.isError === true, data: JSON.parse(out.content[0].text) };
+  };
+  try {
+    const tools = await clients[0].listTools();
+    assert.match(
+      tools.tools.find((t) => t.name === "coordination.acquire").description,
+      /start session.*acquire issue lease.*claim exact repo paths/i,
+    );
+    for (let i = 0; i < 2; i++)
+      assert.equal(
+        (
+          await call(clients[i], "coordination.start", {
+            operationId: `sdk-start-${i}`,
+            sessionId: `sdk-${i}`,
+            agentLabel: `agent-${i}`,
+            clientKind: i === 0 ? "codex" : "claude-code",
+            repo: "repo",
+          })
+        ).error,
+        false,
+      );
+    const results = await Promise.all(
+      clients.map((c, i) =>
+        call(c, "coordination.acquire", {
+          operationId: `sdk-acq-${i}`,
+          sessionId: `sdk-${i}`,
+          issueId: "coord-i",
+        }),
+      ),
+    );
+    assert.equal(results.filter((x) => !x.error).length, 1, JSON.stringify(results));
+    const winner = results[0].error ? 1 : 0,
+      loser = 1 - winner,
+      token = results[winner].data.fencingToken;
+    assert.equal(
+      (
+        await call(clients[winner], "coordination.claim", {
+          operationId: "sdk-claim",
+          sessionId: `sdk-${winner}`,
+          repo: "repo",
+          paths: ["src/a.ts", "src/b.ts"],
+          leaseIssueId: "coord-i",
+          fencingToken: token,
+        })
+      ).error,
+      false,
+    );
+    const denied = await call(clients[loser], "coordination.claim", {
+      operationId: "sdk-denied",
+      sessionId: `sdk-${loser}`,
+      repo: "repo",
+      paths: ["src/c.ts", "src/a.ts"],
+    });
+    assert.equal(denied.error, true);
+    assert.equal(denied.data.code, "conflict");
+    const progress = await call(clients[winner], "coordination.report", {
+      operationId: "sdk-progress",
+      sessionId: `sdk-${winner}`,
+      issueId: "coord-i",
+      fencingToken: token,
+      text: "Working",
+      status: "in_progress",
+    });
+    assert.equal(progress.error, false, JSON.stringify(progress));
+    assert.equal(
+      (await req("w1", "coordination.getProgress", { issueId: "coord-i" }, write)).data.text,
+      "Working",
+    );
+    assert.equal((await req("w1", "issues.get", { issueId: "coord-i" }, write)).data.state, "todo");
+    const events = await req("w1", "coordination.readEvents", { cursor: 0 }, write);
+    assert.equal(events.status, 200);
+    assert(events.data.some((event) => event.type === "ProgressReported"));
+    assert.deepEqual(
+      (await call(clients[winner], "coordination.readEvents", { cursor: 0 })).data,
+      events.data,
+    );
+    assert.equal(
+      (
+        await call(clients[winner], "coordination.releaseFiles", {
+          operationId: "sdk-release-files",
+          sessionId: `sdk-${winner}`,
+          repo: "repo",
+          paths: ["src/a.ts", "src/b.ts"],
+        })
+      ).error,
+      false,
+    );
+    assert.equal(
+      (
+        await call(clients[winner], "coordination.release", {
+          operationId: "sdk-release",
+          sessionId: `sdk-${winner}`,
+          issueId: "coord-i",
+          fencingToken: token,
+        })
+      ).error,
+      false,
+    );
+  } finally {
+    await Promise.all(clients.map((c) => c.close()));
+  }
 });

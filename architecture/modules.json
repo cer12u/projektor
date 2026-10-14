@@ -6,7 +6,15 @@
       "root": "apps/worker",
       "public": "apps/worker/index.ts",
       "kind": "composition",
-      "dependencies": ["gateway", "platform", "access", "projects", "issues", "wiki"],
+      "dependencies": [
+        "gateway",
+        "platform",
+        "access",
+        "projects",
+        "issues",
+        "wiki",
+        "coordination"
+      ],
       "external": []
     },
     {
@@ -22,7 +30,7 @@
       "root": "gateway",
       "public": "gateway/public.ts",
       "kind": "gateway",
-      "dependencies": ["platform", "access", "projects", "issues", "wiki"],
+      "dependencies": ["platform", "access", "projects", "issues", "wiki", "coordination"],
       "external": []
     },
     {
@@ -209,6 +217,34 @@
       }
     },
     {
+      "id": "coordination",
+      "root": "modules/coordination",
+      "public": "modules/coordination/public.ts",
+      "factory": "modules/coordination/internal/factory.ts",
+      "kind": "module",
+      "dependencies": ["platform", "issues", "projects", "access"],
+      "external": [],
+      "storage": {
+        "prefix": "coord_",
+        "tables": [
+          "coord_sessions",
+          "coord_leases",
+          "coord_file_claims",
+          "coord_reports",
+          "coord_limits",
+          "coord_receipts",
+          "coord_events",
+          "coord_guards"
+        ],
+        "objects": [],
+        "globalTables": [],
+        "catalog": "modules/coordination/storage/queries.ts",
+        "migrations": "modules/coordination/storage/migrations",
+        "kvPrefix": null,
+        "r2Prefix": null
+      }
+    },
+    {
       "id": "tools",
       "root": "tools",
       "public": null,
@@ -223,7 +259,8 @@
         "access",
         "projects",
         "issues",
-        "wiki"
+        "wiki",
+        "coordination"
       ],
       "external": ["node:*", "typescript", "esbuild", "miniflare", "@modelcontextprotocol/sdk"]
     }

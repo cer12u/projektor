@@ -22,6 +22,7 @@ args.push(
   "tools/projects.test.mjs",
   "tools/issues.test.mjs",
   "tools/wiki.test.mjs",
+  "tools/coordination.test.mjs",
 );
 const result = spawnSync(process.execPath, args, { stdio: "inherit" });
 process.exitCode = result.status ?? 1;
