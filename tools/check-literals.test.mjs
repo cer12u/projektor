@@ -3,9 +3,9 @@ import test from "node:test";
 import { forbiddenLiterals, scan } from "./check-literals.mjs";
 
 test("environment-specific literals are reported by location only", () => {
-  assert.deepEqual(scan("a.yml", "image: registry.example.home/ci:1"), [
-    "a.yml:1: private hostname",
-  ]);
+  // Split so that this fixture does not trip the repository-wide check itself.
+  const privateHost = ["registry", "example", "home"].join(".");
+  assert.deepEqual(scan("a.yml", `image: ${privateHost}/ci:1`), ["a.yml:1: private hostname"]);
   assert.deepEqual(scan("a.ts", `account = "${"ab".repeat(16)}"`), [
     "a.ts:1: Cloudflare account/zone ID",
   ]);
