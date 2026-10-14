@@ -285,7 +285,7 @@ DB uniqueness と CAS を必須とし、単体 fake だけで並行性を合格�
 
 調査時、main に `.gitlab-ci.yml` はなく `.github/workflows/ci.yml` がある。GitLab project 286 の API は `ci_config_path=null`, `shared_runners_enabled=true`, `only_allow_merge_if_pipeline_succeeds=false`。main は Maintainer push/merge の保護。**「CI が失敗する」と「失敗 MR を merge できない」は別**で、Phase 1 の受入には pipeline 必須設定の有効化も含める。本 phase では設定変更しない。
 
-Phase 0 の初回 push 後、`auto_devops_enabled=true`, `auto_devops_deploy_strategy=continuous` も確認した。[pipeline 14036](https://gitlabce.vp25.home/astra/projektor/-/pipelines/14036) には汎用 build/test/code_quality/SAST/container_scanning/secret_detection が作られた。したがって「YAML がないので CI は起動しない」とは扱わない。この Auto DevOps pipeline は本設計の gate ではなく、Phase 1 で明示 YAML に置き換え、意図しない自動配備がないことも確認する。
+Phase 0 の初回 push 後、`auto_devops_enabled=true`, `auto_devops_deploy_strategy=continuous` も確認した。pipeline 14036 には汎用 build/test/code_quality/SAST/container_scanning/secret_detection が作られた。したがって「YAML がないので CI は起動しない」とは扱わない。この Auto DevOps pipeline は本設計の gate ではなく、Phase 1 で明示 YAML に置き換え、意図しない自動配備がないことも確認する。
 
 runner は docker-based shared runner。MR/feature branch では Cloudflare token、deploy ID、private registry secret 等の project CI/CD variables が一切ない前提とする。これは本環境の条件であり、GitLab の全構成の一般則ではない。[GitLab MR pipeline](https://docs.gitlab.com/ci/pipelines/merge_request_pipelines/) と [variables](https://docs.gitlab.com/ci/variables/) の仕様を踏まえ、保護変数を MR に渡す設定へ変更しない。
 

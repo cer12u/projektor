@@ -33,9 +33,15 @@ const run = (...args) =>
     encoding: "utf8",
     stdio: ["ignore", "pipe", "inherit"],
   });
-const d1Name = "projektor-verify";
-const kvName = "projektor-verify";
-const bucketName = "projektor-verify";
+// Account-wide names and rate-limit namespaces are overridable by CI/CD variables so
+// that the verify environment never collides with other Workers in the same account.
+const verifyName = process.env.CF_VERIFY_NAME ?? "projektor-verify";
+const [registerNs, tokenNs, feedbackNs] = (
+  process.env.CF_VERIFY_RATELIMIT_IDS ?? "1001,1002,1003"
+).split(",");
+const d1Name = verifyName;
+const kvName = verifyName;
+const bucketName = verifyName;
 function resources() {
   const databases = JSON.parse(run("d1", "list", "--json"));
   const namespaces = JSON.parse(run("kv", "namespace", "list"));
@@ -60,22 +66,22 @@ const secretsFile = path.join(temp, "secrets.json");
 fs.writeFileSync(
   configFile,
   JSON.stringify({
-    name: "projektor-verify",
+    name: verifyName,
     main: path.resolve("dist/smoke-worker.js"),
     compatibility_date: "2026-07-30",
     workers_dev: true,
     vars: {
       SMOKE_ENABLED: "1",
       ACCESS_TEAM_DOMAIN: "https://verify.cloudflareaccess.com",
-      ACCESS_AUDIENCE: "projektor-verify",
+      ACCESS_AUDIENCE: verifyName,
     },
     d1_databases: [{ binding: "DB", database_name: d1Name, database_id: found.d1 }],
     kv_namespaces: [{ binding: "KV", id: found.kv }],
     r2_buckets: [{ binding: "R2", bucket_name: bucketName }],
     ratelimits: [
-      { name: "OAUTH_REGISTER_LIMIT", namespace_id: "1001", simple: { limit: 10, period: 60 } },
-      { name: "OAUTH_TOKEN_LIMIT", namespace_id: "1002", simple: { limit: 60, period: 60 } },
-      { name: "FEEDBACK_LIMIT", namespace_id: "1003", simple: { limit: 60, period: 60 } },
+      { name: "OAUTH_REGISTER_LIMIT", namespace_id: registerNs, simple: { limit: 10, period: 60 } },
+      { name: "OAUTH_TOKEN_LIMIT", namespace_id: tokenNs, simple: { limit: 60, period: 60 } },
+      { name: "FEEDBACK_LIMIT", namespace_id: feedbackNs, simple: { limit: 60, period: 60 } },
     ],
   }),
 );
@@ -93,7 +99,7 @@ try {
     "--secrets-file",
     secretsFile,
   );
-  const match = output.match(/https:\/\/projektor-verify\.[a-z0-9-]+\.workers\.dev/);
+  const match = output.match(new RegExp(`https://${verifyName}\\.[a-z0-9-]+\\.workers\\.dev`));
   if (!match) throw new Error("Wrangler did not return the verification workers.dev URL");
   console.log(`Verification Worker deployed: ${match[0]}`);
   // The edge keeps serving the previous version (old secret) or no route for a short

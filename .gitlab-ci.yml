@@ -6,16 +6,19 @@ workflow:
       when: never
     - if: '$CI_COMMIT_BRANCH'
 stages: [verify, test, build, smoke, deploy]
+# Environment-specific values (registries, resource names, zones) come from CI/CD
+# variables, never from this file. Without the image variables the jobs fall back to
+# public images and install pnpm on the fly. See docs/operations.md.
+variables:
+  CI_NODE_IMAGE: node:22.22.1-bookworm@sha256:f90672bf4c76dfc077d17be4c115b1ae7731d2e8558b457d86bca42aeb193866
+  CI_BROWSER_IMAGE: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:6446946a1d9fd62d9ae501312a2d76a43ee688542b21622056a372959b65d63d
 default:
-  # Prebuilt by tools/ci-image.sh: pinned Node + pnpm + a store prefetched from the
-  # lockfile, so jobs skip the pnpm download and most package fetching.
-  image: harbor.vp25.home/tkdev/projektor-ci:node-c1b09b814e97@sha256:cf89e3fdf49a21f50324ef5157e10a97de89b58ee18f838121418f1872a9f00b
+  image: $CI_NODE_IMAGE
   before_script:
     - node --version
     - python3 --version
+    - command -v pnpm >/dev/null || npm install --global pnpm@10.18.0 --ignore-scripts
     - pnpm install --frozen-lockfile --prefer-offline
-variables:
-  npm_config_store_dir: /pnpm-store
 boundaries:
   stage: verify
   script:
@@ -34,6 +37,7 @@ static:
     - pnpm lint
     - pnpm typecheck
     - pnpm check:contracts
+    - pnpm check:literals
 modules:
   stage: test
   script:
@@ -49,7 +53,7 @@ modules:
 # Browser fixture is local Miniflare with a test-only assertion injector; no CI credentials.
 browser:
   stage: test
-  image: harbor.vp25.home/tkdev/projektor-ci:browser-c1b09b814e97@sha256:9e9616a4e76346bc1dac64fc2b24db4cd731521afeda38005f34312e5ea3dbda
+  image: $CI_BROWSER_IMAGE
   script: ["pnpm test:web"]
   artifacts:
     when: on_failure

@@ -7,7 +7,8 @@ if (!token || !account) {
   console.error("CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID are required");
   process.exit(78);
 }
-const zoneName = process.env.INVENTORY_ZONE ?? "cerutech.net";
+// Optional zone to inspect for Worker routes, from the CF_ZONE_NAME CI/CD variable.
+const zoneName = process.env.CF_ZONE_NAME;
 const api = async (path) => {
   const response = await fetch(`https://api.cloudflare.com/client/v4${path}`, {
     headers: { authorization: `Bearer ${token}` },
@@ -67,11 +68,9 @@ await section(
   `${a}/access/apps`,
   (x) => `${x.name} domain=${x.domain} aud=${x.aud}`,
 );
-const zones = await section(
-  `Zone ${zoneName}`,
-  `/zones?name=${zoneName}`,
-  (z) => `${z.name} ${z.id}`,
-);
+const zones = zoneName
+  ? await section(`Zone ${zoneName}`, `/zones?name=${zoneName}`, (z) => `${z.name} ${z.id}`)
+  : [];
 if (zones[0]?.id)
   await section(
     `Worker routes in ${zoneName}`,
