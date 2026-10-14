@@ -46,7 +46,7 @@ def quote(name):
     return '"' + name.replace('"', '""') + '"'
 
 
-def guard(owner, storage, migration=False, fts_lifecycle=False):
+def guard(owner, storage, migration=False, fts_lifecycle=False, virtual_probe=False):
     allowed = set(storage["tables"]) | set(storage["objects"])
     violations = []
 
@@ -72,7 +72,14 @@ def guard(owner, storage, migration=False, fts_lifecycle=False):
                     reason = "unapproved virtual table module"
         elif action in ACCESS:
             if first not in allowed:
-                if not (migration and first in SYSTEM):
+                # SQLite 3.40 FTS xConnect compiles its private table declaration,
+                # reporting these schema callbacks while preparing our SELECT.
+                # Never grant them to a catalog statement or a view/trigger probe.
+                declaration = virtual_probe and first in {"sqlite_master", "sqlite_schema"} and (
+                    (action == sqlite3.SQLITE_UPDATE and second in {"type", "name", "tbl_name", "rootpage", "sql"})
+                    or (action == sqlite3.SQLITE_READ and second == "ROWID")
+                )
+                if not ((migration and first in SYSTEM) or declaration):
                     reason = f"table {first} is not owned by {owner} (via {source or 'statement'})"
         if reason:
             violations.append(reason)
@@ -91,7 +98,7 @@ def execute_checked(db, owner, storage, sql, migration=False, virtual_probe=Fals
     # virtual table: later ALTER migrations can also invalidate its connection.
     drop = re.fullmatch(r"\s*DROP\s+TABLE\s+([A-Za-z_][A-Za-z_0-9]*)\s*;?\s*", sql, re.I)
     fts_drop = migration and drop is not None and drop[1] in storage.get("virtualTables", [])
-    auth, violations = guard(owner, storage, migration, fts_creation or fts_drop or virtual_probe)
+    auth, violations = guard(owner, storage, migration, fts_creation or fts_drop or virtual_probe, virtual_probe)
     db.set_authorizer(auth)
     try:
         if migration:

@@ -889,3 +889,12 @@ their mutations after the corresponding test refinements; both baselines passed
 and both mutants failed. TypeScript and the healthy build/artifact were checked
 again after restoring mutation output. Required MR CI is checked on the pushed
 commit; no merge or deployment is part of this audit.
+
+### 11a CI SQLite compatibility
+
+Pipeline 14166 exposed SQLite 3.40.1’s FTS schema-declaration callbacks, absent with local SQLite 3.46.1. Reproduced on the cached Bookworm image with CI’s Python 3.11.2 / SQLite 3.40.1 and validated the narrow generated-probe correction there. See [scaffold details](scaffold.md#11a-ci-sqlite-compatibility). Added negative fixtures for schema reads in an FTS owner’s catalog and view; catalog/foreign SQL permissions remain unchanged.
+
+The healthy baseline plus seven relevant schema/FTS negative fixtures passed on
+both local SQLite 3.46.1 and container SQLite 3.40.1 (8/8 on each). Only these
+checker cases were rerun locally after the CI fix; the complete module suite was
+not repeated without a module change. The next MR pipeline verifies the full tree.
