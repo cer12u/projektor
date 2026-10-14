@@ -6,7 +6,13 @@ local integration check. Missing protected `CLOUDFLARE_API_TOKEN` or
 and the job shows as a warning. With both variables present, any error fails the
 pipeline. (The runner reports script failures as exit 1, so `exit_codes: [78]`
 could not tell these cases apart.) The MR pipeline runs the same smoke assertions against Miniflare with
-`pnpm test:smoke`. A green MR does not prove real D1 behavior.
+`pnpm test:smoke`. The 07c suite also spawns the actual script with each missing
+credential, and runs its orchestration with subprocesses stubbed to verify that
+an API-token sentinel is absent from stdout/stderr. No real credential is used
+and no Cloudflare resource is created by these local tests. The Worker test
+rejects unauthenticated probes before running the real local storage assertions.
+A green MR does not prove real D1 behavior or guarantee third-party CLI diagnostics
+will never contain secrets.
 
 The token needs account permissions **Workers Scripts:Edit**, **D1:Edit**,
 **Workers KV Storage:Edit**, **Workers R2 Storage:Edit**, and **Account

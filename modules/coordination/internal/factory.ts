@@ -394,7 +394,7 @@ export function createCoordination(d: Dependencies): {
         cap = integer(input.cap, 1, 100),
         version = integer(input.expectedVersion);
       const current = await access.authorize(scope, "write");
-      if (current.role !== "owner" && current.role !== "admin")
+      if (current.clientId || (current.role !== "owner" && current.role !== "admin"))
         fail("forbidden", "Workspace admin required");
       await projects.authorizeProject(scope, pid, "manage");
       const fingerprint = await fp("limit", input.operationId, [pid, cap, version]);

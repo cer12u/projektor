@@ -109,7 +109,11 @@ test("project, issue, MCP agent attribution, wiki conflict and activity", async 
   await page.getByRole("button", { name: "Wiki" }).click();
   await page.getByLabel("URL 名").fill("home");
   await page.getByLabel("タイトル").fill("ホーム");
-  await page.getByLabel("本文（Markdown）").fill("# 最初の版\n<img src=x onerror=alert(1)>");
+  await page
+    .getByLabel("本文（Markdown）")
+    .fill(
+      '# 最初の版\n<script>window.xss=1</script><img src=x onerror="window.xss=2"><a href="javascript:window.xss=3" onclick="window.xss=4">unsafe</a><svg onload="window.xss=5"></svg>',
+    );
   await page.getByRole("button", { name: "作成" }).click();
   await page.getByRole("button", { name: "ホーム" }).click();
   const wiki = page
@@ -118,6 +122,10 @@ test("project, issue, MCP agent attribution, wiki conflict and activity", async 
   await expect(wiki.getByText("最初の版")).toBeVisible();
   await expect(wiki.locator("img")).toHaveAttribute("src", "x");
   expect(await wiki.locator("img").getAttribute("onerror")).toBeNull();
+  await expect(wiki.locator(".markdown script, .markdown svg")).toHaveCount(0);
+  expect(await wiki.getByText("unsafe", { exact: true }).getAttribute("href")).toBeNull();
+  expect(await wiki.getByText("unsafe", { exact: true }).getAttribute("onclick")).toBeNull();
+  expect(await page.evaluate(() => window.xss)).toBeUndefined();
   const pageData = (await get(request, "wiki.list", { projectId: project.id })).pages[0];
   await wiki.getByLabel("本文（Markdown）").fill("# 自分の下書き");
   await post(request, "wiki.edit", {
@@ -234,6 +242,7 @@ test("project, issue, MCP agent attribution, wiki conflict and activity", async 
     await route.fulfill({ json: { projects: [project], nextCursor: null } });
   });
   await page.getByRole("button", { name: "プロジェクト", exact: true }).click();
+  await expect.poll(() => typeof release).toBe("function");
   await page.getByRole("button", { name: "切り替え" }).click();
   await page.getByRole("button", { name: "web2" }).click();
   release();

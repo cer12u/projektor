@@ -76,7 +76,11 @@ function workspace(request: Request, fromPath: string): string {
     throw new PlatformError("forbidden", "Workspace mismatch");
   return fromPath;
 }
-async function principal(request: Request, services: Services): Promise<AuthenticatedPrincipal> {
+async function principal(
+  request: Request,
+  services: Services,
+  endpoint: "rest" | "mcp",
+): Promise<AuthenticatedPrincipal> {
   const assertion = request.headers.get("cf-access-jwt-assertion");
   const authorization = request.headers.get("authorization");
   if (assertion && authorization) throw new PlatformError("validation", "Ambiguous credentials");
@@ -85,8 +89,7 @@ async function principal(request: Request, services: Services): Promise<Authenti
     throw new PlatformError("forbidden", "Authentication required");
   const bearer = authorization.slice(7);
   if (bearer.startsWith("pt1.")) return services.access.authenticate({ kind: "machine", bearer });
-  if (services.oauthOrigin) {
-    if (!services.oauthOrigin) throw new PlatformError("forbidden", "OAuth unavailable");
+  if (endpoint === "mcp" && services.oauthOrigin) {
     return services.access.authenticate({
       kind: "oauth",
       bearer,
@@ -105,7 +108,7 @@ async function admit(
 ): Promise<RequestScope> {
   let actor: AuthenticatedPrincipal;
   try {
-    actor = await principal(request, services);
+    actor = await principal(request, services, endpoint);
   } catch (error) {
     if (endpoint === "mcp" && error instanceof PlatformError && error.code === "forbidden")
       throw new AuthenticationError();
@@ -147,7 +150,7 @@ export async function handleHttp(request: Request, services: Services): Promise<
           ]),
         ),
       );
-      const actor = await principal(request, services);
+      const actor = await principal(request, services, "rest");
       return json(
         await services.access.me(
           actor,
@@ -176,7 +179,7 @@ export async function handleHttp(request: Request, services: Services): Promise<
         x.workspaceId !== undefined
       )
         throw new PlatformError("validation", "Invalid workspace input");
-      const actor = await principal(request, services);
+      const actor = await principal(request, services, "rest");
       return json(
         await services.access.createWorkspace(actor, {
           workspaceId: workspace(request, w),
@@ -189,7 +192,7 @@ export async function handleHttp(request: Request, services: Services): Promise<
     }
     if (name === "access.workspaces") {
       if (request.method !== "GET") throw new PlatformError("not_found", "Unknown route");
-      const actor = await principal(request, services);
+      const actor = await principal(request, services, "rest");
       workspace(request, w);
       await services.access.requireMembership(actor, w, requestId);
       return json(await services.access.listWorkspaces(actor), 200, { "x-request-id": requestId });

@@ -22,16 +22,17 @@ assert.deepEqual(Object.keys(artifact.files).sort(), [
 ]);
 for (const [file, checksum] of Object.entries(artifact.files))
   assert.equal(hash(fs.readFileSync(`dist/${file}`)), checksum, file);
-assert(
-  !/fixture_[ab]|D1Database|BOOTSTRAP_SECRET|WEB_TEST_READY|__test\/token/.test(
-    fs.readFileSync("dist/worker.js", "utf8"),
-  ),
-);
-assert(
-  !/WEB_TEST_READY|__test\/token|cf-access-jwt-assertion/.test(
-    fs.readFileSync("dist/assets/app.js", "utf8"),
-  ),
-);
+// Inspect every executable production artifact, including the verification Worker.
+// A checksum proves integrity, not exclusion of test-only authentication code.
+for (const file of ["worker.js", "smoke-worker.js", "assets/app.js"]) {
+  const source = fs.readFileSync(`dist/${file}`, "utf8");
+  assert(
+    !/WEB_TEST_READY|__test|web-test\.cloudflareaccess\.com|web-oauth-test\.example/.test(source),
+    `Test authentication/route in ${file}`,
+  );
+}
+assert(!/fixture_[ab]|D1Database|BOOTSTRAP_SECRET/.test(fs.readFileSync("dist/worker.js", "utf8")));
+assert(!/cf-access-jwt-assertion/.test(fs.readFileSync("dist/assets/app.js", "utf8")));
 assert(!/fixture_[ab]/.test(fs.readFileSync("dist/migrations.json", "utf8")));
 assert(!/fixture_[ab]/.test(fs.readFileSync("dist/smoke-worker.js", "utf8")));
 const mf = new Miniflare({

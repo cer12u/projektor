@@ -159,14 +159,16 @@ conflict messages remain actionable. Gateway owns no report storage; its new
 `GET /api/me` authenticates without a workspace path and returns a keyset page
 of the current principal's workspaces. It accepts `cursor` and `limit` (1–100)
 and does not create membership. The same `access.me` read is available to MCP
-inside an admitted workspace. Workspace-bound machine and OAuth bearers remain
-confined to their own workspace; OAuth access tokens now authenticate REST reads
-and writes subject to their existing Access scope and live membership checks.
+inside an admitted workspace. `/api/me` accepts only CF Access assertions and
+machine bearers; OAuth agents use `access.me` over MCP. Machine and OAuth
+principals remain confined to their token workspace. OAuth tokens target the
+`<origin>/mcp` resource (RFC 8707) and are rejected on every REST route.
 
 The catalog delegates `access.members.list`, `access.oauthClients.list/revoke`,
 and project-scoped Coordination pages and WIP cap to their owners. OAuth client
 administration is REST only. MCP tools expose the other new reads and cap set;
 no Gateway SQL or permission branching was added. OpenAPI and MCP descriptions
 come from the dispatch catalog. The client revoke route returns the stored
-result on an exact operationId retry; subsequent REST and MCP admission rejects
-its access token, and refresh exchange rejects its refresh token.
+result on an exact operationId retry; subsequent MCP admission rejects its access
+token, and refresh exchange rejects its refresh token. REST rejects OAuth tokens
+both before and after revocation.
