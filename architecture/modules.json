@@ -23,7 +23,7 @@
       "public": null,
       "kind": "web",
       "dependencies": ["gateway"],
-      "external": []
+      "external": ["preact", "preact/*", "marked", "dompurify"]
     },
     {
       "id": "gateway",
@@ -263,7 +263,14 @@
         "wiki",
         "coordination"
       ],
-      "external": ["node:*", "typescript", "esbuild", "miniflare", "@modelcontextprotocol/sdk"]
+      "external": [
+        "node:*",
+        "typescript",
+        "esbuild",
+        "miniflare",
+        "@modelcontextprotocol/sdk",
+        "@playwright/test"
+      ]
     }
   ]
 }

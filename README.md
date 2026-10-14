@@ -3,8 +3,8 @@
 The core owners Access, Projects, Issues and Wiki are implemented. Step 06a adds
 one Worker that composes them with Platform adapters and exposes workspace-scoped
 REST and MCP Streamable HTTP operations through Gateway. OAuth HTTP endpoints,
-consent UI and OAuth client end-to-end tests are step 06b. The Web app remains a
-placeholder. The Worker reports `deployable: false`; Cloudflare smoke and deploy
+consent UI and OAuth client end-to-end tests are step 06b. The Web app provides the core project, issue, Wiki, agent activity and workspace
+admin views. The Worker reports `deployable: false`; Cloudflare smoke and deploy
 jobs are disabled until resources and configuration are approved.
 
 The upstream Projektor was created by **Thomas Dickson**. This fork retains the
@@ -14,7 +14,7 @@ Removing source does not migrate or delete deployed data.
 
 ```text
 apps/worker/                 Worker composition entry
-apps/web/                    static placeholder
+apps/web/                    Preact browser application
 modules/{access,projects,issues,wiki}/  core business owners
 modules/_fixture_{a,b}/       test-only owners
 platform/                    scoped adapters and migration ledger
@@ -36,7 +36,7 @@ pnpm generate
 `pnpm verify` runs lint, strict TypeScript, ownership and SQL checks, negative
 checker fixtures, isolated module tests, Gateway integration tests, build and
 artifact verification. `pnpm test:modules --coverage` emits JUnit and LCOV to
-`reports/`. The build produces the Worker, placeholder assets, license,
+`reports/`. The build produces the Worker, static Web assets, license,
 production migrations and a commit/checksum manifest. Fixture schemas and
 factories are excluded. Local Miniflare checks do not establish deployed D1
 behavior.
@@ -46,6 +46,7 @@ See [Gateway routes and evidence](docs/architecture/gateway.md),
 [Projects](docs/architecture/projects.md),
 [Issues](docs/architecture/issues.md),
 [Wiki](docs/architecture/wiki.md),
+[Web and local browser tests](docs/architecture/web.md),
 [approved plan](docs/architecture/rewrite-plan.md) and [AGENTS.md](AGENTS.md).
 
 

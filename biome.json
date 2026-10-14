@@ -11,6 +11,8 @@
       "!!node_modules",
       "!!reports",
       "!!coverage",
+      "!!test-results",
+      "!!playwright-report",
       "!!.pnpm-store"
     ]
   },

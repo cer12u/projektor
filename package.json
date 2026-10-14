@@ -8,7 +8,7 @@
   },
   "scripts": {
     "lint": "biome check .",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p apps/web",
     "check:boundaries": "node tools/check-boundaries.mjs",
     "check:contracts": "node tools/check-boundaries.mjs --rule public-type",
     "test:boundary-checkers": "node --test tools/boundaries.test.mjs",
@@ -17,19 +17,24 @@
     "build": "node tools/build.mjs",
     "check:artifact": "node tools/artifact.mjs",
     "generate": "node tools/generate.mjs",
-    "verify": "pnpm lint && pnpm typecheck && pnpm check:boundaries && pnpm test:boundary-checkers && pnpm test:modules && pnpm test:migrations && pnpm build && pnpm check:artifact && pnpm test:gateway",
+    "verify": "pnpm lint && pnpm typecheck && pnpm check:boundaries && pnpm test:boundary-checkers && pnpm test:modules && pnpm test:migrations && pnpm build && pnpm check:artifact && pnpm test:gateway && node --test --test-reporter=dot tools/web-unit.test.mjs",
     "smoke:cloudflare": "node tools/cloudflare-smoke.mjs",
     "test:smoke": "node tools/smoke-check.mjs local",
     "deploy:artifact": "node tools/disabled.mjs",
-    "test:gateway": "node --test --test-concurrency=1 --test-reporter=dot tools/gateway.test.mjs tools/gateway-oauth.test.mjs tools/gateway-oauth-rules.test.mjs"
+    "test:gateway": "node --test --test-concurrency=1 --test-reporter=dot tools/gateway.test.mjs tools/gateway-oauth.test.mjs tools/gateway-oauth-rules.test.mjs",
+    "test:web": "node --test --test-reporter=dot tools/web-unit.test.mjs && playwright test -c tools/playwright.config.mjs"
   },
   "dependencies": {
-    "hono": "4.13.13"
+    "dompurify": "3.2.6",
+    "hono": "4.13.13",
+    "marked": "16.4.1",
+    "preact": "10.27.2"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@cloudflare/workers-types": "5.20261013.1",
     "@modelcontextprotocol/sdk": "1.32.1",
+    "@playwright/test": "1.58.2",
     "esbuild": "0.28.2",
     "miniflare": "4.20260730.0",
     "typescript": "5.9.3",

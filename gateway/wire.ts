@@ -72,8 +72,7 @@ export function openApi() {
     };
   }
   for (const name of ["access.create", ...restOnly]) {
-    const [owner, action] = name.split(".");
-    paths[`/api/w/{workspaceId}/${owner}/${action}`] = {
+    paths[`/api/w/{workspaceId}/${name.replaceAll(".", "/")}`] = {
       post: {
         operationId: name,
         parameters: [workspaceParameter],

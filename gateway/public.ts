@@ -141,11 +141,11 @@ export async function handleHttp(request: Request, services: Services): Promise<
     if (url.pathname === "/health" && request.method === "GET")
       return json({ phase: "gateway", deployable: false }, 200, { "x-request-id": requestId });
     if (url.pathname.startsWith("/mcp/")) return handleMcp(request, services, requestId);
-    const match = url.pathname.match(/^\/api\/w\/([^/]+)\/([^/]+)\/([^/]+)$/);
+    const match = url.pathname.match(/^\/api\/w\/([^/]+)\/([^/]+)\/([^/]+)(?:\/([^/]+))?$/);
     if (!match) throw new PlatformError("not_found", "Unknown route");
     ownOrigin(request);
-    const [, w, owner, action] = match;
-    const name = `${owner}.${action}`;
+    const [, w, owner, action, detail] = match;
+    const name = `${owner}.${action}${detail ? `.${detail}` : ""}`;
     if (name === "access.create") {
       if (request.method !== "POST") throw new PlatformError("not_found", "Unknown route");
       const a = await body(request);

@@ -13,14 +13,25 @@ assert.equal(artifact.deployable, false);
 assert.equal(artifact.catalogHash, hash(JSON.stringify(collect(process.cwd()))));
 assert.deepEqual(Object.keys(artifact.files).sort(), [
   "LICENSE",
+  "assets/app.js",
   "assets/index.html",
+  "assets/style.css",
   "migrations.json",
   "smoke-worker.js",
   "worker.js",
 ]);
 for (const [file, checksum] of Object.entries(artifact.files))
   assert.equal(hash(fs.readFileSync(`dist/${file}`)), checksum, file);
-assert(!/fixture_[ab]|D1Database|BOOTSTRAP_SECRET/.test(fs.readFileSync("dist/worker.js", "utf8")));
+assert(
+  !/fixture_[ab]|D1Database|BOOTSTRAP_SECRET|WEB_TEST_READY|__test\/token/.test(
+    fs.readFileSync("dist/worker.js", "utf8"),
+  ),
+);
+assert(
+  !/WEB_TEST_READY|__test\/token|cf-access-jwt-assertion/.test(
+    fs.readFileSync("dist/assets/app.js", "utf8"),
+  ),
+);
 assert(!/fixture_[ab]/.test(fs.readFileSync("dist/migrations.json", "utf8")));
 assert(!/fixture_[ab]/.test(fs.readFileSync("dist/smoke-worker.js", "utf8")));
 const mf = new Miniflare({
@@ -39,7 +50,7 @@ try {
   assert.equal((await mf.dispatchFetch("http://localhost/api/issues")).status, 404);
   const page = await mf.dispatchFetch("http://localhost/");
   assert.equal(page.status, 200);
-  assert.match(await page.text(), /application is not implemented yet/);
+  assert.match(await page.text(), /Projektor/);
 } finally {
   await mf.dispose();
 }

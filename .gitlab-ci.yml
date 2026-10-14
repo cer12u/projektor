@@ -49,8 +49,15 @@ modules:
       junit: reports/platform.xml
     paths: [reports/]
     expire_in: 7 days
-# Business transport/recovery/browser suites arrive with their owning module MRs.
-# This step tests only the Worker health/404 contract and placeholder Static Assets.
+# Browser fixture is local Miniflare with a test-only assertion injector; no CI credentials.
+browser:
+  stage: test
+  image: mcr.microsoft.com/playwright:v1.58.2-noble@sha256:6446946a1d9fd62d9ae501312a2d76a43ee688542b21622056a372959b65d63d
+  script: ["pnpm test:web"]
+  artifacts:
+    when: on_failure
+    paths: [test-results/]
+    expire_in: 7 days
 build:
   stage: build
   script:

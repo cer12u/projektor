@@ -500,7 +500,7 @@ export function inputFor(name: string, value: unknown): Record<string, unknown> 
       throw new PlatformError("validation", `Unknown field: ${key}`);
   for (const [key, kind] of Object.entries(entry.fields)) {
     const val = a[key];
-    if (val === undefined && kind.startsWith("optional")) continue;
+    if (val === undefined && (kind.startsWith("optional") || kind === "nullableString")) continue;
     if (val === null && kind === "nullableString") continue;
     if (kind === "stringArray") {
       if (!Array.isArray(val) || !val.every((x) => typeof x === "string"))
