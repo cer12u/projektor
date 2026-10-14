@@ -76,7 +76,7 @@ type Principal = {
   clientName?: string;
 };
 type Me = { principal: Principal; workspaces: Workspace[]; nextCursor: string | null };
-type View = "projects" | "issues" | "wiki" | "activity" | "admin";
+type View = "projects" | "issues" | "wiki" | "planning" | "activity" | "admin";
 const wire = new WireClient();
 const date = (value: number) => new Date(value * 1000).toLocaleString("ja-JP");
 const identity = (actor: {
@@ -1521,6 +1521,154 @@ function Admin({ workspace }: { workspace: string }) {
     </>
   );
 }
+type Sprint = {
+  id: string;
+  projectId: string;
+  name: string;
+  version: number;
+  closed: boolean;
+  archived: boolean;
+};
+type SprintItem = { issueId: string; issue: Issue | null; archived: boolean };
+function Planning({ workspace, project }: { workspace: string; project: Project }) {
+  const [name, setName] = useState("");
+  const [issueId, setIssueId] = useState("");
+  const [selected, setSelected] = useState("");
+  const list = useQuery<Sprint[]>(
+    workspace,
+    "planning.list",
+    { projectId: project.id },
+    project.id,
+  );
+  const detail = useQuery<{ sprint: Sprint; items: SprintItem[] }>(
+    workspace,
+    "planning.items",
+    { sprintId: selected },
+    selected,
+  );
+  const op = useAction(workspace);
+  const current = detail.data?.sprint;
+  const update = async (operation: string, args: Record<string, unknown>) => {
+    const result = await op.run(workspace, operation, args);
+    if (result) {
+      list.refresh();
+      detail.refresh();
+      if (operation === "planning.create") setName("");
+      if (operation === "planning.schedule") setIssueId("");
+    }
+  };
+  return (
+    <section class="panel">
+      <h2>{project.name} · スプリント</h2>
+      {list.error && <p role="alert">{list.error}</p>}
+      <div class="row">
+        <label>
+          スプリント名
+          <input value={name} onInput={(e) => setName(e.currentTarget.value)} />
+        </label>
+        <button
+          type="button"
+          disabled={!name.trim()}
+          onClick={() =>
+            void update("planning.create", {
+              sprintId: crypto.randomUUID(),
+              projectId: project.id,
+              name,
+            })
+          }
+        >
+          作成
+        </button>
+      </div>
+      <ul class="list">
+        {list.data?.map((s) => (
+          <li key={s.id}>
+            <button type="button" class="secondary" onClick={() => setSelected(s.id)}>
+              {s.name}
+            </button>{" "}
+            <span class="badge">
+              {s.archived ? "アーカイブ済み" : s.closed ? "終了" : "進行中"}
+            </span>
+          </li>
+        ))}
+      </ul>
+      {selected && (
+        <section class="panel">
+          <h3>{current?.name ?? "スプリント"}</h3>
+          {detail.error && <p role="alert">{detail.error}</p>}
+          {current?.archived && <p>プロジェクトはアーカイブ済みです。閲覧のみできます。</p>}
+          <ul class="list">
+            {detail.data?.items.map((item) => (
+              <li key={item.issueId}>
+                {item.issue
+                  ? `${item.issue.reference} · ${item.issue.title} · ${ja.state[item.issue.state]}`
+                  : item.issueId}{" "}
+                {item.archived && <span class="badge">アーカイブ済み</span>}
+                {current && !current.closed && !current.archived && !item.archived && (
+                  <button
+                    type="button"
+                    class="secondary"
+                    onClick={() =>
+                      void update("planning.unschedule", {
+                        sprintId: current.id,
+                        issueId: item.issueId,
+                        expectedVersion: current.version,
+                      })
+                    }
+                  >
+                    予定から外す
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+          {current && !current.closed && !current.archived && (
+            <div class="row">
+              <label>
+                課題 ID
+                <input value={issueId} onInput={(e) => setIssueId(e.currentTarget.value)} />
+              </label>
+              <button
+                type="button"
+                disabled={!issueId.trim()}
+                onClick={() =>
+                  void update("planning.schedule", {
+                    sprintId: current.id,
+                    issueId: issueId.trim(),
+                    expectedVersion: current.version,
+                  })
+                }
+              >
+                予定に入れる
+              </button>
+              <button
+                type="button"
+                class="secondary"
+                onClick={() =>
+                  void update("planning.close", {
+                    sprintId: current.id,
+                    expectedVersion: current.version,
+                  })
+                }
+              >
+                終了
+              </button>
+            </div>
+          )}
+        </section>
+      )}
+      <Status
+        op={op}
+        onRetry={() =>
+          void op.retry().then(() => {
+            list.refresh();
+            detail.refresh();
+          })
+        }
+      />
+    </section>
+  );
+}
 function App() {
   const [workspace, setWorkspace] = useState(
     () => new URL(location.href).searchParams.get("w") ?? "",
@@ -1584,16 +1732,18 @@ function App() {
               </p>
             )}
             <nav aria-label={ja.ui.mainMenu}>
-              {(["projects", "issues", "wiki", "activity", "admin"] as View[]).map((item, i) => (
-                <button
-                  type="button"
-                  key={item}
-                  aria-current={view === item ? "page" : undefined}
-                  onClick={() => setView(item)}
-                >
-                  {[ja.project, ja.issue, ja.wiki, ja.activity, ja.admin][i]}
-                </button>
-              ))}
+              {(["projects", "issues", "wiki", "planning", "activity", "admin"] as View[]).map(
+                (item, i) => (
+                  <button
+                    type="button"
+                    key={item}
+                    aria-current={view === item ? "page" : undefined}
+                    onClick={() => setView(item)}
+                  >
+                    {[ja.project, ja.issue, ja.wiki, "計画", ja.activity, ja.admin][i]}
+                  </button>
+                ),
+              )}
             </nav>
             {view === "projects" && (
               <Projects
@@ -1618,6 +1768,16 @@ function App() {
             {view === "wiki" &&
               (project ? (
                 <Wiki key={`${workspace}:${project.id}`} workspace={workspace} project={project} />
+              ) : (
+                <div class="panel">{ja.ui.chooseProject}</div>
+              ))}
+            {view === "planning" &&
+              (project ? (
+                <Planning
+                  key={`${workspace}:${project.id}`}
+                  workspace={workspace}
+                  project={project}
+                />
               ) : (
                 <div class="panel">{ja.ui.chooseProject}</div>
               ))}

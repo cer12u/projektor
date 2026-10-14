@@ -105,7 +105,15 @@ before(async () => {
     bindings: { ACCESS_TEAM_DOMAIN: issuer, ACCESS_AUDIENCE: audience },
   });
   const db = await mf.getD1Database("DB");
-  await platform.migrate(db, ["access", "projects", "issues", "wiki", "coordination", "assets"]);
+  await platform.migrate(db, [
+    "access",
+    "projects",
+    "issues",
+    "wiki",
+    "coordination",
+    "assets",
+    "planning",
+  ]);
   const clock = { now: () => Math.floor(Date.now() / 1000) };
   const created = platform.createAccess({
     store: platform.createModuleStore(db, "access"),
@@ -1056,5 +1064,174 @@ test("09a binary PUT accepts exactly 10 MiB and rejects one byte more", async ()
       )
     ).status,
     200,
+  );
+});
+
+test("Planning REST/MCP parity and live archived issue state", async () => {
+  const issue = {
+    operationId: "planning-issue",
+    issueId: "planning-i",
+    projectId: "p1",
+    title: "Plan me",
+    description: "",
+    priority: "medium",
+  };
+  assert.equal((await req("w1", "issues.create", issue, write)).status, 200);
+  const created = {
+    operationId: "planning-create",
+    sprintId: "planning-s",
+    projectId: "p1",
+    name: "Next batch",
+  };
+  const rest = await req("w1", "planning.create", created, write);
+  assert.equal(rest.status, 200);
+  assert.deepEqual(mcpResult(await rpc("w1", "planning.create", created, write)), rest.data);
+  const schedule = {
+    operationId: "planning-schedule",
+    sprintId: "planning-s",
+    issueId: "planning-i",
+    expectedVersion: 1,
+  };
+  const scheduled = await req("w1", "planning.schedule", schedule, write);
+  assert.equal(scheduled.status, 200);
+  assert.deepEqual(
+    mcpResult(await rpc("w1", "planning.schedule", schedule, write)),
+    scheduled.data,
+  );
+  const listed = await req("w1", "planning.list", { projectId: "p1" }, read);
+  assert.equal(listed.status, 200);
+  assert.deepEqual(
+    mcpResult(await rpc("w1", "planning.list", { projectId: "p1" }, read)),
+    listed.data,
+  );
+  const items = await req("w1", "planning.items", { sprintId: "planning-s" }, read);
+  assert.equal(items.data.items[0].issue.state, "todo");
+  assert.deepEqual(
+    mcpResult(await rpc("w1", "planning.items", { sprintId: "planning-s" }, read)),
+    items.data,
+  );
+  assert.equal(
+    (await req("w2", "planning.items", { sprintId: "planning-s" }, other)).data.code,
+    "not_found",
+  );
+  assert.equal(
+    (
+      await req(
+        "w1",
+        "planning.schedule",
+        { ...schedule, operationId: "read-only", expectedVersion: 2 },
+        read,
+      )
+    ).data.code,
+    "forbidden",
+  );
+  assert.equal(
+    (await req("w1", "planning.schedule", { ...schedule, operationId: "stale" }, write)).data.code,
+    "conflict",
+  );
+  const archived = await req(
+    "w1",
+    "issues.archive",
+    { operationId: "planning-archive", issueId: "planning-i", expectedVersion: 1 },
+    write,
+  );
+  assert.equal(archived.status, 200);
+  const after = await req("w1", "planning.items", { sprintId: "planning-s" }, read);
+  assert.equal(after.data.items[0].archived, true);
+  assert.equal(after.data.items[0].issue.title, "Plan me");
+  const closed = await req(
+    "w1",
+    "planning.close",
+    { operationId: "planning-close", sprintId: "planning-s", expectedVersion: 2 },
+    write,
+  );
+  assert.equal(closed.status, 200);
+  assert.equal(
+    (await req("w1", "planning.items", { sprintId: "planning-s" }, read)).data.items.length,
+    1,
+  );
+  const db = await mf.getD1Database("DB");
+  assert.equal(
+    (
+      await db
+        .prepare("SELECT version FROM issues_issues WHERE workspace_id='w1' AND id='planning-i'")
+        .first()
+    ).version,
+    2,
+  );
+});
+
+test("archived project keeps sprint and live issue details read-only", async () => {
+  const f = contractProviders;
+  await f.projects.createProject(f.manager, {
+    operationId: "planning-project-create",
+    projectId: "planning-arch-p",
+    key: "PLANARCH",
+    name: "Archived project",
+  });
+  await f.issues.createIssue(f.manager, {
+    operationId: "planning-project-issue",
+    issueId: "planning-arch-i",
+    projectId: "planning-arch-p",
+    title: "Historical task",
+    description: "",
+    priority: "medium",
+  });
+  const call = async (name, args, method = args.operationId ? "POST" : "GET") => {
+    const url = new URL(endpoint("w1", name));
+    if (method === "GET")
+      for (const [k, v] of Object.entries(args)) url.searchParams.set(k, String(v));
+    const response = await mf.dispatchFetch(url.toString(), {
+      method,
+      headers: {
+        "cf-access-jwt-assertion": ownerAssertion,
+        ...(method === "POST" ? { "content-type": "application/json" } : {}),
+      },
+      ...(method === "POST" ? { body: JSON.stringify(args) } : {}),
+    });
+    return { status: response.status, data: await response.json() };
+  };
+  assert.equal(
+    (
+      await call("planning.create", {
+        operationId: "planning-arch-create",
+        sprintId: "planning-arch-s",
+        projectId: "planning-arch-p",
+        name: "Old sprint",
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (
+      await call("planning.schedule", {
+        operationId: "planning-arch-schedule",
+        sprintId: "planning-arch-s",
+        issueId: "planning-arch-i",
+        expectedVersion: 1,
+      })
+    ).status,
+    200,
+  );
+  await f.projects.archiveProject(f.manager, {
+    operationId: "planning-project-archive",
+    projectId: "planning-arch-p",
+    expectedVersion: 1,
+  });
+  const item = await call("planning.items", { sprintId: "planning-arch-s" });
+  assert.equal(item.status, 200);
+  assert.equal(item.data.sprint.archived, true);
+  assert.equal(item.data.items[0].issue.title, "Historical task");
+  assert.equal(item.data.items[0].archived, true);
+  assert.equal(
+    (
+      await call("planning.unschedule", {
+        operationId: "planning-arch-denied",
+        sprintId: "planning-arch-s",
+        issueId: "planning-arch-i",
+        expectedVersion: 2,
+      })
+    ).data.code,
+    "not_found",
   );
 });

@@ -175,7 +175,7 @@ flowchart TD
 
 後続提供時の Gateway → 後続 module の辺、および各 module → Platform の辺は図から省略。どちらも逆依存は禁止。CI は省略しない完全な manifest から検査する。Core の順序は Platform → Access（02 / 02b）→ Projects → Issues / Wiki → Gateway → Coordination → Web。後続は Assets → Planning → Insights → Integrations → Lifecycle で実装できる。
 
-Issues は lease を知らない。Coordination は issue の状態を直接変えない。agent の「作業報告」と issue の「完了」は別コマンドにする。lease 所持を issue 編集の必須条件にする要件は初期には入れない（そうするなら lease を Issues の invariant に組み込む境界変更が必要）。Planning は issues.sprint_id を作らず、自分の membership を持つ。これで以前の循環と他領域 UPDATE を避ける。
+Issues は lease を知らない。Coordination は issue の状態を直接変えない。agent の「作業報告」と issue の「完了」は別コマンドにする。lease 所持を issue 編集の必須条件にする要件は初期には入れない（そうするなら lease を Issues の invariant に組み込む境界変更が必要）。Planning は issues.sprint_id を作らず、自分の membership を持つ。これで以前の循環と他領域 UPDATE を避ける。 Step 10 では archive 後の sprint 表示に必要な権限付き履歴読取りが既存の Issues/Projects public API に無かったため、両 owner に `getIssueIncludingArchived` / `getProjectIncludingArchived` を追加する。両 API は元 owner の認可を維持し、Planning は他 owner の表を読まない。
 
 ## 5. 操作、認可、整合性
 

@@ -83,6 +83,8 @@ export interface ProjectsApi {
     },
   ): Promise<ProjectResult>;
   getProject(scope: RequestScope, projectId: string): Promise<Project>;
+  /** Authorized historical read for dependent owners; archived projects remain read-only. */
+  getProjectIncludingArchived(scope: RequestScope, projectId: string): Promise<Project>;
   listVisibleProjects(scope: RequestScope, cursor?: string, limit?: number): Promise<ProjectPage>;
   authorizeProject(
     scope: RequestScope,
