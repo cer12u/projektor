@@ -106,6 +106,4 @@ export interface InsightsApi {
     cursor?: string,
     limit?: number,
   ): Promise<NotificationPage>;
-  consumeEvents(workspaceId: string, limit?: number): Promise<number>;
-  drainKnownWorkspaces(limit?: number): Promise<number>;
 }

@@ -1,4 +1,6 @@
 export const queries = {
+  activeWorkspaceIds:
+    "SELECT workspace_id FROM access_workspaces WHERE archived=0 AND workspace_id>? ORDER BY workspace_id LIMIT ?",
   oauthPruneForms:
     "DELETE FROM access_oauth_forms WHERE workspace_id=? AND principal_id=? AND expires_at<=?",
   oauthIssueForm:

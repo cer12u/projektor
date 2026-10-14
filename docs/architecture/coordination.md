@@ -53,3 +53,8 @@ cap 3/version 0 until set. The existing `setProjectLimit` CAS and operation
 receipt power REST/MCP `coordination.wipCap.set`; only an interactive (non-OAuth) workspace owner/admin with project management access can set
 it. All queries use Coordination tables only, with Access/Projects public APIs
 for admission.
+
+## Event attribution (11a)
+
+New outbox events use schemaVersion 2 and `payload.clientId` from RequestScope (nullable), alongside the actor ID. Existing version-1 rows keep their original data and read with null client attribution. Consumers must accept both versions.
+`FileClaimForced` also records nullable `issueId` and `projectId` from the forcing session’s fenced lease, while retaining the repository/path in `subjectId`. Version-1 events lack these identifiers and cannot appear in project feeds. Both trusted and agent-scoped event readers return the same versioned fields.

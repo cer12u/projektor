@@ -7,6 +7,7 @@ import { build } from "esbuild";
 import { createFetchMock, Miniflare } from "miniflare";
 import { assetsProviderContract } from "./assets-provider-contract.mjs";
 import { coordinationProviderContract } from "./coordination-provider-contract.mjs";
+import { insightsProviderContract } from "./insights-provider-contract.mjs";
 
 let contractProviders;
 
@@ -1383,4 +1384,42 @@ test("Insights REST and MCP expose the same scoped feed, metrics and markers", a
       (item) => item.entityId === "insights-i",
     ),
   );
+});
+
+test("11a background consumption and discovery are unreachable through REST and MCP", async () => {
+  for (const token of [read, write]) {
+    for (const name of [
+      "insights.consumeEvents",
+      "insights.drainKnownWorkspaces",
+      "access.listActiveWorkspaceIds",
+    ]) {
+      const args = { workspaceId: "w1", limit: 100 };
+      assert.equal((await req("w1", name, args, token, "POST")).status, 404);
+      assert.equal((await rpc("w1", name, args, token)).data.error?.code, -32601);
+    }
+  }
+});
+
+test("11a Insights provider read contract matches real owners", async () => {
+  const f = contractProviders,
+    issueId = "insights-contract-archive";
+  await f.issues.createIssue(f.editor, {
+    operationId: "insights-contract-create",
+    issueId,
+    projectId: "p1",
+    title: "Contract",
+    description: "",
+    priority: "medium",
+  });
+  await insightsProviderContract({
+    ...f,
+    scope: f.editor,
+    issueId,
+    archiveIssue: () =>
+      f.issues.archiveIssue(f.editor, {
+        operationId: "insights-contract-archive",
+        issueId,
+        expectedVersion: 1,
+      }),
+  });
 });

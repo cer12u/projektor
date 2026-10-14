@@ -22,13 +22,13 @@ export type ProjectEventType = "ProjectChanged" | "ProjectArchived" | "ProjectGr
 export interface ProjectEvent {
   readonly eventId: string;
   readonly source: "projects";
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 1 | 2;
   readonly workspaceId: string;
   readonly aggregateId: string;
   readonly aggregateVersion: number;
   readonly type: ProjectEventType;
   readonly occurredAt: number;
-  readonly payload: { readonly actorId: string };
+  readonly payload: { readonly actorId: string; readonly clientId: string | null };
   readonly cursor: number;
 }
 declare const readerBrand: unique symbol;

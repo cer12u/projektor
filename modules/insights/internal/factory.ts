@@ -35,6 +35,7 @@ type Event = {
   readonly type: string;
   readonly aggregateId?: string;
   readonly subjectId?: string;
+  readonly issueId?: string | null;
   readonly aggregateVersion?: number;
   readonly actorId?: string;
   readonly payload?: { readonly actorId: string; readonly clientId?: string | null };
@@ -116,7 +117,10 @@ function decodeCursor(v: string | undefined): { at: number; source: string; seq:
   if (!match) fail("validation", "Invalid cursor");
   return { at: Number(match[1]), source: match[2], seq: Number(match[3]) };
 }
-export function createInsights(d: Dependencies): { api: InsightsApi } {
+export function createInsights(d: Dependencies): {
+  api: InsightsApi;
+  background: { consumeEvents(workspaceId: string, limit?: number): Promise<number> };
+} {
   if (d.store.owner !== "insights") fail("forbidden", "Wrong Insights store");
   const { store, access, projects, issues, wiki, coordination, planning, assets, clock, ids } = d;
   const one = async (name: Name, values: Statement["values"]) =>
@@ -173,7 +177,11 @@ export function createInsights(d: Dependencies): { api: InsightsApi } {
         if (
           event.workspaceId !== ws ||
           event.source !== source ||
-          event.schemaVersion !== 1 ||
+          (event.schemaVersion !== 1 &&
+            !(
+              event.schemaVersion === 2 &&
+              ["projects", "coordination", "planning", "assets"].includes(source)
+            )) ||
           event.cursor > last + 1
         )
           fail("unknown", "Producer event sequence gap");
@@ -186,7 +194,9 @@ export function createInsights(d: Dependencies): { api: InsightsApi } {
             source,
             event.cursor,
             event.eventId,
-            event.aggregateId ?? event.subjectId ?? "",
+            (source === "coordination" && event.type === "FileClaimForced"
+              ? event.issueId
+              : (event.aggregateId ?? event.subjectId)) ?? "",
             event.aggregateVersion ?? 0,
             event.type,
             event.payload?.actorId ?? event.actorId ?? "",
@@ -226,6 +236,8 @@ export function createInsights(d: Dependencies): { api: InsightsApi } {
     source: SourceOwner,
     entityId: string,
   ): Promise<{ projectId: string; title: string } | null> {
+    // Legacy forced claims have only a path subject, not an authorizable issue.
+    if (source === "coordination" && !/^[A-Za-z0-9_-]{1,128}$/.test(entityId)) return null;
     try {
       if (source === "issues" || source === "coordination") {
         const issue = await issues.authorizeIssue(s, entityId);
@@ -411,10 +423,10 @@ export function createInsights(d: Dependencies): { api: InsightsApi } {
         expected = ver(input.expectedVersion);
       const fp = await hash(["markRead", notificationId, expected]);
       const saved = await replay(s, op, fp);
-      if (saved) return { id: str(saved, "result_id"), version: num(saved, "result_version") };
       const row = await one("notification", [s.workspaceId, s.principalId, notificationId]);
       if (!row) fail("not_found", "Notification not found");
       await issues.authorizeIssue(s, str(row, "issue_id"));
+      if (saved) return { id: str(saved, "result_id"), version: num(saved, "result_version") };
       if (num(row, "version") !== expected || row.read !== 0)
         fail("conflict", "Notification version conflict");
       const r = await commit(s, op, fp, notificationId, expected + 1, null, {
@@ -516,7 +528,7 @@ export function createInsights(d: Dependencies): { api: InsightsApi } {
                 [7, seven],
                 [30, thirty],
               ] as const)
-                if (h.occurredAt >= clock.now() - days * 86400) {
+                if (h.occurredAt >= clock.now() - days * 86400 && h.occurredAt <= clock.now()) {
                   const prev = map.get(key);
                   map.set(key, {
                     principalId: h.actorId,
@@ -604,15 +616,6 @@ export function createInsights(d: Dependencies): { api: InsightsApi } {
         lag: await lag(ws),
       };
     },
-    consumeEvents: consume,
-    async drainKnownWorkspaces(limit = 20) {
-      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
-        fail("validation", "Invalid limit");
-      let total = 0;
-      for (const row of (await store.run("knownWorkspaces", [limit])).rows)
-        total += await consume(str(row, "workspace_id"), 100);
-      return total;
-    },
   };
-  return { api };
+  return { api, background: Object.freeze({ consumeEvents: consume }) };
 }

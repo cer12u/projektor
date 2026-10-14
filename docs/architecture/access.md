@@ -436,3 +436,7 @@ and every access/refresh token in one D1 batch with the receipt and event. The
 binding CAS is the final guarded update, so stale versions roll back all earlier
 token changes. Existing OAuth access and refresh tokens fail immediately; another
 client is unaffected. Page sizes are 1–100, default 50.
+
+## Background discovery (11a)
+
+`createAccess` returns a separate `background.listActiveWorkspaceIds(cursor?, limit?)` capability for trusted composition. It lists unarchived workspace IDs in ascending order, with an exclusive ID cursor and limit 1–100 (default 100); it fetches one extra row to return a precise `nextCursor`. Membership and prior Insights reads are irrelevant to this infrastructure query. It is absent from `AccessApi` and Gateway. No new table, credential or runtime dependency is introduced. Worker composition retains it to enumerate workspaces for scheduled Insights consumption.

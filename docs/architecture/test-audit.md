@@ -783,3 +783,109 @@ smoke claim is made. Pages are live, not a snapshot during concurrent changes;
 listSprints pagination, process-restart recovery, broader Q1 race matrices and
 Insights consumption are outside these bounded probes. No merge or deployment
 is part of this audit.
+
+## Insights independent test audit — 11a
+
+Reviewed merged main `f7c78c8` against §5/§7.1, the owner’s cross-agent purpose,
+Insights contracts, Worker composition, Gateway catalog and Web consumers.
+The initial six Insights tests checked several happy paths but did not establish
+atomicity inside a D1 batch, changed-input retries, storage CAS races, notification
+body exclusion/unread leakage, multi-client/window metrics, or scheduled discovery.
+The old “crash” test threw before D1 execution; the old metrics test had only one
+client and one recent transition. These gaps require observable tests, not coverage
+percentages.
+
+| Contract / risk | Evidence added or retained |
+|---|---|
+| Each producer carries client attribution; old events stay valid | Four isolated producer suites check version 2 + RequestScope client and version 1 + null; Coordination verifies both readers, path subject and forced issue/project IDs |
+| All six owners project client IDs and targets | `11a attribution…` checks persisted attribution, visible feed entries and forced-claim issue authorization; legacy null remains valid |
+| Duplicate delivery, lost reply, tenant partition | Existing `duplicate delivery…` and `projection replay…` retained; replay produces one row and the other workspace has its own cursor |
+| Projection/cursor atomicity | `11a atomic projection…` injects a NOT NULL failure inside actual D1 after each write boundary, checks both tables rolled back, then retries |
+| Unknown schema / gap and lag | `11a lag advances…` checks exact sequence and timestamp, fresh cursor null, whole-source rollback on an unknown later event and sequence gap |
+| Revoke/archive and authorization before filters | `11a authorization precedes…` checks live target resolution including nonmatching project targets, no archived items and denied project metrics; existing live membership revoke retained |
+| Notification secrecy and recipient visibility | `11a notifications contain…` checks exact DTO keys, sentinel absence in response/storage, other tenant/recipient isolation, no hydration for denied recipient, and empty items/unread/cursor after revoke/archive |
+| Subscription retry/CAS | `11a subscribe fingerprint…` checks target/version/command changed reuse, unchanged replay, stale version and a real competing update between read and batch; no receipt on failed storage CAS |
+| Read marker retry/CAS | `11a markRead fingerprint…` checks changed target/version, stale/pre-batch competing update, no receipt, stable replay and reauthorization after revoke |
+| Metrics | `11a metrics group…` uses the same actor with two clients, a second actor, null client, exact 7/30-day endpoints, one second outside each endpoint, future time and non-completion transitions |
+| Trusted background discovery | Access-only test checks exclusive keyset pages, archived omission and no discovery on AccessApi; Worker integration starts with 102 workspaces and no Insights cursors, crosses a 100-ID page, skips archive, and consumes a new event on a second scheduled invocation |
+| Gateway exclusion | Public Insights object lacks consumer methods; negative fixtures reject Gateway imports of Access/Insights factories; REST and MCP return unknown operation for reader and writer credentials |
+| Provider contracts | One shared live-read/archive contract runs for isolated Access/Projects/Issues fakes and their actual public APIs in the Gateway fixture; no provider private implementation is bundled into the isolated Insights suite |
+| Web | Existing metrics/feed/watch/notifications test retained; headless OAuth test observes client attribution for Projects/Issues/Planning, client filtering and archived-target removal on refresh |
+
+### Fixes and limits
+
+Besides the owner-required versioned producer/discovery changes, review found
+runtime defects: `markRead` returned a saved receipt before authorizing the current
+target, and completion windows included future timestamps. Both have direct
+regressions and mutation probes. A legacy forced-claim path also fails the real
+Issues ID validator; Insights now omits these targetless events before calling it,
+including already-stored projections made by the old consumer.
+The shared fake/provider contract checks invalid-ID errors so that a permissive
+fake cannot mask this compatibility failure. Composition now passes a request-only Insights
+object to Gateway, retaining background consumption separately. There are no new
+tables or dependency edges; four additive migrations extend each producer’s own
+event table. The original migrations remain immutable.
+
+A checker false positive appeared because post-FTS ALTER migrations invalidate the
+combined SQLite schema connection. The checker-generated owned virtual-table probe
+now permits the same internal `data_version` introspection as FTS CREATE/DROP.
+Catalog PRAGMA, foreign virtual/shadow reads and private imports remain negative
+fixtures; no runtime SQL permission was expanded.
+
+The mutation runner `node tools/audit-insights-mutations.mjs [case-id ...]` runs
+alone, first requires a passing focused regression, restores source/catalogs in
+`finally`, regenerates SQL mutations, and distinguishes assertion kills from setup
+errors. Detailed transient output is in ignored `reports/11a-*.log`, with a JSON
+summary in `reports/insights-mutations.json`. These are bounded mutation probes,
+not a comprehensive mutation score. The duplicate probe deliberately corrupts
+both replay identity fields to simulate projecting the same event twice despite
+storage uniqueness; the separate split-batch probe creates a real partial commit.
+
+All D1 evidence is Miniflare/workerd. Real Cloudflare cron delivery, production
+scale, external notification delivery, and reconstructing historical client IDs
+remain outside this audit. Workspace traversal is not an atomic snapshot, and
+consumption is bounded per owner/workspace per tick; lag can accumulate.
+
+### 11a executed mutation evidence
+
+All 26 probes below failed behavioral assertions after a passing focused baseline; none survived and none are counted as setup failures.
+
+| Mutation | Result | Detecting regression |
+|---|---|---|
+| `duplicate-projection` | killed | `duplicate delivery` |
+| `cursor-without-projection` | killed | `11a atomic projection` |
+| `projection-without-cursor` | killed | `11a atomic projection` |
+| `split-batch-crash` | killed | `11a atomic projection` |
+| `skip-unknown-schema` | killed | `11a lag advances` |
+| `stale-lag-time` | killed | `11a lag advances` |
+| `feed-no-authorization` | killed | `11a authorization precedes` |
+| `filter-before-authorization` | killed | `11a authorization precedes` |
+| `notification-body` | killed | `11a notifications contain` |
+| `notification-invisible-target` | killed | `11a notifications contain` |
+| `notification-invisible-recipient` | killed | `11a notifications contain` |
+| `subscribe-changed-retry` | killed | `11a subscribe fingerprint` |
+| `markRead-changed-retry` | killed | `11a markRead fingerprint` |
+| `subscribe-storage-cas` | killed | `11a subscribe fingerprint` |
+| `markRead-storage-cas` | killed | `11a markRead fingerprint` |
+| `markRead-retry-revoked` | killed | `11a markRead fingerprint` |
+| `metrics-ignore-client` | killed | `11a metrics group` |
+| `metrics-ignore-window` | killed | `11a metrics group` |
+| `metrics-future` | killed | `11a metrics group` |
+| `gateway-consumer-capability` | killed | `11a Gateway API` |
+| `gateway-rest-mcp-consumer` | killed | `11a background consumption` |
+| `scheduled-first-page-only` | killed | `11a Worker scheduled` |
+| `scheduled-missing` | killed | `11a Worker scheduled` |
+| `discovery-includes-archived` | killed | `11a background discovery` |
+| `web-client-attribution` | killed | `11a feed shows` |
+| `legacy-forced-claim` | killed | `11a attribution` |
+
+### 11a validation
+
+`pnpm verify` passed: 64 boundary-checker fixtures, 202 module tests, type/static
+checks, migrations, build/artifact checks, Gateway/OAuth, Web unit and smoke tests.
+All 26 mutation probes were killed by behavioral assertions. The final legacy
+stored-projection and isolated-workspace headless Web regressions were rerun with
+their mutations after the corresponding test refinements; both baselines passed
+and both mutants failed. TypeScript and the healthy build/artifact were checked
+again after restoring mutation output. Required MR CI is checked on the pushed
+commit; no merge or deployment is part of this audit.

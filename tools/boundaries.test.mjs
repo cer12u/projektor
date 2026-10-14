@@ -34,6 +34,27 @@ const ddl = (root, sql, object) => {
 };
 const cases = [
   [
+    "Gateway cannot import Access background discovery factory",
+    "import",
+    (r) =>
+      write(
+        r,
+        "gateway/background.ts",
+        'export { createAccess } from "../modules/access/internal/factory";',
+      ),
+  ],
+  [
+    "Gateway cannot import Insights consumer factory",
+    "import",
+    (r) =>
+      write(
+        r,
+        "gateway/background.ts",
+        'export { createInsights } from "../modules/insights/internal/factory";',
+      ),
+  ],
+
+  [
     "union hides storage",
     "public-type",
     (r) => append(r, `${a}/public.ts`, 'export type Hidden = "none" | { nested: D1Database };'),

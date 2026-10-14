@@ -23,3 +23,7 @@ Access is also a declared direct dependency for live scope admission (as already
 implemented in step 10); Issues and Projects remain the only business-data
 providers. The step 10a audit and reproducible mutation runner are documented in
 [test-audit.md](test-audit.md).
+
+## Event attribution (11a)
+
+New outbox events use schemaVersion 2 and `payload.clientId` from RequestScope (nullable), alongside the actor ID. Existing version-1 rows keep their original data and read with null client attribution. Consumers must accept both versions.

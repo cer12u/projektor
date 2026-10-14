@@ -582,3 +582,28 @@ test("10a populated tenants isolate identical sprint, issue and operation IDs", 
   assert.equal((await f.api.readEvents(f.eventReader, "w2", 0, 100)).length, 2);
   await assert.rejects(f.api.getSprintItems(f.scope("w1", "outsider"), "s1"), code("not_found"));
 });
+
+test("11a Planning event attribution and legacy null", async () => {
+  const f = await fixture();
+  const s = f.fake.issue({
+    id: "agent",
+    workspaceId: "w1",
+    role: "member",
+    kind: "machine",
+    scope: "write",
+    active: true,
+    clientId: "Claude",
+  });
+  await f.api.createSprint(s, create());
+  const current = (await f.api.readEvents(f.eventReader, "w1", 0, 100))[0];
+  assert.equal(current.schemaVersion, 2);
+  assert.equal(current.payload.clientId, "Claude");
+  await f.db
+    .prepare(
+      "INSERT INTO planning_events(workspace_id,sequence,event_id,aggregate_id,aggregate_version,type,actor_id,occurred_at) VALUES('w1',2,'old','s1',1,'SprintChanged','agent',1)",
+    )
+    .run();
+  const old = (await f.api.readEvents(f.eventReader, "w1", 1, 100))[0];
+  assert.equal(old.schemaVersion, 1);
+  assert.equal(old.payload.clientId, null);
+});

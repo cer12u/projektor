@@ -59,11 +59,14 @@ export interface WipCap {
 export interface CoordinationEvent {
   readonly eventId: string;
   readonly source: "coordination";
-  readonly schemaVersion: 1;
+  readonly schemaVersion: 1 | 2;
   readonly workspaceId: string;
   readonly type: "LeaseChanged" | "ProgressReported" | "FileClaimForced";
   readonly subjectId: string;
   readonly actorId: string;
+  readonly payload: { readonly actorId: string; readonly clientId: string | null };
+  readonly issueId: string | null;
+  readonly projectId: string | null;
   readonly otherSessionId: string | null;
   readonly occurredAt: number;
   readonly cursor: number;

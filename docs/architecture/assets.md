@@ -72,3 +72,7 @@ source writers or tests against its shared bundles concurrently. Each probe
 checks its healthy regression, applies one defect, records assertion-based
 results in `reports/`, and restores the sources. No public contract, migration,
 owner resource or dependency was added by the audit.
+
+## Event attribution (11a)
+
+New outbox events use schemaVersion 2 and `payload.clientId` from RequestScope (nullable), alongside the actor ID. Existing version-1 rows keep their original data and read with null client attribution. Consumers must accept both versions.

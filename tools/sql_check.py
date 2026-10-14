@@ -82,14 +82,16 @@ def guard(owner, storage, migration=False, fts_lifecycle=False):
     return auth, violations
 
 
-def execute_checked(db, owner, storage, sql, migration=False):
+def execute_checked(db, owner, storage, sql, migration=False, virtual_probe=False):
     fts_creation = migration and bool(re.match(r"\s*CREATE\s+VIRTUAL\s+TABLE\s+", sql, re.I))
     # SQLite reconnects FTS5 during DROP after schema changes, reading data_version.
     # Only an exact DROP of an owned virtual table receives the same internal
     # introspection allowance as CREATE; explicit PRAGMA remains forbidden.
+    # virtual_probe is set only for our generated SELECT of an owned registered
+    # virtual table: later ALTER migrations can also invalidate its connection.
     drop = re.fullmatch(r"\s*DROP\s+TABLE\s+([A-Za-z_][A-Za-z_0-9]*)\s*;?\s*", sql, re.I)
     fts_drop = migration and drop is not None and drop[1] in storage.get("virtualTables", [])
-    auth, violations = guard(owner, storage, migration, fts_creation or fts_drop)
+    auth, violations = guard(owner, storage, migration, fts_creation or fts_drop or virtual_probe)
     db.set_authorizer(auth)
     try:
         if migration:
@@ -120,7 +122,7 @@ def probe(db, owner, storage):
         if name not in storage["tables"] + storage["objects"]:
             continue
         if kind in {"table", "view"}:
-            execute_checked(db, owner, storage, f"SELECT * FROM {quote(name)}")
+            execute_checked(db, owner, storage, f"SELECT * FROM {quote(name)}", virtual_probe=name in storage.get("virtualTables", []))
         if kind == "table":
             # Compile triggers on INSERT/UPDATE/DELETE even with no rows and WHEN false.
             columns = [row[1] for row in db.execute(f"PRAGMA table_xinfo({quote(name)})") if row[6] == 0]

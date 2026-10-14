@@ -331,7 +331,7 @@ for (const [method, makeInput, changed] of commands) {
     assert.equal(event.aggregateVersion, result.version);
     assert.equal(event.payload.actorId, "owner");
     assert.equal(event.source, "projects");
-    assert.equal(event.schemaVersion, 1);
+    assert.equal(event.schemaVersion, 2);
     assert.equal(event.workspaceId, "w1");
     assert.equal(event.occurredAt, f.state.now);
     assert.equal(
@@ -858,4 +858,21 @@ test("10a getProjectIncludingArchived preserves grants, provenance and tenant is
     code("not_found"),
   );
   await assert.rejects(f.api.authorizeProject(f.owner, "p1", "write"), code("not_found"));
+});
+
+test("11a Projects event attribution and legacy null", async () => {
+  const f = await fixture();
+  const s = f.access.issue(actor("agent", "w1", "owner", "machine", "write", "Codex"));
+  await f.api.createProject(s, create("p1", "ONE"));
+  const current = (await f.api.readEvents(f.eventReader, "w1", 0, 100))[0];
+  assert.equal(current.schemaVersion, 2);
+  assert.equal(current.payload.clientId, "Codex");
+  await f.db
+    .prepare(
+      "INSERT INTO projects_events(workspace_id,sequence,event_id,aggregate_id,aggregate_version,type,occurred_at,actor_id) VALUES('w1',2,'old','p1',1,'ProjectChanged',1,'agent')",
+    )
+    .run();
+  const old = (await f.api.readEvents(f.eventReader, "w1", 1, 100))[0];
+  assert.equal(old.schemaVersion, 1);
+  assert.equal(old.payload.clientId, null);
 });

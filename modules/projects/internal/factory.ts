@@ -164,7 +164,17 @@ export function createProjects(deps: Dependencies): {
         },
         {
           name: "event",
-          values: [w, w, ids.next(), output.id, output.version, type, clock.now(), actor(scope)],
+          values: [
+            w,
+            w,
+            ids.next(),
+            output.id,
+            output.version,
+            type,
+            clock.now(),
+            actor(scope),
+            scope.clientId ?? null,
+          ],
         },
       ]);
       return output;
@@ -391,13 +401,16 @@ export function createProjects(deps: Dependencies): {
         (row): ProjectEvent => ({
           eventId: str(row, "event_id"),
           source: "projects",
-          schemaVersion: 1,
+          schemaVersion: num(row, "schema_version") as 1 | 2,
           workspaceId,
           aggregateId: str(row, "aggregate_id"),
           aggregateVersion: num(row, "aggregate_version"),
           type: str(row, "type") as ProjectEventType,
           occurredAt: num(row, "occurred_at"),
-          payload: { actorId: str(row, "actor_id") },
+          payload: {
+            actorId: str(row, "actor_id"),
+            clientId: row.client_id === null ? null : str(row, "client_id"),
+          },
           cursor: num(row, "sequence"),
         }),
       );
