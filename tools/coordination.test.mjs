@@ -629,7 +629,9 @@ test("audit claim race rolls back every path when a later path loses CAS", async
   await start(f.api, a, "sa");
   f.beforeBatch(async () => {
     await f.db
-      .prepare("INSERT INTO coord_file_claims(workspace_id,repo,path,session_id,lease_issue_id,expires_at) VALUES ('w1','repo','z','competitor',NULL,20000)")
+      .prepare(
+        "INSERT INTO coord_file_claims(workspace_id,repo,path,session_id,lease_issue_id,expires_at) VALUES ('w1','repo','z','competitor',NULL,20000)",
+      )
       .run();
   });
   await assert.rejects(
