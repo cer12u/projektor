@@ -574,6 +574,8 @@ export function createCoordination(d: Dependencies): {
               result.reportedAt,
             ],
           }),
+          { name: "appendReport", values: [w(scope), iid, w(scope), iid] },
+          { name: "trimReports", values: [w(scope), iid, w(scope), iid] },
         ],
         [{ type: "ProgressReported", subject: iid }],
       );
@@ -596,6 +598,18 @@ export function createCoordination(d: Dependencies): {
       await issue(scope, issueId);
       const r = await one("progress", [w(scope), id(issueId)]);
       return r ? reportRow(r) : null;
+    },
+    async listProgress(scope, issueId, input = {}) {
+      await issue(scope, issueId);
+      const cursor =
+        input.cursor === undefined ? Number.MAX_SAFE_INTEGER : integer(input.cursor, 1);
+      const limit = input.limit === undefined ? 50 : integer(input.limit, 1, 100);
+      const rows = (await store.run("progressHistory", [w(scope), id(issueId), cursor, limit + 1]))
+        .rows;
+      const items = rows
+        .slice(0, limit)
+        .map((r) => ({ ...reportRow(r), sequence: num(r, "sequence") }));
+      return { items, nextCursor: rows.length > limit ? items[items.length - 1].sequence : null };
     },
     async listSessions(scope) {
       const live = await access.authorize(scope);

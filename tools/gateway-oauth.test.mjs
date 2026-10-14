@@ -388,6 +388,10 @@ test("CSRF origin/cookie/signature/subject checks, single use race, safe redirec
     400,
   );
   assert.equal((await approve(form, viewerAssertion)).status, 400);
+  assert.equal(
+    (await approve(form, ownerAssertion, { cookie: "__Host-projektor-consent=wrong" })).status,
+    400,
+  );
   const race = await Promise.all([approve(form), approve(form)]);
   assert.deepEqual(race.map((x) => x.status).sort(), [303, 400]);
   const invalid = new URL(p.url);

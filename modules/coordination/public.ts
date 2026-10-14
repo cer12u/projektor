@@ -32,6 +32,13 @@ export interface Progress {
   readonly status: string;
   readonly reportedAt: number;
 }
+export interface ProgressEntry extends Progress {
+  readonly sequence: number;
+}
+export interface ProgressPage {
+  readonly items: readonly ProgressEntry[];
+  readonly nextCursor: number | null;
+}
 export interface CoordinationEvent {
   readonly eventId: string;
   readonly source: "coordination";
@@ -135,6 +142,11 @@ export interface CoordinationApi {
   listLeases(scope: RequestScope, projectId: string): Promise<readonly Lease[]>;
   listClaims(scope: RequestScope, repo: string, sessionId: string): Promise<readonly FileClaim[]>;
   getProgress(scope: RequestScope, issueId: string): Promise<Progress | null>;
+  listProgress(
+    scope: RequestScope,
+    issueId: string,
+    input?: { readonly cursor?: number; readonly limit?: number },
+  ): Promise<ProgressPage>;
   listSessions(scope: RequestScope): Promise<readonly Session[]>;
   readOperation(scope: RequestScope, operationId: string): Promise<unknown | null>;
   readAgentEvents(

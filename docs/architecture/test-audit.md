@@ -374,3 +374,105 @@ because restart now obtains keys from trusted HTTPS instead of KV; it still chec
 unknown-key denial, healthy cold-start login, bounded subsequent misses, rotation
 and failure behavior. The reason is the independently reproduced trust defect,
 not a need to pass CI.
+
+## Gateway and Coordination independent test audit — 08a
+
+Reviewed merged main `3bf12fa` against the owner decisions and rewrite-plan
+§5/§7.1. Gateway covers both 06a REST/MCP and 06b OAuth HTTP. Coordination
+uses only its own migrations in the isolated Miniflare suite; transport tests
+use the real Worker, all provider schemas, and the official MCP SDK. These are
+local workerd results, not deployed D1 or live third-party client certification.
+
+### Behavior → test map
+
+Names below identify executable tests in `tools/gateway.test.mjs` (G),
+`tools/gateway-oauth.test.mjs` (O), `tools/gateway-oauth-rules.test.mjs` (R), and
+`tools/coordination.test.mjs` (C). A row records the exercised scenarios, not an
+exhaustive proof over the entire public input space.
+
+| Surface / invariant | Executable evidence |
+|---|---|
+| REST/MCP catalog dispatch, errors, input rejection, retry/CAS and two tenants | G `REST/MCP parity…`; `official MCP SDK…`; generated descriptions in `transport limits…` |
+| Human assertion and machine bearer are mutually exclusive; URL/header workspace must agree; Origin and JSON MIME enforced before provider dispatch | R **new** `audit Gateway guards…` asserts zero reads/writes on rejection; G `transport limits…` covers body size, request IDs and unknown fields |
+| MCP write tools require write admission independently of owner enforcement | R **new** `audit Gateway guards…` uses an accepting Issues fake so a missing Gateway admission cannot hide behind the real owner's check; O `PKCE and redirect mismatches…` proves real read-only OAuth step-up |
+| Ordinary exceptions and `PlatformError(unknown)` cannot expose internal details on REST/MCP | R **new** `audit Gateway guards…` injects both errors and checks exact sanitized responses; OAuth uncertainty independently covered by `provider-contract fake: backend uncertainty…` |
+| OAuth credentials only on MCP; missing/invalid credentials produce WWW-Authenticate | R **new** guards; O `SDK discovery/DCR/consent/token…` uses actual OAuth tokens, SDK challenge parsing, discovery and DCR |
+| OAuth browser envelope: exact Origin, cookie binding, signed form, subject binding, single consumer, safe redirect and denial | O `CSRF origin/cookie/signature/subject checks…`, **extended** with a present but wrong CSRF cookie; concurrent approval requires exactly one 303; unregistered redirect returns 400 without Location |
+| OAuth token endpoints: PKCE, exact redirect, refresh rotation/replay, revoke, live workspace and scope | O `SDK discovery…`; `PKCE and redirect mismatches…`; metadata/CORS/rate limits in `metadata aliases…`; R parser/limiter fakes test fail-closed provider calls |
+| `startSession`, `heartbeat`, `endSession`: ownership, liveness, terminal expiry/end, release related claims/leases | C `concurrent acquire…`, `limit CAS…`, `heartbeat keeps…`, `endSession releases…`; **new** every-command rollback/retry/restart matrix |
+| `acquireLease`: exactly one holder and monotonic fence across release/reclaim/restart | C `concurrent acquire…`, `stale lease reclaim…`; **new** `audit live holder…` uses live competing sessions and same-session reacquisition |
+| `renewLease`, `releaseLease`, `reportProgress`, linked `claimFiles`: stale token rejected while session is live | C **new** `audit live holder…` asserts no receipt, report, claim or lease change; four **new** `audit SQL fence survives admission race…` tests advance the stored token immediately before batch execution, proving SQL guards independently of prechecks |
+| `setProjectLimit`: manager policy, CAS, capacity at exact boundary, race | C `WIP cap…`, `limit CAS…`; every-command matrix verifies receipt failure/replay; off-by-one mutation must kill the competing-acquire test |
+| `claimFiles` / `releaseFiles`: exact paths, whole-call atomicity, force requires project manager | C `WIP cap…`, `endSession…`; **new** `audit claim race…` inserts a competitor after preflight and conflicts on the second path, checking the first path rolled back; **new** `audit claims reject…` denies a normal member force even with a valid current lease |
+| `getLease`, `listLeases`, `listClaims`: tenant filtering with visible nonempty datasets | C **new** `audit claims reject…` populates both workspaces with distinct lease/claim contents and checks both directions; existing tests cover live revocation and missing lease |
+| `reportProgress`: latest and bounded immutable history are atomic with receipt/event; never changes Issues | C **new** history order/retention/rollback tests; G `two MCP SDK agents…` checks real Issues remains `todo`, and REST/MCP history parity |
+| `getProgress`, **new** `listProgress`: live issue authorization, workspace/issue isolation, newest-first keyset, no timestamp ambiguity | C **new** `audit report history preserves…` writes equal-timestamp reports, interleaves a new report between pages, checks restart/replay, invalid bounds, another issue/workspace and revoke |
+| History retention / migration | C **new** `audit history retention…` checks exactly 1,000 rows and rollback of pruning; `audit progress migration…` builds immutable 0001, inserts a legacy latest row, then applies 0002 and checks preservation |
+| Every command: failed receipt rolls back owned state; replay has no repeated effects; restart recovery | C **new** `audit every command…` injects failure in the receipt INSERT for all ten commands and snapshots all nine owner tables before/after; then runs healthy command, restart retry and `readOperation` |
+| `listSessions`, `readOperation`, `readAgentEvents`, internal `readEvents` | C **new** `audit session visibility…` checks own versus admin visibility, actor/workspace receipt partition, concurrent report retry, exact event envelope/order, tenant/principal filtering, copied/foreign-factory reader denial and invalid cursors/limits; G `two MCP SDK agents…` checks event REST/MCP parity |
+| Consumed dependency contracts | **new** `coordinationProviderContract` runs on C's isolated Access/Projects/Issues fakes and G's real providers; tests copied-scope rejection, read/write ceiling, manager versus editor, missing issue and returned issue/project identity |
+
+### Findings and changes
+
+1. **Overwritten progress (owner finding):** retain `coord_reports` for a fast
+   latest read, add `coord_report_history` with tenant/issue/sequence primary key.
+   Reports append and prune to the most recent 1,000 entries in the existing
+   guarded transaction. New `listProgress` returns newest-first keyset pages
+   (default 50, maximum 100). Migration 0002 preserves the old latest row;
+   already overwritten reports are unrecoverable. Same-operation retry does not
+   duplicate history. Fencing, event schema and provider edges are unchanged.
+2. **Internal error leakage:** Gateway previously returned the message of every
+   PlatformError, including `unknown`. It now sanitizes that code as well as
+   ordinary exceptions; known actionable error messages retain their mapping.
+3. **Test blind spots:** stale-session rejection could hide missing fencing;
+   claim preflight could hide partial transaction commits; real owner admission
+   could hide missing MCP admission; an absent cookie did not test comparison
+   of a present incorrect cookie. Dedicated negative fixtures isolate each check.
+
+The 1,000-report retention limit is a bounded operational history decision for
+this owner request, documented in [Coordination](coordination.md). Paging does
+not pin rows against pruning. Only this new oldest-tail retention deletes rows;
+retained reports are never updated. No existing migration, boundary checker,
+allowlist, dependency edge or assertion was relaxed. Plan §4 and §8 now record
+the history query/table and this audit step.
+
+### Executed mutation probes
+
+`node tools/audit-gateway-coordination-mutations.mjs [case-id]` runs one/all
+probes sequentially, first requiring the matching healthy test to pass. It
+refuses an existing lock, checks exact source targets, regenerates catalogs for
+SQL changes, and restores source/catalogs in `finally`. Never run it alongside
+other source writers or test bundles. A crashed process requires inspection
+before deleting the lock. Detailed healthy/mutated logs and machine-readable
+results go to `reports/08a-*` and `reports/gateway-coordination-mutations.json`.
+Use `--original case-id...` to run the original suites from `3bf12fa`; these
+results/logs have an `original-` marker and survivors are expected audit evidence.
+Only a failing behavioral assertion counts as killed, not a setup/build error.
+
+| Mutations | Detecting regression |
+|---|---|
+| `dual-credentials`, `workspace-header`, `origin`, `non-json`, `internal-error`, `mcp-write-scope`, `oauth-on-rest`, `www-authenticate` | R `audit Gateway guards…` |
+| `form-replay`, `csrf-cookie`, `unregistered-redirect` (unsafe fallback redirect after consent validation fails) | O `CSRF origin…` |
+| `two-live-holders` (remove precheck and SQL vacancy condition) | C `audit live holder…` |
+| `stale-reportProgress`, `stale-renewLease`, `stale-releaseLease`, `stale-claimFiles` (remove both token precheck and corresponding SQL token predicate) | C `audit live holder…` |
+| `sql-fence-reportProgress`, `sql-fence-renewLease`, `sql-fence-releaseLease`, `sql-fence-claimFiles` (SQL-only removal) | C four `audit SQL fence survives admission race…` |
+| `wip-off-by-one` | C `WIP cap…` |
+| `partial-claim` (commit each guarded claim separately) | C `audit claim race…` |
+| `force-non-manager` | C `audit claims reject…` |
+| `tenant-lease`, `tenant-leases`, `tenant-claims` | C `audit claims reject…` |
+| `issues-state` (report calls real Issues transition API) | G `two MCP SDK agents…` |
+
+The campaign is a bounded list of specific faults, not an exhaustive mutation
+score. Remaining later-step evidence: real Cloudflare smoke/resources, live
+Claude Code/Dots interoperability, Web timeline usability, and any future
+permanent audit retention or export policy. The existing 100-row session/lease/
+claim list limits and event/receipt lifecycle remain unchanged.
+
+08a executed result: **27/27 mutants killed**, each paired healthy regression
+passed. Five selected probes were additionally run against the unchanged test
+files from `3bf12fa`: `mcp-write-scope`, `csrf-cookie`,
+`sql-fence-reportProgress`, `partial-claim`, and `force-non-manager` all
+**survived the original suites** and were killed by the added regressions.
+The partial-claim probe splits only guarded claim groups, preserving each local
+CAS guard, so the result specifically tests cross-path atomicity rather than
+breaking all guarded commands during setup.

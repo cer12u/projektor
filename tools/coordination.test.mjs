@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { after, before, test } from "node:test";
 import { build } from "esbuild";
 import { Miniflare } from "miniflare";
+import { coordinationProviderContract } from "./coordination-provider-contract.mjs";
 
 let platform,
   mf,
@@ -29,7 +30,7 @@ before(async () => {
     modules: true,
     script: "export default {fetch(){return new Response('ok')}}",
     compatibilityDate: "2026-07-30",
-    d1Databases: Array.from({ length: 20 }, (_, i) => `COORD${i}`),
+    d1Databases: Array.from({ length: 40 }, (_, i) => `COORD${i}`),
   });
 });
 after(async () => mf?.dispose());
@@ -70,8 +71,18 @@ async function fixture() {
       return { id: issueId, projectId: issueId.startsWith("p2") ? "p2" : "p1" };
     },
   };
+  const store = platform.createModuleStore(db, "coordination");
+  let beforeBatch;
   const deps = {
-    store: platform.createModuleStore(db, "coordination"),
+    store: {
+      ...store,
+      batch: async (calls) => {
+        const hook = beforeBatch;
+        beforeBatch = undefined;
+        if (hook) await hook(calls);
+        return store.batch(calls);
+      },
+    },
     access: auth.access,
     projects,
     issues,
@@ -82,6 +93,10 @@ async function fixture() {
   const { api, eventReader } = platform.createCoordination(deps);
   return {
     db,
+    providers: { access: auth.access, projects, issues },
+    beforeBatch: (hook) => {
+      beforeBatch = hook;
+    },
     api,
     auth,
     issue,
@@ -337,4 +352,413 @@ test("heartbeat keeps active session claims live", async () => {
     code("conflict"),
   );
   assert.equal((await f.api.listClaims(a, "repo", "sa"))[0].expiresAt, 10250);
+});
+
+test("audit live holder and stale token matrix leaves no receipts or effects", async () => {
+  const f = await fixture(),
+    a = f.issue("w1", "a"),
+    b = f.issue("w1", "b");
+  await start(f.api, a, "sa");
+  await start(f.api, b, "sb");
+  await acquire(f.api, a, "sa", "p1-i");
+  await assert.rejects(acquire(f.api, b, "sb", "p1-i"), code("conflict"));
+  await f.api.releaseLease(a, {
+    operationId: "release",
+    sessionId: "sa",
+    issueId: "p1-i",
+    fencingToken: 1,
+  });
+  const current = await acquire(f.api, a, "sa", "p1-i", "reacquire");
+  assert.equal(current.fencingToken, 2);
+  for (const method of ["renewLease", "releaseLease", "reportProgress", "claimFiles"]) {
+    const input = {
+      operationId: method,
+      sessionId: "sa",
+      issueId: "p1-i",
+      fencingToken: 1,
+      text: "stale",
+      status: "done",
+      repo: "repo",
+      paths: ["stale"],
+      leaseIssueId: "p1-i",
+    };
+    await assert.rejects(f.api[method](a, input), code("conflict"));
+    assert.equal(await f.api.readOperation(a, method), null);
+  }
+  assert.deepEqual(await f.api.getLease(a, "p1-i"), current);
+  assert.equal(await f.api.getProgress(a, "p1-i"), null);
+  assert.deepEqual(await f.api.listClaims(a, "repo", "sa"), []);
+});
+
+test("audit claims reject non-manager force and isolate both populated tenants", async () => {
+  const f = await fixture(),
+    a = f.issue("w1", "a"),
+    b = f.issue("w1", "b"),
+    other = f.issue("w2", "a");
+  for (const [s, id] of [
+    [a, "sa"],
+    [b, "sb"],
+    [other, "sa"],
+  ])
+    await start(f.api, s, id);
+  await acquire(f.api, a, "sa", "p1-i");
+  await acquire(f.api, other, "sa", "p1-other");
+  await f.api.claimFiles(b, {
+    operationId: "held",
+    sessionId: "sb",
+    repo: "repo",
+    paths: ["held"],
+  });
+  await f.api.claimFiles(other, {
+    operationId: "other",
+    sessionId: "sa",
+    repo: "repo",
+    paths: ["secret"],
+  });
+  await assert.rejects(
+    f.api.claimFiles(a, {
+      operationId: "force-denied",
+      sessionId: "sa",
+      repo: "repo",
+      paths: ["held"],
+      leaseIssueId: "p1-i",
+      fencingToken: 1,
+      force: true,
+    }),
+    code("forbidden"),
+  );
+  assert.deepEqual(
+    (await f.api.listClaims(a, "repo", "sa")).map((x) => x.path),
+    ["held"],
+  );
+  assert.deepEqual(
+    (await f.api.listClaims(other, "repo", "sa")).map((x) => x.path),
+    ["secret"],
+  );
+  assert.equal(await f.api.getLease(other, "p1-i"), null);
+  assert.deepEqual(
+    (await f.api.listLeases(a, "p1")).map((x) => x.issueId),
+    ["p1-i"],
+  );
+  assert.deepEqual(
+    (await f.api.listLeases(other, "p1")).map((x) => x.issueId),
+    ["p1-other"],
+  );
+});
+
+test("audit report history preserves order, retries, tenant and issue keysets and live authorization", async () => {
+  const f = await fixture(),
+    a = f.issue("w1", "a"),
+    other = f.issue("w2", "a");
+  for (const s of [a, other]) {
+    await start(f.api, s, "sa");
+    await acquire(f.api, s, "sa", "p1-i");
+  }
+  const input = { sessionId: "sa", issueId: "p1-i", fencingToken: 1, status: "working" };
+  assert.deepEqual(await f.api.listProgress(a, "p1-i"), { items: [], nextCursor: null });
+  for (let i = 1; i <= 3; i++)
+    await f.api.reportProgress(a, { ...input, operationId: `report-${i}`, text: `report-${i}` });
+  await f.api.reportProgress(other, { ...input, operationId: "foreign", text: "secret" });
+  await acquire(f.api, a, "sa", "p1-other");
+  await f.api.reportProgress(a, {
+    ...input,
+    issueId: "p1-other",
+    operationId: "other-issue",
+    text: "other issue",
+  });
+  const first = await f.api.listProgress(a, "p1-i", { limit: 2 });
+  assert.deepEqual(
+    first.items.map((x) => [x.sequence, x.text]),
+    [
+      [3, "report-3"],
+      [2, "report-2"],
+    ],
+  );
+  assert.equal(first.nextCursor, 2);
+  await f.api.reportProgress(a, { ...input, operationId: "report-4", text: "report-4" });
+  const last = await f.restart().listProgress(a, "p1-i", { cursor: first.nextCursor, limit: 2 });
+  assert.deepEqual(
+    last.items.map((x) => x.sequence),
+    [1],
+  );
+  assert.equal(last.nextCursor, null);
+  const old = await f
+    .restart()
+    .reportProgress(a, { ...input, operationId: "report-1", text: "report-1" });
+  assert.equal(old.text, "report-1");
+  assert.equal((await f.api.listProgress(a, "p1-i")).items.length, 4);
+  assert.equal((await f.api.getProgress(a, "p1-i")).text, "report-4");
+  await assert.rejects(
+    f.api.reportProgress(a, { ...input, operationId: "report-1", text: "changed" }),
+    code("conflict"),
+  );
+  for (const args of [
+    { limit: 0 },
+    { limit: 101 },
+    { cursor: 0 },
+    { cursor: null },
+    { limit: 1.5 },
+  ])
+    await assert.rejects(f.api.listProgress(a, "p1-i", args), code("validation"));
+  f.auth.revoke(a);
+  await assert.rejects(f.api.listProgress(a, "p1-i"), code("forbidden"));
+});
+
+test("audit history retention and final event failure roll back latest, history and receipt", async () => {
+  const f = await fixture(),
+    a = f.issue("w1", "a");
+  await start(f.api, a, "sa");
+  await acquire(f.api, a, "sa", "p1-i");
+  await f.db
+    .prepare(
+      "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<1000) INSERT INTO coord_report_history SELECT 'w1','p1-i',i,'sa',1,'seed','working',10000 FROM n",
+    )
+    .run();
+  const input = {
+    operationId: "report",
+    sessionId: "sa",
+    issueId: "p1-i",
+    fencingToken: 1,
+    text: "latest",
+    status: "done",
+  };
+  await f.api.reportProgress(a, input);
+  const rows = await f.db
+    .prepare(
+      "SELECT COUNT(*) AS n,MIN(sequence) AS first,MAX(sequence) AS last FROM coord_report_history",
+    )
+    .first();
+  assert.deepEqual(rows, { n: 1000, first: 2, last: 1001 });
+  await f.db.exec(
+    "CREATE TRIGGER reject_progress BEFORE INSERT ON coord_events WHEN NEW.type='ProgressReported' BEGIN SELECT RAISE(ABORT,'injected'); END",
+  );
+  await assert.rejects(
+    f.api.reportProgress(a, { ...input, operationId: "failed", text: "must rollback" }),
+    code("unknown"),
+  );
+  assert.equal((await f.api.getProgress(a, "p1-i")).text, "latest");
+  assert.equal((await f.api.listProgress(a, "p1-i", { limit: 1 })).items[0].sequence, 1001);
+  assert.equal(await f.api.readOperation(a, "failed"), null);
+  assert.deepEqual(
+    await f.db
+      .prepare(
+        "SELECT COUNT(*) AS n,MIN(sequence) AS first,MAX(sequence) AS last FROM coord_report_history",
+      )
+      .first(),
+    rows,
+  );
+});
+
+test("audit claim race rolls back every path when a later path loses CAS", async () => {
+  const f = await fixture(),
+    a = f.issue("w1", "a");
+  await start(f.api, a, "sa");
+  f.beforeBatch(async () => {
+    await f.db
+      .prepare("INSERT INTO coord_file_claims VALUES ('w1','repo','z','competitor',NULL,20000)")
+      .run();
+  });
+  await assert.rejects(
+    f.api.claimFiles(a, { operationId: "race", sessionId: "sa", repo: "repo", paths: ["a", "z"] }),
+    code("conflict"),
+  );
+  assert.deepEqual(
+    (await f.api.listClaims(a, "repo", "sa")).map((x) => [x.path, x.sessionId]),
+    [["z", "competitor"]],
+  );
+  assert.equal(await f.api.readOperation(a, "race"), null);
+});
+
+for (const method of ["reportProgress", "renewLease", "releaseLease", "claimFiles"]) {
+  test(`audit SQL fence survives admission race: ${method}`, async () => {
+    const f = await fixture(),
+      a = f.issue("w1", "a");
+    await start(f.api, a, "sa");
+    await acquire(f.api, a, "sa", "p1-i");
+    f.beforeBatch(async () => {
+      await f.db
+        .prepare(
+          "UPDATE coord_leases SET fencing_token=2 WHERE workspace_id='w1' AND issue_id='p1-i'",
+        )
+        .run();
+    });
+    await assert.rejects(
+      f.api[method](a, {
+        operationId: "race",
+        sessionId: "sa",
+        issueId: "p1-i",
+        fencingToken: 1,
+        text: "stale",
+        status: "done",
+        repo: "repo",
+        paths: ["a"],
+        leaseIssueId: "p1-i",
+      }),
+      code("conflict"),
+    );
+    assert.equal(await f.api.readOperation(a, "race"), null);
+    assert.equal((await f.api.getLease(a, "p1-i")).fencingToken, 2);
+    assert.equal((await f.api.getLease(a, "p1-i")).sessionId, "sa");
+    assert.equal(await f.api.getProgress(a, "p1-i"), null);
+    assert.deepEqual(await f.api.listProgress(a, "p1-i"), { items: [], nextCursor: null });
+    assert.deepEqual(await f.api.listClaims(a, "repo", "sa"), []);
+  });
+}
+
+test("audit progress migration preserves prior latest row without rewriting migration 0001", async () => {
+  const db = await mf.getD1Database(`COORD${index++}`);
+  const sql = fs.readFileSync(
+    "modules/coordination/storage/migrations/0001_coordination.sql",
+    "utf8",
+  );
+  for (const statement of sql.trim().split(";"))
+    if (statement.trim()) await db.prepare(statement).run();
+  await db
+    .prepare("INSERT INTO coord_reports VALUES ('w1','p1-i','sa',7,'previous','working',9000)")
+    .run();
+  const next = fs.readFileSync(
+    "modules/coordination/storage/migrations/0002_progress_history.sql",
+    "utf8",
+  );
+  for (const statement of next.trim().split(";"))
+    if (statement.trim()) await db.prepare(statement).run();
+  const old = await db.prepare("SELECT * FROM coord_reports").first();
+  assert.deepEqual(await db.prepare("SELECT * FROM coord_report_history").first(), {
+    ...old,
+    sequence: 1,
+  });
+});
+
+test("audit every command rolls back on receipt failure, retries and recovers after restart", async () => {
+  const inputs = {
+    startSession: { sessionId: "new", agentLabel: "new", clientKind: "codex" },
+    heartbeat: { sessionId: "sa" },
+    endSession: { sessionId: "sa" },
+    acquireLease: { sessionId: "sa", issueId: "p1-next" },
+    renewLease: { sessionId: "sa", issueId: "p1-i", fencingToken: 1 },
+    releaseLease: { sessionId: "sa", issueId: "p1-i", fencingToken: 1 },
+    setProjectLimit: { projectId: "p1", cap: 2, expectedVersion: 0 },
+    claimFiles: { sessionId: "sa", repo: "repo", paths: ["new"] },
+    releaseFiles: { sessionId: "sa", repo: "repo", paths: ["held"] },
+    reportProgress: {
+      sessionId: "sa",
+      issueId: "p1-i",
+      fencingToken: 1,
+      text: "progress",
+      status: "working",
+    },
+  };
+  for (const [method, fields] of Object.entries(inputs)) {
+    const f = await fixture(),
+      a = f.issue("w1", "a", "admin");
+    await start(f.api, a, "sa");
+    await acquire(f.api, a, "sa", "p1-i");
+    await f.api.claimFiles(a, {
+      operationId: "setup",
+      sessionId: "sa",
+      repo: "repo",
+      paths: ["held"],
+    });
+    const tables = [
+      "coord_sessions",
+      "coord_leases",
+      "coord_file_claims",
+      "coord_reports",
+      "coord_report_history",
+      "coord_limits",
+      "coord_receipts",
+      "coord_events",
+      "coord_guards",
+    ];
+    const snapshot = () =>
+      Promise.all(
+        tables.map(
+          async (table) =>
+            (await f.db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all()).results,
+        ),
+      );
+    const before = await snapshot();
+    await f.db.exec(
+      "CREATE TRIGGER reject_receipt BEFORE INSERT ON coord_receipts WHEN NEW.operation_id='audit' BEGIN SELECT RAISE(ABORT,'injected'); END",
+    );
+    const input = { ...fields, operationId: "audit" };
+    await assert.rejects(f.api[method](a, input), code("unknown"), method);
+    assert.deepEqual(await snapshot(), before, `${method}: whole owner state rollback`);
+    await f.db.exec("DROP TRIGGER reject_receipt");
+    const result = await f.api[method](a, input),
+      committed = await snapshot();
+    assert.deepEqual(await f.restart()[method](a, input), result, `${method}: replay`);
+    assert.deepEqual(await f.api.readOperation(a, "audit"), result, `${method}: recovery`);
+    assert.deepEqual(await snapshot(), committed, `${method}: no repeated effects`);
+  }
+});
+
+test("audit Coordination dependency fakes satisfy the consumed provider contract", async () => {
+  const f = await fixture();
+  await coordinationProviderContract({
+    ...f.providers,
+    editor: f.issue("w1", "editor"),
+    viewer: f.issue("w1", "viewer", "viewer"),
+    manager: f.issue("w1", "manager", "admin"),
+    issueId: "p1-i",
+    projectId: "p1",
+  });
+});
+
+test("audit session visibility, operation partition and event reader capabilities", async () => {
+  const f = await fixture(),
+    a = f.issue("w1", "a"),
+    b = f.issue("w1", "b"),
+    m = f.issue("w1", "m", "admin"),
+    other = f.issue("w2", "a");
+  for (const [s, id] of [
+    [a, "sa"],
+    [b, "sb"],
+    [other, "sa"],
+  ])
+    await start(f.api, s, id);
+  assert.deepEqual(
+    (await f.api.listSessions(a)).map((x) => x.id),
+    ["sa"],
+  );
+  assert.deepEqual(
+    (await f.api.listSessions(m)).map((x) => x.id),
+    ["sa", "sb"],
+  );
+  assert.deepEqual(
+    (await f.api.listSessions(other)).map((x) => x.id),
+    ["sa"],
+  );
+  await acquire(f.api, a, "sa", "p1-i");
+  await acquire(f.api, other, "sa", "p1-other");
+  assert.equal(await f.api.readOperation(b, "acq-sa-p1-i"), null);
+  assert.equal(await f.api.readOperation(other, "acq-sa-p1-i"), null);
+  const input = {
+    operationId: "report",
+    sessionId: "sa",
+    issueId: "p1-i",
+    fencingToken: 1,
+    text: "working",
+    status: "working",
+  };
+  await Promise.all([f.api.reportProgress(a, input), f.api.reportProgress(a, input)]);
+  assert.equal((await f.api.listProgress(a, "p1-i")).items.length, 1);
+  const events = await f.api.readEvents(f.eventReader, "w1", 0, 100);
+  assert.deepEqual(
+    events.map((x) => [x.type, x.workspaceId, x.actorId, x.subjectId]),
+    [
+      ["LeaseChanged", "w1", "a", "p1-i"],
+      ["ProgressReported", "w1", "a", "p1-i"],
+    ],
+  );
+  assert.deepEqual(await f.api.readEvents(f.eventReader, "w1", events[0].cursor, 1), [events[1]]);
+  assert.equal((await f.api.readEvents(f.eventReader, "w2", 0, 100)).length, 1);
+  assert.deepEqual(await f.api.readAgentEvents(b, 0, 100), []);
+  assert.deepEqual(await f.api.readAgentEvents(a, 0, 100), events);
+  await assert.rejects(f.api.readEvents({}, "w1", 0, 100), code("forbidden"));
+  await assert.rejects(f.restart().readEvents(f.eventReader, "w1", 0, 100), code("forbidden"));
+  await assert.rejects(f.api.readAgentEvents(a, -1, 100), code("validation"));
+  await assert.rejects(f.api.readEvents(f.eventReader, "w1", 0, 101), code("validation"));
+  await f.api.endSession(a, { operationId: "end", sessionId: "sa" });
+  assert.equal((await f.api.listSessions(a))[0].live, false);
 });

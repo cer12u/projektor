@@ -1,0 +1,2 @@
+CREATE TABLE coord_report_history (workspace_id TEXT NOT NULL,issue_id TEXT NOT NULL,sequence INTEGER NOT NULL CHECK(sequence>0),session_id TEXT NOT NULL,fencing_token INTEGER NOT NULL,text TEXT NOT NULL,status TEXT NOT NULL,reported_at INTEGER NOT NULL,PRIMARY KEY(workspace_id,issue_id,sequence));
+INSERT INTO coord_report_history(workspace_id,issue_id,sequence,session_id,fencing_token,text,status,reported_at) SELECT workspace_id,issue_id,1,session_id,fencing_token,text,status,reported_at FROM coord_reports;

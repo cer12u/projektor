@@ -145,3 +145,11 @@ from a `Referrer-Policy: no-referrer` document. This was reproduced during the
 requires the exact configured Origin and rejects missing/foreign/null origins.
 The page's CSP `form-action` allows self and only the Access-validated callback
 origin, because browsers also enforce it on the form's redirect chain.
+
+## 08a transport audit
+
+Unexpected exceptions and `PlatformError` with code `unknown` return only
+`Internal error`, on REST and both MCP error paths. Known validation/permission/
+conflict messages remain actionable. Gateway owns no report storage; its new
+`coordination.listProgress` catalog entry delegates to Coordination. See
+[test audit](test-audit.md) for behavioral maps and executable mutations.

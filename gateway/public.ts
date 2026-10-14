@@ -25,7 +25,9 @@ const json = (value: unknown, code = 200, headers?: HeadersInit) =>
     headers: { "content-type": "application/json; charset=utf-8", ...headers },
   });
 const failure = (error: unknown) =>
-  error instanceof PlatformError ? error : new PlatformError("unknown", "Internal error");
+  error instanceof PlatformError && error.code !== "unknown"
+    ? error
+    : new PlatformError("unknown", "Internal error");
 const id = () => crypto.randomUUID();
 function ownOrigin(request: Request): void {
   const origin = request.headers.get("origin");

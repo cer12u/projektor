@@ -231,6 +231,7 @@
           "coord_leases",
           "coord_file_claims",
           "coord_reports",
+          "coord_report_history",
           "coord_limits",
           "coord_receipts",
           "coord_events",

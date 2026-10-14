@@ -38,6 +38,12 @@ export const queries = {
   dropSessionClaims: "DELETE FROM coord_file_claims WHERE workspace_id=? AND session_id=?",
   report:
     "INSERT INTO coord_reports(workspace_id,issue_id,session_id,fencing_token,text,status,reported_at) SELECT ?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM coord_leases WHERE workspace_id=? AND issue_id=? AND session_id=? AND fencing_token=? AND expires_at>?) ON CONFLICT(workspace_id,issue_id) DO UPDATE SET session_id=excluded.session_id,fencing_token=excluded.fencing_token,text=excluded.text,status=excluded.status,reported_at=excluded.reported_at",
+  appendReport:
+    "INSERT INTO coord_report_history(workspace_id,issue_id,sequence,session_id,fencing_token,text,status,reported_at) SELECT r.workspace_id,r.issue_id,(SELECT COALESCE(MAX(sequence),0)+1 FROM coord_report_history WHERE workspace_id=? AND issue_id=?),r.session_id,r.fencing_token,r.text,r.status,r.reported_at FROM coord_reports r WHERE r.workspace_id=? AND r.issue_id=?",
+  trimReports:
+    "DELETE FROM coord_report_history WHERE workspace_id=? AND issue_id=? AND sequence <= (SELECT MAX(sequence)-1000 FROM coord_report_history WHERE workspace_id=? AND issue_id=?)",
+  progressHistory:
+    "SELECT issue_id,sequence,session_id,fencing_token,text,status,reported_at FROM coord_report_history WHERE workspace_id=? AND issue_id=? AND sequence<? ORDER BY sequence DESC LIMIT ?",
   progress:
     "SELECT issue_id,session_id,fencing_token,text,status,reported_at FROM coord_reports WHERE workspace_id=? AND issue_id=?",
   receipt:
