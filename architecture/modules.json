@@ -15,7 +15,8 @@
         "wiki",
         "coordination",
         "assets",
-        "planning"
+        "planning",
+        "insights"
       ],
       "external": []
     },
@@ -40,7 +41,8 @@
         "wiki",
         "coordination",
         "assets",
-        "planning"
+        "planning",
+        "insights"
       ],
       "external": []
     },
@@ -310,6 +312,42 @@
       }
     },
     {
+      "id": "insights",
+      "root": "modules/insights",
+      "public": "modules/insights/public.ts",
+      "factory": "modules/insights/internal/factory.ts",
+      "kind": "module",
+      "dependencies": [
+        "platform",
+        "access",
+        "projects",
+        "issues",
+        "wiki",
+        "coordination",
+        "planning",
+        "assets"
+      ],
+      "external": [],
+      "storage": {
+        "prefix": "insights_",
+        "tables": [
+          "insights_activity",
+          "insights_metrics",
+          "insights_subscriptions",
+          "insights_notifications",
+          "insights_cursors",
+          "insights_receipts",
+          "insights_guards"
+        ],
+        "objects": ["insights_activity_time", "insights_notification_principal"],
+        "globalTables": [],
+        "catalog": "modules/insights/storage/queries.ts",
+        "migrations": "modules/insights/storage/migrations",
+        "kvPrefix": null,
+        "r2Prefix": null
+      }
+    },
+    {
       "id": "tools",
       "root": "tools",
       "public": null,
@@ -327,7 +365,8 @@
         "wiki",
         "coordination",
         "assets",
-        "planning"
+        "planning",
+        "insights"
       ],
       "external": [
         "node:*",

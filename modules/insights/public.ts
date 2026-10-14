@@ -1,0 +1,111 @@
+import type { RequestScope } from "../access/public";
+
+export type SourceOwner = "projects" | "issues" | "wiki" | "coordination" | "planning" | "assets";
+export interface ProjectionLag {
+  readonly source: SourceOwner;
+  readonly sequence: number;
+  readonly consumedAt: number | null;
+}
+export interface ActivityItem {
+  readonly source: SourceOwner;
+  readonly sequence: number;
+  readonly type: string;
+  readonly entityId: string;
+  readonly projectId: string;
+  readonly title: string;
+  readonly actorId: string;
+  readonly clientId: string | null;
+  readonly occurredAt: number;
+}
+export interface ActivityPage {
+  readonly items: readonly ActivityItem[];
+  readonly nextCursor: string | null;
+  readonly lag: readonly ProjectionLag[];
+}
+export interface ProjectMetrics {
+  readonly projectId: string;
+  readonly todo: number;
+  readonly inProgress: number;
+  readonly done: number;
+  readonly completed7Days: readonly {
+    principalId: string;
+    clientId: string | null;
+    count: number;
+  }[];
+  readonly completed30Days: readonly {
+    principalId: string;
+    clientId: string | null;
+    count: number;
+  }[];
+  readonly activeLeases: number;
+  readonly activeSessions: number;
+  readonly lag: readonly ProjectionLag[];
+}
+export interface Notification {
+  readonly id: string;
+  readonly issueId: string;
+  readonly kind: "assigned" | "comment" | "lease";
+  readonly occurredAt: number;
+  readonly version: number;
+  readonly read: boolean;
+}
+export interface NotificationPage {
+  readonly items: readonly Notification[];
+  readonly nextCursor: string | null;
+  readonly unread: number;
+  readonly lag: readonly ProjectionLag[];
+}
+export interface SubscriptionResult {
+  readonly id: string;
+  readonly version: number;
+  readonly active: boolean;
+}
+export interface ReadResult {
+  readonly id: string;
+  readonly version: number;
+}
+export interface InsightsApi {
+  getSubscription(scope: RequestScope, issueId: string): Promise<SubscriptionResult | null>;
+  subscribe(
+    scope: RequestScope,
+    input: {
+      readonly operationId: string;
+      readonly issueId: string;
+      readonly expectedVersion: number;
+    },
+  ): Promise<SubscriptionResult>;
+  unsubscribe(
+    scope: RequestScope,
+    input: {
+      readonly operationId: string;
+      readonly issueId: string;
+      readonly expectedVersion: number;
+    },
+  ): Promise<SubscriptionResult>;
+  markRead(
+    scope: RequestScope,
+    input: {
+      readonly operationId: string;
+      readonly notificationId: string;
+      readonly expectedVersion: number;
+    },
+  ): Promise<ReadResult>;
+  getActivity(
+    scope: RequestScope,
+    input?: {
+      readonly projectId?: string;
+      readonly principalId?: string;
+      readonly clientId?: string;
+      readonly cursor?: string;
+      readonly limit?: number;
+    },
+  ): Promise<ActivityPage>;
+  getMetrics(scope: RequestScope, projectId: string): Promise<ProjectMetrics>;
+  listNotifications(
+    scope: RequestScope,
+    cursor?: string,
+    limit?: number,
+  ): Promise<NotificationPage>;
+  consumeEvents(workspaceId: string, limit?: number): Promise<number>;
+  drainKnownWorkspaces(limit?: number): Promise<number>;
+}

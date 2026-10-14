@@ -113,6 +113,7 @@ before(async () => {
     "coordination",
     "assets",
     "planning",
+    "insights",
   ]);
   const clock = { now: () => Math.floor(Date.now() / 1000) };
   const created = platform.createAccess({
@@ -214,6 +215,7 @@ before(async () => {
     }
   }
 });
+
 after(async () => {
   await mf?.dispose();
 });
@@ -1344,5 +1346,41 @@ test("10a Planning page cursor and limit cross REST and MCP with live issue upda
     (await req("w1", "planning.items", { sprintId: "page-s", limit: 1 }, read)).data.items[0].issue
       .state,
     "in_progress",
+  );
+});
+
+test("Insights REST and MCP expose the same scoped feed, metrics and markers", async () => {
+  const issue = {
+    operationId: "insights-create",
+    issueId: "insights-i",
+    projectId: "p1",
+    title: "Insight task",
+    description: "",
+    priority: "medium",
+  };
+  assert.equal((await req("w1", "issues.create", issue, write)).status, 200);
+  const activity = (await req("w1", "insights.activity", { projectId: "p1", limit: 10 }, read))
+    .data;
+  assert(activity.items.some((item) => item.entityId === "insights-i"));
+  assert.deepEqual(
+    mcpResult(await rpc("w1", "insights.activity", { projectId: "p1", limit: 10 }, read)),
+    activity,
+  );
+  const metrics = (await req("w1", "insights.metrics", { projectId: "p1" }, read)).data;
+  assert(metrics.todo >= 1);
+  assert.deepEqual(
+    mcpResult(await rpc("w1", "insights.metrics", { projectId: "p1" }, read)),
+    metrics,
+  );
+  const subscription = { operationId: "insights-watch", issueId: "insights-i", expectedVersion: 0 };
+  const watched = (await req("w1", "insights.subscribe", subscription, write)).data;
+  assert.equal(watched.active, true);
+  assert.deepEqual(mcpResult(await rpc("w1", "insights.subscribe", subscription, write)), watched);
+  const notifications = (await req("w1", "insights.notifications", {}, read)).data;
+  assert.deepEqual(mcpResult(await rpc("w1", "insights.notifications", {}, read)), notifications);
+  assert(
+    !(await req("w2", "insights.activity", { projectId: "p1" }, other)).data.items.some(
+      (item) => item.entityId === "insights-i",
+    ),
   );
 });

@@ -70,6 +70,7 @@ await platform.migrate(db, [
   "coordination",
   "assets",
   "planning",
+  "insights",
 ]);
 const clock = { now: () => Math.floor(Date.now() / 1000) };
 const access = platform.createAccess({
