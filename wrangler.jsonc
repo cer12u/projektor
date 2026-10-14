@@ -1,0 +1,19 @@
+{
+  "name": "projektor",
+  "main": "apps/worker/index.ts",
+  "compatibility_date": "2026-07-30",
+  "d1_databases": [
+    { "binding": "DB", "database_name": "projektor", "database_id": "REPLACE_WITH_APPROVED_D1_ID" }
+  ],
+  "kv_namespaces": [{ "binding": "KV", "id": "REPLACE_WITH_APPROVED_KV_ID" }],
+  "r2_buckets": [{ "binding": "R2", "bucket_name": "REPLACE_WITH_APPROVED_R2_BUCKET" }],
+  "assets": {
+    "directory": "./apps/web",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*", "/mcp/*", "/.well-known/*", "/oauth/*", "/health"]
+  },
+  "vars": {
+    "ACCESS_TEAM_DOMAIN": "REPLACE_WITH_ACCESS_TEAM_DOMAIN",
+    "ACCESS_AUDIENCE": "REPLACE_WITH_ACCESS_AUDIENCE"
+  }
+}

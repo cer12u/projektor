@@ -6,7 +6,7 @@
       "root": "apps/worker",
       "public": "apps/worker/index.ts",
       "kind": "composition",
-      "dependencies": ["gateway", "platform", "fixture_a", "fixture_b", "access"],
+      "dependencies": ["gateway", "platform", "access", "projects", "issues", "wiki"],
       "external": []
     },
     {
@@ -22,8 +22,8 @@
       "root": "gateway",
       "public": "gateway/public.ts",
       "kind": "gateway",
-      "dependencies": [],
-      "external": ["hono"]
+      "dependencies": ["platform", "access", "projects", "issues", "wiki"],
+      "external": []
     },
     {
       "id": "platform",
@@ -224,7 +224,7 @@
         "issues",
         "wiki"
       ],
-      "external": ["node:*", "typescript", "esbuild", "miniflare"]
+      "external": ["node:*", "typescript", "esbuild", "miniflare", "@modelcontextprotocol/sdk"]
     }
   ]
 }

@@ -24,7 +24,7 @@ function json(value: string): Record<string, unknown> {
   );
 }
 async function fetchKeys(url: string): Promise<unknown> {
-  const response = await fetch(url, { redirect: "error", signal: AbortSignal.timeout(5000) });
+  const response = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(5000) });
   if (!response.ok) deny();
   const body = await response.text();
   if (body.length > 65536) deny();

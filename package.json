@@ -17,9 +17,10 @@
     "build": "node tools/build.mjs",
     "check:artifact": "node tools/artifact.mjs",
     "generate": "node tools/generate.mjs",
-    "verify": "pnpm lint && pnpm typecheck && pnpm check:boundaries && pnpm test:boundary-checkers && pnpm test:modules && pnpm test:migrations && pnpm build && pnpm check:artifact",
+    "verify": "pnpm lint && pnpm typecheck && pnpm check:boundaries && pnpm test:boundary-checkers && pnpm test:modules && pnpm test:migrations && pnpm build && pnpm check:artifact && pnpm test:gateway",
     "smoke:cloudflare": "node tools/disabled.mjs",
-    "deploy:artifact": "node tools/disabled.mjs"
+    "deploy:artifact": "node tools/disabled.mjs",
+    "test:gateway": "node --test --test-reporter=dot tools/gateway.test.mjs"
   },
   "dependencies": {
     "hono": "4.13.13"
@@ -27,6 +28,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@cloudflare/workers-types": "5.20261013.1",
+    "@modelcontextprotocol/sdk": "1.32.1",
     "esbuild": "0.28.2",
     "miniflare": "4.20260730.0",
     "typescript": "5.9.3"

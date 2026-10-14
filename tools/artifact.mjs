@@ -26,11 +26,14 @@ const mf = new Miniflare({
   scriptPath: "dist/worker.js",
   compatibilityDate: "2026-07-30",
   assets: { directory: "dist/assets", routerConfig: { has_user_worker: true } },
+  d1Databases: ["DB"],
+  kvNamespaces: ["KV"],
+  bindings: { ACCESS_TEAM_DOMAIN: "https://unit.cloudflareaccess.com", ACCESS_AUDIENCE: "test" },
 });
 try {
   const response = await mf.dispatchFetch("http://localhost/health");
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { phase: "scaffold", deployable: false });
+  assert.deepEqual(await response.json(), { phase: "gateway", deployable: false });
   assert.equal((await mf.dispatchFetch("http://localhost/api/issues")).status, 404);
   const page = await mf.dispatchFetch("http://localhost/");
   assert.equal(page.status, 200);
