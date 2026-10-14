@@ -33,6 +33,24 @@ const ddl = (root, sql, object) => {
     );
 };
 const cases = [
+  ...[
+    "access",
+    "projects",
+    "issues",
+    "wiki",
+    "coordination",
+    "assets",
+    "planning",
+    "insights",
+    "integrations",
+    "lifecycle",
+  ].map((owner) => [
+    `Gateway cannot acquire ${owner} maintenance factory`,
+    "import",
+    (r) =>
+      write(r, "gateway/maintenance.ts", `export * from "../modules/${owner}/internal/factory";`),
+  ]),
+
   [
     "Integration key outside narrowed adapter composition",
     "capability",

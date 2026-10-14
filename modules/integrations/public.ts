@@ -1,4 +1,18 @@
 import type { RequestScope } from "../access/public";
+export interface IntegrationsMaintenanceScope {
+  readonly workspaceId: string;
+  readonly projectId?: string;
+}
+export interface IntegrationsPurgeStatus {
+  readonly state: "frozen" | "purging" | "purged";
+  readonly remaining: number;
+  readonly pending: number;
+}
+export interface IntegrationsMaintenance {
+  freezeScope(scope: IntegrationsMaintenanceScope): Promise<IntegrationsPurgeStatus>;
+  purgeScope(scope: IntegrationsMaintenanceScope): Promise<IntegrationsPurgeStatus>;
+  purgeStatus(scope: IntegrationsMaintenanceScope): Promise<IntegrationsPurgeStatus | null>;
+}
 
 export type ExternalTarget = { readonly kind: "issue" | "wiki"; readonly id: string };
 export type ExternalKind =

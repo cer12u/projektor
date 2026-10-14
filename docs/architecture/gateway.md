@@ -172,3 +172,8 @@ come from the dispatch catalog. The client revoke route returns the stored
 result on an exact operationId retry; subsequent MCP admission rejects its access
 token, and refresh exchange rejects its refresh token. REST rejects OAuth tokens
 both before and after revocation.
+
+## Lifecycle maintenance (13)
+
+See [Lifecycle](lifecycle.md) for owner-local atomic freeze, bounded purge, retained
+markers, project attribution, REST-only owner access and recovery limits.

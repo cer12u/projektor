@@ -120,7 +120,7 @@ docs/architecture/           # 本文と採用した変更判断
 | **Planning**（後続） | sprint と issue の計画上の所属。`planning_sprints`, `planning_items`（workspace/project/issue の opaque ID） | C `createSprint`, `scheduleIssue`, `unscheduleIssue`, `closeSprint`; Q `listSprints`, `getSprintItems`, `readOperation`, `readEvents`; E `SprintChanged`, `IssueScheduled` | Issues, Projects, Access |
 | **Insights**（後続） | 統合 activity / metrics / 通知対象。`insights_activity`, `insights_metrics`, `insights_subscriptions`, `insights_notifications`, `insights_cursors`。正本の業務判断には使わない | C `subscribe`, `unsubscribe`, `markRead`; composition-only `consumeEvents`; Q `getActivity`, `getMetrics`, `listNotifications`, `getSubscription`（Web の監視状態用）。外部配送はここではしない | Access, Projects, Issues, Wiki, Coordination, Planning, Assets |
 | **Integrations**（後続） | 外部参照、feedback、webhook の重複防止と配送状態。`integrations_links`, `integrations_sources`, `integrations_feedback`, `integrations_deliveries` | C `registerSource`, `receiveFeedback`, `convertFeedback`, `linkExternalRef`, `deliverWebhook`; Q `getDeliveryStatus`, `listFeedback`。外部接続は限定 port | Issues, Wiki, Projects, Access |
-| **Lifecycle**（後続） | workspace/project の段階的 purge の進捗と再試行。`lifecycle_jobs`, `lifecycle_steps` | C `requestPurge`, `resumePurge`; Q `getPurgeStatus`。各対象 owner の型付き maintenance API `freezeScope`, `purgeScope`, `purgeStatus` を使う | Access, Projects, Issues, Wiki, Coordination, Assets, Planning, Insights, Integrations |
+| **Lifecycle**（後続） | workspace/project の段階的 purge の進捗と再試行。`lifecycle_jobs`, `lifecycle_steps`, `lifecycle_receipts`, `lifecycle_guards`, `lifecycle_history`, `lifecycle_events` | C `requestPurge`, `resumePurge`; Q `getPurgeStatus`。各対象 owner の型付き maintenance API `freezeScope`, `purgeScope`, `purgeStatus` を使う | Access, Projects, Issues, Wiki, Coordination, Assets, Planning, Insights, Integrations |
 
 Platform は raw Cloudflare binding の唯一の保管場所である。workspace や issue の意味を知らず、`Clock` / `IdGenerator` / `ModuleStore` / prefix 限定 KV・R2 adapter を提供する。業務 table や operation receipt の正本を持たない。migration bookkeeping `platform_schema_versions(owner,version,checksum)` のみ基盤が所有し、実行時業務コードからはアクセス不可。
 
@@ -232,7 +232,7 @@ Core から outbox の仕様は決めるが、consumer のないイベント配�
 
 core の archive は Projects/Access が現在の公開可否を直ちに判断し、子 table を消さない。R2 を持つ Assets は metadata を消す前に自分の GC job を永続化する。DB と R2 の原子性は約束しない。pending upload と orphan の回収も Assets の責務。
 
-hard purge は Lifecycle 導入後。親を freeze し、各 owner が自分の storage に frozen marker を保存して新規 write を原子的に拒否し、全 owner の freeze acknowledgement を受けてから各 `purgeScope` を再試行する。遅れて到着した古い command も marker で拒否する。module ごとの完了を記録し、全 child の完了前に親 metadata を消さない。依存先は Lifecycle を import しない。owner 間の delete 順と失敗回復は Lifecycle が所有するが、子 table や SQL は知らない。
+hard purge は step 13 の [Lifecycle 契約](lifecycle.md)で実装する。親を freeze し、各 owner が自分の storage に frozen marker を保存して新規 write を原子的に拒否し、全 owner の freeze acknowledgement を受けてから各 `purgeScope` を再試行する。遅れて到着した古い command も marker で拒否する。module ごとの完了を記録し、全 child の完了前に親 metadata を消さない。依存先は Lifecycle を import しない。owner 間の delete 順と失敗回復は Lifecycle が所有するが、子 table や SQL は知らない。
 
 ### 5.5 Step 02b OAuth の具体化
 
@@ -367,7 +367,7 @@ owner の利用目的は OpenAI Dots、Codex、Claude Code など複数 agent �
 | 10 `rewrite/10-planning` | Planning: sprint と items | sprint 削除/終了が Issues UPDATE を発生させない。無権限 issue の schedule 拒否。archived issue の読取り/表示を定義。失敗再送で重複 item なし |
 | 11 `rewrite/11-insights` | Insights: activity projection と最小 metrics | duplicate/out-of-order event の再生が安定。consumer crash 後に欠落しない。projection 遅延を表示し、revoke 後に本文・件数を漏らさない。巨大な分析/通知 engine を追加しない |
 | 12 `rewrite/12-integrations` | Integrations: external ref、署名付き feedback→issue、署名付き webhook 配送 | webhook/feedback 重複抑止。issue 作成 API の operationId を同じ値で再試行し、途中失敗が二重 issue を作らない。外部資格を context に広げない |
-| 13 `rewrite/13-lifecycle` | Lifecycle: freeze と purge job | 全 owner freeze 後の遅延 write 拒否。各境界で crash しても resume 可能。R2 GC 完了まで parent 消去を完了扱いしない。他 owner の SQL が一行もない |
+| 13 `rewrite/13-lifecycle` | Lifecycle、全 data owner の composition-only maintenance、REST-only request/resume/status、管理画面の明示確認 | 全 owner freeze 後の遅延 write 拒否。各境界で crash しても resume 可能。R2 GC 完了まで parent 消去を完了扱いしない。他 owner の SQL が一行もない。owner/human 限定、operationId/CAS、未帰属旧データ・未確定外部操作は未完了として保持（詳細は [Lifecycle](lifecycle.md)） |
 
 Step 07 で見つかった公開契約の欠落は 07b で補った。`/api/me` は既知の workspace ID なしで principal と所属 workspace を返し、Access が member/client 管理を、Coordination が project 単位の agent 稼働と WIP cap を所有する。Gateway は公開契約だけを REST/MCP に翻訳し、Web はその結果を表示する。07b の merge 後、最小 core の契約は完成と記録する。実 Cloudflare D1 smoke と本番切替は別の判断条件である。
 

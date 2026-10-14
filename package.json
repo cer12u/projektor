@@ -21,7 +21,7 @@
     "smoke:cloudflare": "node tools/cloudflare-smoke.mjs",
     "test:smoke": "node --test --test-reporter=dot tools/smoke.test.mjs",
     "deploy:artifact": "node tools/disabled.mjs",
-    "test:gateway": "node --test --test-concurrency=1 --test-reporter=dot tools/gateway.test.mjs tools/gateway-oauth.test.mjs tools/gateway-oauth-rules.test.mjs",
+    "test:gateway": "node --test --test-concurrency=1 --test-reporter=dot tools/gateway.test.mjs tools/gateway-oauth.test.mjs tools/gateway-oauth-rules.test.mjs tools/lifecycle-gateway.test.mjs",
     "test:web": "node --test --test-reporter=dot tools/web-unit.test.mjs && playwright test -c tools/playwright.config.mjs"
   },
   "dependencies": {

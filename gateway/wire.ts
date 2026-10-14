@@ -68,8 +68,8 @@ export function openApi() {
           "403": { description: "Forbidden" },
           "404": { description: "Not found" },
           "409": { description: "Conflict" },
-          ...(owner === "integrations"
-            ? { "503": { description: "Integrations unavailable" } }
+          ...(owner === "integrations" || owner === "lifecycle"
+            ? { "503": { description: `${owner} unavailable` } }
             : {}),
         },
       },

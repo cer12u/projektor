@@ -23,6 +23,7 @@ export interface PlanningEvent {
   readonly source: "planning";
   readonly schemaVersion: 1 | 2;
   readonly workspaceId: string;
+  readonly projectId: string | null;
   readonly aggregateId: string;
   readonly aggregateVersion: number;
   readonly type: "SprintChanged" | "IssueScheduled";
@@ -31,6 +32,20 @@ export interface PlanningEvent {
   readonly payload: { readonly actorId: string; readonly clientId: string | null };
   readonly occurredAt: number;
   readonly cursor: number;
+}
+export interface PlanningMaintenanceScope {
+  readonly workspaceId: string;
+  readonly projectId?: string;
+}
+export interface PlanningPurgeStatus {
+  readonly state: "frozen" | "purging" | "purged";
+  readonly remaining: number;
+  readonly pending: number;
+}
+export interface PlanningMaintenance {
+  freezeScope(scope: PlanningMaintenanceScope): Promise<PlanningPurgeStatus>;
+  purgeScope(scope: PlanningMaintenanceScope): Promise<PlanningPurgeStatus>;
+  purgeStatus(scope: PlanningMaintenanceScope): Promise<PlanningPurgeStatus | null>;
 }
 declare const readerBrand: unique symbol;
 export interface PlanningEventReader {

@@ -13,12 +13,14 @@ import type {
   CoordinationApi,
   CoordinationEvent,
   CoordinationEventReader,
+  CoordinationMaintenance,
   FileClaim,
   Lease,
   Progress,
   Session,
 } from "../public";
 import type { queries } from "../storage/queries";
+import { createMaintenance } from "./maintenance";
 
 type Name = keyof typeof queries;
 type Statement = Call<Name>;
@@ -74,6 +76,7 @@ const digest = async (v: unknown): Promise<string> =>
   ).join("");
 export function createCoordination(d: Dependencies): {
   api: CoordinationApi;
+  maintenance: CoordinationMaintenance;
   eventReader?: CoordinationEventReader;
 } {
   if (d.store.owner !== "coordination") fail("forbidden", "Wrong Coordination store");
@@ -137,9 +140,17 @@ export function createCoordination(d: Dependencies): {
     const now = clock.now(),
       ttl = num(r, "ttl_seconds");
     // Every admitted session call extends liveness, including a contention response.
-    const changed = await store.run("touch", [now + ttl, w(scope), sessionId, actor(scope), now]);
-    if (changed.changes !== 1) fail("conflict", "Session expired");
-    await store.run("touchClaims", [now + ttl, w(scope), sessionId, now]);
+    const guardId = ids.next();
+    try {
+      await store.batch([
+        { name: "touch", values: [now + ttl, w(scope), sessionId, actor(scope), now] },
+        { name: "guard", values: [w(scope), guardId] },
+        { name: "touchClaims", values: [now + ttl, w(scope), sessionId, now] },
+        { name: "clearGuard", values: [w(scope), guardId] },
+      ]);
+    } catch {
+      fail("conflict", "Session expired or scope frozen");
+    }
     return { ttl, expires: now + ttl };
   }
   async function issue(
@@ -196,12 +207,16 @@ export function createCoordination(d: Dependencies): {
             scope.clientId ?? null,
             e.issueId ?? null,
             e.projectId ?? null,
+            w(scope),
+            e.issueId ?? e.subject,
           ],
         })),
       ]);
     } catch (error) {
       const saved = await replay(scope, op, fp);
       if (saved !== null) return saved as T;
+      if (error instanceof Error && /scope frozen/i.test(error.message))
+        fail("conflict", "Scope frozen");
       if (
         error instanceof Error &&
         /(?:CHECK|UNIQUE|FOREIGN KEY) constraint failed/i.test(error.message)
@@ -570,6 +585,8 @@ export function createCoordination(d: Dependencies): {
             sid,
             linked,
             expires,
+            w(scope),
+            linked,
             linked,
             w(scope),
             linked,
@@ -667,6 +684,8 @@ export function createCoordination(d: Dependencies): {
               content,
               status,
               result.reportedAt,
+              w(scope),
+              iid,
               w(scope),
               iid,
               sid,
@@ -788,5 +807,5 @@ export function createCoordination(d: Dependencies): {
       }));
     },
   };
-  return { api: Object.freeze(api), eventReader: reader };
+  return { api: Object.freeze(api), eventReader: reader, maintenance: createMaintenance(store) };
 }

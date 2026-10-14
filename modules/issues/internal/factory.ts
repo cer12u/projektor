@@ -17,8 +17,10 @@ import type {
   IssueResult,
   IssueState,
   IssuesApi,
+  IssuesMaintenance,
 } from "../public";
 import type { queries } from "../storage/queries";
+import { createMaintenance } from "./maintenance";
 import { canTransition, searchExpression, searchPattern, searchTerms } from "./rules";
 
 type Name = keyof typeof queries;
@@ -90,6 +92,7 @@ async function digest(value: string): Promise<string> {
 }
 export function createIssues(deps: Dependencies): {
   api: IssuesApi;
+  maintenance: IssuesMaintenance;
   eventReader?: IssueEventReader;
 } {
   const { store, projects, access, clock, ids } = deps;
@@ -199,6 +202,8 @@ export function createIssues(deps: Dependencies): {
             actor(scope),
             kind(scope),
             scope.clientId ?? null,
+            workspaceId,
+            issueId,
           ],
         },
       ]);
@@ -210,6 +215,8 @@ export function createIssues(deps: Dependencies): {
         if (recovery instanceof PlatformError) throw recovery;
         fail("unknown", "Operation outcome unknown; retry same operation ID");
       }
+      if (error instanceof Error && /scope frozen/i.test(error.message))
+        fail("conflict", "Scope frozen");
       if (
         error instanceof Error &&
         /(?:CHECK|UNIQUE|FOREIGN KEY) constraint failed/i.test(error.message)
@@ -549,6 +556,7 @@ export function createIssues(deps: Dependencies): {
           source: "issues",
           schemaVersion: 1,
           workspaceId,
+          projectId: row.project_id === null ? null : string(row, "project_id"),
           aggregateId: string(row, "aggregate_id"),
           aggregateVersion: number(row, "aggregate_version"),
           type:
@@ -568,5 +576,5 @@ export function createIssues(deps: Dependencies): {
       );
     },
   };
-  return { api: Object.freeze(api), eventReader };
+  return { api: Object.freeze(api), eventReader, maintenance: createMaintenance(store) };
 }

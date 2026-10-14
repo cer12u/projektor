@@ -585,7 +585,7 @@ test("audit history retention and final event failure roll back latest, history 
   await acquire(f.api, a, "sa", "p1-i");
   await f.db
     .prepare(
-      "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<1000) INSERT INTO coord_report_history SELECT 'w1','p1-i',i,'sa',1,'seed','working',10000 FROM n",
+      "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<1000) INSERT INTO coord_report_history(workspace_id,issue_id,sequence,session_id,fencing_token,text,status,reported_at,project_id) SELECT 'w1','p1-i',i,'sa',1,'seed','working',10000,'p1' FROM n",
     )
     .run();
   const input = {
@@ -629,7 +629,9 @@ test("audit claim race rolls back every path when a later path loses CAS", async
   await start(f.api, a, "sa");
   f.beforeBatch(async () => {
     await f.db
-      .prepare("INSERT INTO coord_file_claims VALUES ('w1','repo','z','competitor',NULL,20000)")
+      .prepare(
+        "INSERT INTO coord_file_claims(workspace_id,repo,path,session_id,lease_issue_id,expires_at) VALUES ('w1','repo','z','competitor',NULL,20000)",
+      )
       .run();
   });
   await assert.rejects(

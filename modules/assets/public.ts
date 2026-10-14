@@ -23,6 +23,7 @@ export interface AssetResult {
   readonly version: number;
 }
 export interface AssetEvent {
+  readonly projectId?: string | null;
   readonly eventId: string;
   readonly source: "assets";
   readonly schemaVersion: 1 | 2;
@@ -98,4 +99,25 @@ export interface AssetsApi {
     limit: number,
   ): Promise<readonly AssetEvent[]>;
   drainGc(limit?: number): Promise<number>;
+}
+
+/** Issued only to Worker composition, never part of AssetsApi. */
+export interface AssetsMaintenance {
+  freezeScope(scope: {
+    readonly workspaceId: string;
+    readonly projectId?: string;
+  }): Promise<AssetsPurgeStatus>;
+  purgeScope(scope: {
+    readonly workspaceId: string;
+    readonly projectId?: string;
+  }): Promise<AssetsPurgeStatus>;
+  purgeStatus(scope: {
+    readonly workspaceId: string;
+    readonly projectId?: string;
+  }): Promise<AssetsPurgeStatus | null>;
+}
+export interface AssetsPurgeStatus {
+  readonly state: "frozen" | "purging" | "purged";
+  readonly remaining: number;
+  readonly pending: number;
 }

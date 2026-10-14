@@ -76,6 +76,20 @@ type Principal = {
   clientName?: string;
 };
 type Me = { principal: Principal; workspaces: Workspace[]; nextCursor: string | null };
+type PurgeJob = {
+  id: string;
+  workspaceId: string;
+  projectId: string | null;
+  version: number;
+  state: "freezing" | "purging" | "complete";
+  steps: readonly {
+    owner: string;
+    state: "pending" | "frozen" | "purging" | "purged";
+    remaining: number;
+    pending: number;
+    error: string | null;
+  }[];
+};
 type View =
   | "projects"
   | "issues"
@@ -2063,6 +2077,156 @@ function Admin({ workspace }: { workspace: string }) {
     </>
   );
 }
+function PurgeDangerZone({ workspace, projectId }: { workspace: string; projectId?: string }) {
+  const targetId = projectId ?? workspace;
+  const [confirmation, setConfirmation] = useState("");
+  const [job, setJob] = useState<PurgeJob | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [reload, setReload] = useState(0);
+  const op = useAction(workspace);
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    wire
+      .call<PurgeJob | null>(
+        workspace,
+        "lifecycle.getPurgeStatus",
+        projectId ? { projectId } : {},
+        controller.signal,
+      )
+      .then((result) => {
+        if (!controller.signal.aborted) {
+          setJob(result);
+          if (
+            result &&
+            op.status === "unknown" &&
+            (op.pending?.name === "lifecycle.requestPurge" || (job && result.version > job.version))
+          )
+            op.reset();
+        }
+      })
+      .catch((cause) => {
+        if (!controller.signal.aborted)
+          setError(cause instanceof Error ? cause.message : String(cause));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [workspace, projectId, reload]);
+  const accept = (result: PurgeJob | null) => {
+    if (result) {
+      setJob(result);
+      setConfirmation("");
+      setReload((value) => value + 1);
+    }
+  };
+  const request = () => {
+    if (confirmation !== targetId || job || op.status === "pending" || op.status === "unknown")
+      return;
+    void op
+      .run<PurgeJob>(workspace, "lifecycle.requestPurge", {
+        expectedVersion: 0,
+        ...(projectId ? { projectId } : {}),
+        confirmation,
+      })
+      .then(accept);
+  };
+  const resume = () => {
+    if (!job || job.state === "complete" || op.status === "pending" || op.status === "unknown")
+      return;
+    void op
+      .run<PurgeJob>(workspace, "lifecycle.resumePurge", {
+        expectedVersion: job.version,
+        jobId: job.id,
+      })
+      .then(accept);
+  };
+  const busy = op.status === "pending" || op.status === "unknown";
+  return (
+    <section
+      class="panel danger-zone"
+      aria-label={projectId ? "プロジェクトの削除" : "ワークスペースの削除"}
+    >
+      <h3>{projectId ? "プロジェクトの削除" : "ワークスペースの削除"}</h3>
+      <p>
+        この操作は元に戻せません。
+        {projectId ? "このプロジェクト" : "このワークスペースと全プロジェクト"}
+        のデータを段階的に凍結・削除します。
+      </p>
+      <p>
+        対象 ID: <strong class="purge-target">{targetId}</strong>
+      </p>
+      {error && <p role="alert">状態を取得できません: {error}</p>}
+      {loading && <p role="status">状態を確認中…</p>}
+      <button
+        type="button"
+        class="secondary"
+        onClick={() => setReload((value) => value + 1)}
+        disabled={loading}
+      >
+        状態を更新
+      </button>
+      {!loading && !error && !job && (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            request();
+          }}
+        >
+          <label>
+            削除を確認するため対象 ID を正確に入力
+            <input
+              value={confirmation}
+              onInput={(event) => setConfirmation(event.currentTarget.value)}
+              autoComplete="off"
+              spellcheck={false}
+            />
+          </label>
+          <button type="submit" class="danger" disabled={confirmation !== targetId || busy}>
+            削除を開始
+          </button>
+        </form>
+      )}
+      {job && (
+        <div aria-live="polite">
+          <p>
+            ジョブ {job.id} ·{" "}
+            {job.state === "freezing" ? "凍結中" : job.state === "purging" ? "削除中" : "完了"} · v
+            {job.version}
+          </p>
+          <ul class="list">
+            {job.steps.map((step) => (
+              <li key={step.owner}>
+                <strong>{step.owner}</strong> · {step.state} · 残り {step.remaining} · 保留{" "}
+                {step.pending}
+                {step.error && <p role="alert">{step.error}</p>}
+              </li>
+            ))}
+          </ul>
+          {job.state !== "complete" &&
+            (job.projectId !== null ||
+              !job.steps.some(
+                (step) =>
+                  step.owner === "access" && (step.state === "purging" || step.state === "purged"),
+              )) && (
+              <button type="button" class="danger" onClick={resume} disabled={busy}>
+                削除を再開
+              </button>
+            )}
+        </div>
+      )}
+      <Status
+        op={op}
+        onRetry={() => {
+          void op.retry<PurgeJob>().then(accept);
+        }}
+      />
+    </section>
+  );
+}
 type Sprint = {
   id: string;
   projectId: string;
@@ -2236,6 +2400,9 @@ function App() {
     () => new URL(location.href).searchParams.get("w") ?? "",
   );
   const [project, setProject] = useState<Project | null>(null);
+  const [purgeProjectId, setPurgeProjectId] = useState(
+    () => new URL(location.href).searchParams.get("p") ?? "",
+  );
   const [view, setView] = useState<View>("projects");
   const workspaceInfo = useQuery<Workspace[]>(workspace, "access.workspaces", {}, workspace);
   const notificationBadge = useQuery<{ unread: number }>(
@@ -2248,9 +2415,11 @@ function App() {
   const selectWorkspace = (id: string) => {
     setWorkspace(id);
     setProject(null);
+    setPurgeProjectId("");
     setView("projects");
     const url = new URL(location.href);
     url.searchParams.set("w", id);
+    url.searchParams.delete("p");
     history.replaceState(null, "", url);
   };
   return (
@@ -2339,6 +2508,10 @@ function App() {
                 project={project}
                 onProject={(p) => {
                   setProject(p);
+                  setPurgeProjectId(p.id);
+                  const url = new URL(location.href);
+                  url.searchParams.set("p", p.id);
+                  history.replaceState(null, "", url);
                   setView("issues");
                 }}
               />
@@ -2382,6 +2555,19 @@ function App() {
               <>
                 <Admin key={workspace} workspace={workspace} />
                 <IntegrationsAdmin key={`${workspace}:integrations`} workspace={workspace} />
+                {(workspaceInfo.data?.find((entry) => entry.id === workspace)?.role === "owner" ||
+                  workspaceInfo.error) && (
+                  <>
+                    {purgeProjectId && (
+                      <PurgeDangerZone
+                        key={`${workspace}:${purgeProjectId}:purge`}
+                        workspace={workspace}
+                        projectId={purgeProjectId}
+                      />
+                    )}
+                    <PurgeDangerZone key={`${workspace}:purge`} workspace={workspace} />
+                  </>
+                )}
               </>
             )}
           </>

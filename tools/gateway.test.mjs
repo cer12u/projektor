@@ -123,6 +123,7 @@ before(async () => {
     "planning",
     "insights",
     "integrations",
+    "lifecycle",
   ]);
   const clock = { now: () => Math.floor(Date.now() / 1000) };
   const created = platform.createAccess({
@@ -991,7 +992,7 @@ test("09a Worker scheduled GC collects expired incomplete uploads in both worksp
       .run();
   }
   const worker = await mf.getWorker();
-  await worker.scheduled();
+  await worker.scheduled({ cron: "0 * * * *" });
   for (const w of ["w1", "w2"]) {
     assert.equal((await bucket.get(`assets/${w}/audit-expired`)) === null, true);
     assert.equal(
@@ -1011,7 +1012,7 @@ test("09a Worker scheduled GC collects expired incomplete uploads in both worksp
       null,
     );
   }
-  await worker.scheduled();
+  await worker.scheduled({ cron: "0 * * * *" });
 });
 
 test("09a real Access Projects Issues Wiki satisfy Assets provider contract", async () => {
@@ -1602,9 +1603,9 @@ test("Worker scheduled delivers a pending webhook once and persists delivered st
   // Delivery enqueue is a module command, not a Gateway administration operation.
   await db
     .prepare(
-      "INSERT INTO integrations_deliveries(workspace_id,id,source_id,external_id,event_type,body,status,attempts,next_attempt_at) VALUES(?,?,?,?,?,?,'pending',0,0)",
+      "INSERT INTO integrations_deliveries(workspace_id,id,source_id,project_id,external_id,event_type,body,status,attempts,next_attempt_at) VALUES(?,?,?,?,?,?,?,'pending',0,0)",
     )
-    .bind("w1", "scheduled-delivery", sourceId, "scheduled-event", "IssueChanged", body)
+    .bind("w1", "scheduled-delivery", sourceId, "p1", "scheduled-event", "IssueChanged", body)
     .run();
   const state = () =>
     db
@@ -1612,14 +1613,14 @@ test("Worker scheduled delivers a pending webhook once and persists delivered st
       .bind("w1", "scheduled-delivery")
       .first();
   const worker = await mf.getWorker();
-  await worker.scheduled();
+  await worker.scheduled({ cron: "0 * * * *" });
   assert.equal(
     sent,
     1,
     `Worker scheduled handler must invoke Integrations drain: ${JSON.stringify(await state())}`,
   );
   assert.deepEqual(await state(), { status: "delivered", attempts: 1 });
-  await worker.scheduled();
+  await worker.scheduled({ cron: "0 * * * *" });
   assert.equal(sent, 1, "delivered webhooks must not be sent again");
   assert.deepEqual(await state(), { status: "delivered", attempts: 1 });
 });
@@ -1706,7 +1707,7 @@ for (const [label, key] of [
       );
       assert.equal(feedback.status, 503);
       assert.equal((await feedback.json()).code, "unavailable");
-      await (await mf.getWorker()).scheduled();
+      await (await mf.getWorker()).scheduled({ cron: "0 * * * *" });
       const db = await mf.getD1Database("DB");
       const activity = await db
         .prepare("SELECT entity_id FROM insights_activity WHERE workspace_id=? AND entity_id=?")

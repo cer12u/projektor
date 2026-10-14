@@ -3,9 +3,13 @@ import { createAccess } from "../../modules/access/internal/factory";
 import { createAssets } from "../../modules/assets/internal/factory";
 import { createCoordination } from "../../modules/coordination/internal/factory";
 import { createInsights } from "../../modules/insights/internal/factory";
-import { createIntegrations } from "../../modules/integrations/internal/factory";
+import {
+  createIntegrations,
+  createIntegrationsMaintenance,
+} from "../../modules/integrations/internal/factory";
 import type { IntegrationsApi } from "../../modules/integrations/public";
 import { createIssues } from "../../modules/issues/internal/factory";
+import { createLifecycle } from "../../modules/lifecycle/internal/factory";
 import { createPlanning } from "../../modules/planning/internal/factory";
 import { createProjects } from "../../modules/projects/internal/factory";
 import { createWiki } from "../../modules/wiki/internal/factory";
@@ -200,14 +204,38 @@ function compose(env: Env) {
         // Native Worker fetch rejects the dependency object as its receiver.
         send: (url, init) => fetch(url, init),
       })
-    : { api: unavailableIntegrations, background: { drain: async () => 0 } };
+    : {
+        api: unavailableIntegrations,
+        background: { drain: async () => 0 },
+        maintenance: createIntegrationsMaintenance(createModuleStore(env.DB, "integrations")),
+      };
+  const lifecycleModule = createLifecycle({
+    store: createModuleStore(env.DB, "lifecycle"),
+    access,
+    projects,
+    clock: systemClock,
+    ids: randomIds,
+    owners: {
+      access: accessModule.maintenance,
+      projects: projectModule.maintenance,
+      issues: issueModule.maintenance,
+      wiki: wikiModule.maintenance,
+      coordination: coordinationModule.maintenance,
+      assets: assetModule.maintenance,
+      planning: planningModule.maintenance,
+      insights: insightsModule.maintenance,
+      integrations: integrationsModule.maintenance,
+    },
+  });
   return {
     background: {
+      lifecycle: lifecycleModule.background,
       access: accessModule.background,
       insights: insightsModule.background,
       integrations: integrationsModule.background,
     },
     gateway: {
+      lifecycle: lifecycleModule.api,
       access,
       projects,
       issues,
@@ -242,8 +270,10 @@ export default {
     services ??= compose(env);
     return handleHttp(request, services.gateway);
   },
-  async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
+  async scheduled(event: ScheduledEvent, env: Env): Promise<void> {
     services ??= compose(env);
+    await services.background.lifecycle.tick();
+    if (event.cron === "* * * * *") return;
     await services.gateway.assets.drainGc();
     await services.background.integrations.drain();
     await consumeActiveWorkspaces(services.background.access, services.background.insights);

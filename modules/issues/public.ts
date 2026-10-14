@@ -36,6 +36,7 @@ export interface IssueHistory {
 export interface IssueEvent {
   readonly eventId: string;
   readonly source: "issues";
+  readonly projectId: string | null;
   readonly schemaVersion: 1;
   readonly workspaceId: string;
   readonly aggregateId: string;
@@ -149,4 +150,23 @@ export interface IssuesApi {
     cursor: number,
     limit: number,
   ): Promise<readonly IssueEvent[]>;
+}
+
+/** Composition-only maintenance capability. */
+export interface IssuesMaintenance {
+  freezeScope(scope: { readonly workspaceId: string; readonly projectId?: string }): Promise<{
+    readonly state: "frozen" | "purging" | "purged";
+    readonly remaining: number;
+    readonly pending: number;
+  }>;
+  purgeScope(scope: { readonly workspaceId: string; readonly projectId?: string }): Promise<{
+    readonly state: "frozen" | "purging" | "purged";
+    readonly remaining: number;
+    readonly pending: number;
+  } | null>;
+  purgeStatus(scope: { readonly workspaceId: string; readonly projectId?: string }): Promise<{
+    readonly state: "frozen" | "purging" | "purged";
+    readonly remaining: number;
+    readonly pending: number;
+  } | null>;
 }

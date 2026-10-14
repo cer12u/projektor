@@ -28,6 +28,11 @@ args.push(
   "tools/insights.test.mjs",
   "tools/insights-scheduled.test.mjs",
   "tools/integrations.test.mjs",
+  "tools/maintenance-core.test.mjs",
+  "tools/maintenance-derived.test.mjs",
+  "tools/lifecycle.test.mjs",
+  "tools/lifecycle-scheduled.test.mjs",
+  "tools/maintenance-assets.test.mjs",
 );
 const result = spawnSync(process.execPath, args, { stdio: "inherit" });
 process.exitCode = result.status ?? 1;

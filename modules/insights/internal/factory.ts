@@ -16,6 +16,9 @@ import type { WikiApi, WikiEventReader } from "../../wiki/public";
 import type {
   ActivityItem,
   InsightsApi,
+  InsightsMaintenance,
+  InsightsMaintenanceScope,
+  InsightsPurgeStatus,
   Notification,
   ProjectionLag,
   SourceOwner,
@@ -30,6 +33,7 @@ type Event = {
   readonly source: SourceOwner;
   readonly schemaVersion: number;
   readonly workspaceId: string;
+  readonly projectId?: string | null;
   readonly cursor: number;
   readonly occurredAt: number;
   readonly type: string;
@@ -120,11 +124,16 @@ function decodeCursor(v: string | undefined): { at: number; source: string; seq:
 export function createInsights(d: Dependencies): {
   api: InsightsApi;
   background: { consumeEvents(workspaceId: string, limit?: number): Promise<number> };
+  maintenance: InsightsMaintenance;
 } {
   if (d.store.owner !== "insights") fail("forbidden", "Wrong Insights store");
   const { store, access, projects, issues, wiki, coordination, planning, assets, clock, ids } = d;
   const one = async (name: Name, values: Statement["values"]) =>
     (await store.run(name, values)).rows[0];
+  async function frozen(workspaceId: string, projectId?: string): Promise<boolean> {
+    if (await one("maintenanceMarker", [workspaceId, ""])) return true;
+    return projectId ? Boolean(await one("maintenanceMarker", [workspaceId, projectId])) : false;
+  }
   async function lag(ws: string): Promise<readonly ProjectionLag[]> {
     const rows = (await store.run("cursors", [ws])).rows;
     return sources.map((source) => {
@@ -143,6 +152,7 @@ export function createInsights(d: Dependencies): {
     id(ws);
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
       fail("validation", "Invalid limit");
+    if (await frozen(ws)) return 0;
     await seed(ws);
     let total = 0;
     for (const source of sources) {
@@ -187,6 +197,7 @@ export function createInsights(d: Dependencies): {
           fail("unknown", "Producer event sequence gap");
         if (event.cursor <= last) continue;
         last = event.cursor;
+        if (event.projectId && (await frozen(ws, event.projectId))) continue;
         calls.push({
           name: "activity",
           values: [
@@ -202,6 +213,11 @@ export function createInsights(d: Dependencies): {
             event.payload?.actorId ?? event.actorId ?? "",
             event.payload?.clientId ?? null,
             event.occurredAt,
+            event.projectId === null
+              ? source === "coordination" && event.type === "FileClaimForced" && !event.issueId
+                ? ""
+                : null
+              : (event.projectId ?? (source === "projects" ? (event.aggregateId ?? null) : null)),
           ],
         });
       }
@@ -285,6 +301,7 @@ export function createInsights(d: Dependencies): {
     resultId: string,
     resultVersion: number,
     active: number | null,
+    projectId: string,
     change: Statement,
   ): Promise<Row> {
     const g = ids.next();
@@ -295,7 +312,16 @@ export function createInsights(d: Dependencies): {
         { name: "clearGuard", values: [s.workspaceId, g] },
         {
           name: "receipt",
-          values: [s.workspaceId, s.principalId, op, fp, resultId, resultVersion, active],
+          values: [
+            s.workspaceId,
+            s.principalId,
+            op,
+            fp,
+            resultId,
+            projectId,
+            resultVersion,
+            active,
+          ],
         },
       ]);
     } catch (e) {
@@ -318,7 +344,7 @@ export function createInsights(d: Dependencies): {
     const op = id(input.operationId),
       issueId = id(input.issueId),
       expected = ver(input.expectedVersion);
-    await issues.authorizeIssue(s, issueId);
+    const issue = await issues.authorizeIssue(s, issueId);
     const fp = await hash([active ? "subscribe" : "unsubscribe", issueId, expected]);
     const saved = await replay(s, op, fp);
     if (saved)
@@ -340,8 +366,20 @@ export function createInsights(d: Dependencies): {
           name: "updateSubscription",
           values: [active ? 1 : 0, s.workspaceId, s.principalId, issueId, expected, active ? 0 : 1],
         }
-      : { name: "createSubscription", values: [s.workspaceId, s.principalId, issueId] };
-    const r = await commit(s, op, fp, issueId, expected + 1, active ? 1 : 0, change);
+      : {
+          name: "createSubscription",
+          values: [s.workspaceId, s.principalId, issueId, issue.projectId],
+        };
+    const r = await commit(
+      s,
+      op,
+      fp,
+      issueId,
+      expected + 1,
+      active ? 1 : 0,
+      issue.projectId,
+      change,
+    );
     return { id: str(r, "result_id"), version: num(r, "result_version"), active: r.active === 1 };
   }
   async function hydrateNotifications(s: RequestScope, ws: string) {
@@ -368,7 +406,8 @@ export function createInsights(d: Dependencies): {
         const source = str(row, "source");
         if (source !== "issues" && source !== "coordination") continue;
         const issueId = str(row, "entity_id");
-        if (!(await locate(s, source, issueId))) continue;
+        const located = await locate(s, source, issueId);
+        if (!located) continue;
         const seq = num(row, "sequence");
         const notificationId = `${source}_${seq}`;
         const recipients: { principalId: string; kind: "assigned" | "comment" | "lease" }[] = [];
@@ -395,14 +434,16 @@ export function createInsights(d: Dependencies): {
         }
         for (const recipient of recipients)
           if (recipient.principalId === s.principalId && str(row, "actor_id") !== s.principalId)
-            await store.run("insertNotification", [
-              ws,
-              recipient.principalId,
-              notificationId,
-              issueId,
-              recipient.kind,
-              num(row, "occurred_at"),
-            ]);
+            if (!(await frozen(ws, located.projectId)))
+              await store.run("insertNotification", [
+                ws,
+                recipient.principalId,
+                notificationId,
+                issueId,
+                located.projectId,
+                recipient.kind,
+                num(row, "occurred_at"),
+              ]);
       }
     } while (rows.length === 100);
   }
@@ -425,11 +466,11 @@ export function createInsights(d: Dependencies): {
       const saved = await replay(s, op, fp);
       const row = await one("notification", [s.workspaceId, s.principalId, notificationId]);
       if (!row) fail("not_found", "Notification not found");
-      await issues.authorizeIssue(s, str(row, "issue_id"));
+      const issue = await issues.authorizeIssue(s, str(row, "issue_id"));
       if (saved) return { id: str(saved, "result_id"), version: num(saved, "result_version") };
       if (num(row, "version") !== expected || row.read !== 0)
         fail("conflict", "Notification version conflict");
-      const r = await commit(s, op, fp, notificationId, expected + 1, null, {
+      const r = await commit(s, op, fp, notificationId, expected + 1, null, issue.projectId, {
         name: "markRead",
         values: [s.workspaceId, s.principalId, notificationId, expected],
       });
@@ -557,16 +598,17 @@ export function createInsights(d: Dependencies): {
         activeSessions,
         lag: await lag(ws),
       };
-      await store.run("saveMetrics", [
-        ws,
-        pid,
-        clock.now(),
-        counts.todo,
-        counts.inProgress,
-        counts.done,
-        result.activeLeases,
-        result.activeSessions,
-      ]);
+      if (!(await frozen(ws, pid)))
+        await store.run("saveMetrics", [
+          ws,
+          pid,
+          clock.now(),
+          counts.todo,
+          counts.inProgress,
+          counts.done,
+          result.activeLeases,
+          result.activeSessions,
+        ]);
       return result;
     },
     async listNotifications(s, cursor, limit) {
@@ -617,5 +659,55 @@ export function createInsights(d: Dependencies): {
       };
     },
   };
-  return { api, background: Object.freeze({ consumeEvents: consume }) };
+  function key(scope: InsightsMaintenanceScope): [string, string] {
+    return [id(scope.workspaceId), scope.projectId === undefined ? "" : id(scope.projectId)];
+  }
+  async function status(scope: InsightsMaintenanceScope): Promise<InsightsPurgeStatus | null> {
+    const [workspaceId, projectId] = key(scope);
+    const marker = await one("maintenanceMarker", [workspaceId, projectId]);
+    if (!marker) return null;
+    const count = await one("maintenanceCount", [workspaceId, projectId]);
+    const remaining = num(count ?? fail("unknown", "Missing count"), "n");
+    const pending = projectId
+      ? num(
+          (await one("maintenanceUnknown", [workspaceId, workspaceId, workspaceId, workspaceId])) ??
+            fail("unknown", "Missing pending count"),
+          "n",
+        )
+      : 0;
+    return {
+      state:
+        marker.state === "purging" ? (remaining + pending === 0 ? "purged" : "purging") : "frozen",
+      remaining,
+      pending,
+    };
+  }
+  const maintenance: InsightsMaintenance = {
+    async freezeScope(scope) {
+      const [workspaceId, projectId] = key(scope);
+      await store.run("maintenanceFreeze", [workspaceId, projectId]);
+      return (await status(scope)) ?? fail("unknown", "Missing marker");
+    },
+    async purgeScope(scope) {
+      const [workspaceId, projectId] = key(scope);
+      if (!(await status(scope))) fail("conflict", "Scope is not frozen");
+      await store.batch([
+        { name: "maintenancePurging", values: [workspaceId, projectId] },
+        ...(
+          [
+            "purgeActivity",
+            "purgeMetrics",
+            "purgeSubscriptions",
+            "purgeNotifications",
+            "purgeReceipts",
+          ] as const
+        ).map((name) => ({ name, values: [workspaceId, projectId, projectId] })),
+        { name: "purgeCursors", values: [workspaceId, projectId] },
+        { name: "purgeGuards", values: [workspaceId, projectId] },
+      ]);
+      return (await status(scope)) ?? fail("unknown", "Missing marker");
+    },
+    purgeStatus: status,
+  };
+  return { api, background: Object.freeze({ consumeEvents: consume }), maintenance };
 }

@@ -34,6 +34,7 @@ test("11a Worker scheduled discovers every active workspace beyond one keyset pa
       "assets",
       "insights",
       "integrations",
+      "lifecycle",
     ]);
     const workspaces = Array.from({ length: 102 }, (_, i) => `w${String(i).padStart(3, "0")}`);
     for (const w of workspaces) {

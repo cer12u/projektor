@@ -58,3 +58,8 @@ for admission.
 
 New outbox events use schemaVersion 2 and `payload.clientId` from RequestScope (nullable), alongside the actor ID. Existing version-1 rows keep their original data and read with null client attribution. Consumers must accept both versions.
 `FileClaimForced` also records nullable `issueId` and `projectId` from the forcing session’s fenced lease, while retaining the repository/path in `subjectId`. Version-1 events lack these identifiers and cannot appear in project feeds. Both trusted and agent-scoped event readers return the same versioned fields.
+
+## Lifecycle maintenance (13)
+
+See [Lifecycle](lifecycle.md) for owner-local atomic freeze, bounded purge, retained
+markers, project attribution, REST-only owner access and recovery limits.

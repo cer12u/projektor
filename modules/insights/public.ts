@@ -1,4 +1,18 @@
 import type { RequestScope } from "../access/public";
+export interface InsightsMaintenanceScope {
+  readonly workspaceId: string;
+  readonly projectId?: string;
+}
+export interface InsightsPurgeStatus {
+  readonly state: "frozen" | "purging" | "purged";
+  readonly remaining: number;
+  readonly pending: number;
+}
+export interface InsightsMaintenance {
+  freezeScope(scope: InsightsMaintenanceScope): Promise<InsightsPurgeStatus>;
+  purgeScope(scope: InsightsMaintenanceScope): Promise<InsightsPurgeStatus>;
+  purgeStatus(scope: InsightsMaintenanceScope): Promise<InsightsPurgeStatus | null>;
+}
 
 export type SourceOwner = "projects" | "issues" | "wiki" | "coordination" | "planning" | "assets";
 export interface ProjectionLag {

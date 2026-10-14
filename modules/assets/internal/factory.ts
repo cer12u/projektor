@@ -17,9 +17,11 @@ import type {
   AssetMetadata,
   AssetResult,
   AssetsApi,
+  AssetsMaintenance,
   AssetTarget,
 } from "../public";
 import type { queries } from "../storage/queries";
+import { createMaintenance } from "./maintenance";
 
 type Name = keyof typeof queries;
 type Statement = Call<Name>;
@@ -65,7 +67,11 @@ async function hash(v: ArrayBuffer | string): Promise<string> {
   );
   return Array.from(new Uint8Array(bytes), (b) => b.toString(16).padStart(2, "0")).join("");
 }
-export function createAssets(d: Dependencies): { api: AssetsApi; eventReader?: AssetEventReader } {
+export function createAssets(d: Dependencies): {
+  api: AssetsApi;
+  eventReader?: AssetEventReader;
+  maintenance: AssetsMaintenance;
+} {
   if (d.store.owner !== "assets") fail("forbidden", "Wrong Assets store");
   const { store, bucketFor, access, projects, issues, wiki, clock, ids } = d;
   const eventReader = d.eventConsumer ? (Object.freeze({}) as AssetEventReader) : undefined;
@@ -226,7 +232,20 @@ export function createAssets(d: Dependencies): { api: AssetsApi; eventReader?: A
       if (body.byteLength > MAX_SIZE) fail("validation", "Upload too large");
       if (body.byteLength !== number(r, "size") || (await hash(body)) !== string(r, "sha256"))
         fail("validation", "Size or hash mismatch");
-      await bucketFor(w(scope)).put(key(w(scope), assetId), body);
+      const attempt = ids.next();
+      const admitted = await store.run("uploadStart", [w(scope), attempt, w(scope), assetId]);
+      if (admitted.changes !== 1) fail("conflict", "Upload closed");
+      // Freeze waits for admitted uploads; a write crossing freeze is compensated.
+      try {
+        await bucketFor(w(scope)).put(key(w(scope), assetId), body);
+        const frozen = await one("uploadFrozen", [w(scope), string(r, "project_id")]);
+        if (frozen) {
+          await bucketFor(w(scope)).delete(key(w(scope), assetId));
+          fail("conflict", "Scope frozen");
+        }
+      } finally {
+        await store.run("uploadFinish", [w(scope), attempt]);
+      }
     },
     async completeUpload(scope, input) {
       const op = id(input.operationId),
@@ -367,6 +386,7 @@ export function createAssets(d: Dependencies): { api: AssetsApi; eventReader?: A
         fail("validation", "Invalid page");
       return (await store.run("events", [id(workspaceId), cursor, limit])).rows.map((r) => ({
         eventId: string(r, "event_id"),
+        projectId: r.project_id === null ? null : string(r, "project_id"),
         source: "assets" as const,
         schemaVersion: number(r, "schema_version") as 1 | 2,
         workspaceId,
@@ -395,6 +415,19 @@ export function createAssets(d: Dependencies): { api: AssetsApi; eventReader?: A
           done++;
           continue;
         }
+        if (
+          (await one("uploadFrozen", [ws, string(r, "project_id")])) ||
+          Number(
+            (
+              await one("maintenancePending", [
+                ws,
+                string(r, "project_id"),
+                string(r, "project_id"),
+              ])
+            )?.n ?? 0,
+          ) > 0
+        )
+          continue;
         // Close pending uploads too: completion/link must not race the R2 deletion.
         await store.run("retire", [ws, assetId, ws, assetId]);
         const current = await one("blob", [ws, assetId]);
@@ -414,5 +447,5 @@ export function createAssets(d: Dependencies): { api: AssetsApi; eventReader?: A
       return done;
     },
   };
-  return { api, eventReader };
+  return { api, eventReader, maintenance: createMaintenance(store, bucketFor) };
 }

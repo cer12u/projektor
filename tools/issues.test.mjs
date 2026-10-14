@@ -1032,7 +1032,7 @@ test("trigram upgrade rebuilds existing indexed rows and preserves unknown attri
         .prepare("SELECT COUNT(*) n FROM platform_schema_versions WHERE owner='issues'")
         .first()
     ).n,
-    2,
+    3,
   );
 });
 

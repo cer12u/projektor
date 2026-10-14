@@ -19,11 +19,41 @@ export const queries = {
   guard: "INSERT INTO projects_guards(workspace_id,id,changed) VALUES(?,?,changes())",
   clearGuard: "DELETE FROM projects_guards WHERE workspace_id=? AND id=?",
   receipt:
-    "INSERT INTO projects_receipts(workspace_id,principal_id,operation_id,fingerprint,result_id,result_version) VALUES(?,?,?,?,?,?)",
+    "INSERT INTO projects_receipts(workspace_id,principal_id,operation_id,fingerprint,result_id,result_version,project_id) VALUES(?,?,?,?,?,?,?)",
   readReceipt:
     "SELECT fingerprint,result_id,result_version FROM projects_receipts WHERE workspace_id=? AND principal_id=? AND operation_id=?",
   event:
-    "INSERT INTO projects_events(workspace_id,sequence,event_id,aggregate_id,aggregate_version,type,occurred_at,actor_id,client_id,schema_version) VALUES(?,(SELECT COALESCE(MAX(sequence),0)+1 FROM projects_events WHERE workspace_id=?),?,?,?,?,?,?,?,2)",
+    "INSERT INTO projects_events(workspace_id,sequence,event_id,aggregate_id,aggregate_version,type,occurred_at,actor_id,client_id,schema_version,project_id) VALUES(?,(SELECT COALESCE(MAX(sequence),0)+1 FROM projects_events WHERE workspace_id=?),?,?,?,?,?,?,?,2,?)",
   events:
-    "SELECT sequence,event_id,aggregate_id,aggregate_version,type,occurred_at,actor_id,client_id,schema_version FROM projects_events WHERE workspace_id=? AND sequence>? ORDER BY sequence LIMIT ?",
+    "SELECT sequence,event_id,aggregate_id,aggregate_version,type,occurred_at,actor_id,client_id,schema_version,project_id FROM projects_events WHERE workspace_id=? AND sequence>? ORDER BY sequence LIMIT ?",
+  maintenanceFreeze:
+    "INSERT INTO projects_frozen_scopes(workspace_id,project_id,state) VALUES(?,?,'frozen') ON CONFLICT(workspace_id,project_id) DO NOTHING",
+  maintenanceMarker:
+    "SELECT state FROM projects_frozen_scopes WHERE workspace_id=? AND project_id=?",
+  maintenanceBegin:
+    "UPDATE projects_frozen_scopes SET state='purging' WHERE workspace_id=? AND project_id=? AND state='frozen'",
+  maintenanceDone:
+    "UPDATE projects_frozen_scopes SET state='purged' WHERE workspace_id=? AND project_id=? AND state='purging'",
+  maintenanceBypass: "INSERT INTO projects_purge_bypass(workspace_id,project_id) VALUES(?,?)",
+  maintenanceUnbypass: "DELETE FROM projects_purge_bypass WHERE workspace_id=? AND project_id=?",
+  maintenanceCountGrants:
+    "SELECT COUNT(*) AS n FROM projects_grants t WHERE t.workspace_id=? AND (?='' OR t.project_id=?)",
+  maintenanceDeleteGrants:
+    "DELETE FROM projects_grants WHERE rowid IN (SELECT t.rowid FROM projects_grants t WHERE t.workspace_id=? AND (?='' OR t.project_id=?) ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountReceipts:
+    "SELECT COUNT(*) AS n FROM projects_receipts t WHERE t.workspace_id=? AND (?='' OR t.project_id=?)",
+  maintenanceDeleteReceipts:
+    "DELETE FROM projects_receipts WHERE rowid IN (SELECT t.rowid FROM projects_receipts t WHERE t.workspace_id=? AND (?='' OR t.project_id=?) ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountEvents:
+    "SELECT COUNT(*) AS n FROM projects_events t WHERE t.workspace_id=? AND (?='' OR t.project_id=?)",
+  maintenanceDeleteEvents:
+    "DELETE FROM projects_events WHERE rowid IN (SELECT t.rowid FROM projects_events t WHERE t.workspace_id=? AND (?='' OR t.project_id=?) ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountGuards:
+    "SELECT COUNT(*) AS n FROM projects_guards t WHERE t.workspace_id=? AND ?=''",
+  maintenanceDeleteGuards:
+    "DELETE FROM projects_guards WHERE rowid IN (SELECT t.rowid FROM projects_guards t WHERE t.workspace_id=? AND ?='' ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountProjects:
+    "SELECT COUNT(*) AS n FROM projects_projects t WHERE t.workspace_id=? AND (?='' OR t.id=?)",
+  maintenanceDeleteProjects:
+    "DELETE FROM projects_projects WHERE rowid IN (SELECT t.rowid FROM projects_projects t WHERE t.workspace_id=? AND (?='' OR t.id=?) AND NOT EXISTS (SELECT 1 FROM projects_grants c WHERE c.workspace_id=t.workspace_id AND c.project_id=t.id) AND NOT EXISTS (SELECT 1 FROM projects_receipts c WHERE c.workspace_id=t.workspace_id AND c.result_id=t.id) AND NOT EXISTS (SELECT 1 FROM projects_events c WHERE c.workspace_id=t.workspace_id AND c.aggregate_id=t.id) ORDER BY t.rowid LIMIT 50)",
 } as const;

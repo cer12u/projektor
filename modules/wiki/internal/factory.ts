@@ -11,11 +11,13 @@ import type {
   WikiApi,
   WikiEvent,
   WikiEventReader,
+  WikiMaintenance,
   WikiPage,
   WikiResult,
   WikiRevision,
 } from "../public";
 import type { queries } from "../storage/queries";
+import { createMaintenance } from "./maintenance";
 import { searchExpression, searchPattern, searchTerms } from "./rules";
 
 type Scope = Parameters<ProjectsApi["authorizeProject"]>[0];
@@ -80,7 +82,11 @@ async function digest(value: string): Promise<string> {
   const bytes = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(bytes), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
-export function createWiki(deps: Dependencies): { api: WikiApi; eventReader?: WikiEventReader } {
+export function createWiki(deps: Dependencies): {
+  api: WikiApi;
+  eventReader?: WikiEventReader;
+  maintenance: WikiMaintenance;
+} {
   const { store, projects, clock, ids } = deps;
   if (store.owner !== "wiki") fail("forbidden", "Wrong Wiki store");
   const eventReader = deps.eventConsumer ? (Object.freeze({}) as WikiEventReader) : undefined;
@@ -179,6 +185,8 @@ export function createWiki(deps: Dependencies): { api: WikiApi; eventReader?: Wi
             actor(scope),
             kind(scope),
             scope.clientId ?? null,
+            w,
+            pageId,
           ],
         },
       ]);
@@ -190,6 +198,8 @@ export function createWiki(deps: Dependencies): { api: WikiApi; eventReader?: Wi
         if (recovery instanceof PlatformError) throw recovery;
         fail("unknown", "Operation outcome unknown; retry same operation ID");
       }
+      if (error instanceof Error && /scope frozen/i.test(error.message))
+        fail("conflict", "Scope frozen");
       if (
         error instanceof Error &&
         /(?:CHECK|UNIQUE|FOREIGN KEY) constraint failed/i.test(error.message)
@@ -393,6 +403,7 @@ export function createWiki(deps: Dependencies): { api: WikiApi; eventReader?: Wi
           source: "wiki",
           schemaVersion: 1,
           workspaceId,
+          projectId: row.project_id === null ? null : field(row, "project_id"),
           aggregateId: field(row, "aggregate_id"),
           aggregateVersion: integer(row, "aggregate_version"),
           type:
@@ -412,5 +423,5 @@ export function createWiki(deps: Dependencies): { api: WikiApi; eventReader?: Wi
       );
     },
   };
-  return { api: Object.freeze(api), eventReader };
+  return { api: Object.freeze(api), eventReader, maintenance: createMaintenance(store) };
 }

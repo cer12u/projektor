@@ -64,3 +64,8 @@ workspace predicate, missing slug project predicate, downgraded live write
 authorization, removed edit CAS, and skipped changed-row guard. Every mutant
 must fail a behavioral assertion. These are local workerd checks, not deployed
 D1 evidence.
+
+## Lifecycle maintenance (13)
+
+See [Lifecycle](lifecycle.md) for owner-local atomic freeze, bounded purge, retained
+markers, project attribution, REST-only owner access and recovery limits.

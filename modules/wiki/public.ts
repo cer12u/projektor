@@ -33,6 +33,7 @@ export interface WikiRevision {
 export interface WikiEvent {
   readonly eventId: string;
   readonly source: "wiki";
+  readonly projectId: string | null;
   readonly schemaVersion: 1;
   readonly workspaceId: string;
   readonly aggregateId: string;
@@ -107,4 +108,23 @@ export interface WikiApi {
     cursor: number,
     limit: number,
   ): Promise<readonly WikiEvent[]>;
+}
+
+/** Composition-only maintenance capability. */
+export interface WikiMaintenance {
+  freezeScope(scope: { readonly workspaceId: string; readonly projectId?: string }): Promise<{
+    readonly state: "frozen" | "purging" | "purged";
+    readonly remaining: number;
+    readonly pending: number;
+  }>;
+  purgeScope(scope: { readonly workspaceId: string; readonly projectId?: string }): Promise<{
+    readonly state: "frozen" | "purging" | "purged";
+    readonly remaining: number;
+    readonly pending: number;
+  } | null>;
+  purgeStatus(scope: { readonly workspaceId: string; readonly projectId?: string }): Promise<{
+    readonly state: "frozen" | "purging" | "purged";
+    readonly remaining: number;
+    readonly pending: number;
+  } | null>;
 }

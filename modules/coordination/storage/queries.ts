@@ -38,16 +38,16 @@ export const queries = {
   claims:
     "SELECT repo,path,session_id,lease_issue_id,expires_at FROM coord_file_claims WHERE workspace_id=? AND repo=? ORDER BY path LIMIT 100",
   putClaim:
-    "INSERT INTO coord_file_claims(workspace_id,repo,path,session_id,lease_issue_id,expires_at) SELECT ?,?,?,?,?,? WHERE (? IS NULL OR EXISTS (SELECT 1 FROM coord_leases WHERE workspace_id=? AND issue_id=? AND session_id=? AND fencing_token=? AND expires_at>?)) ON CONFLICT(workspace_id,repo,path) DO UPDATE SET session_id=excluded.session_id,lease_issue_id=excluded.lease_issue_id,expires_at=excluded.expires_at WHERE (coord_file_claims.expires_at<=? OR coord_file_claims.session_id=? OR ?=1) AND coord_file_claims.session_id=?",
+    "INSERT INTO coord_file_claims(workspace_id,repo,path,session_id,lease_issue_id,expires_at,project_id) SELECT ?,?,?,?,?,?,(SELECT project_id FROM coord_leases WHERE workspace_id=? AND issue_id=?) WHERE (? IS NULL OR EXISTS (SELECT 1 FROM coord_leases WHERE workspace_id=? AND issue_id=? AND session_id=? AND fencing_token=? AND expires_at>?)) ON CONFLICT(workspace_id,repo,path) DO UPDATE SET session_id=excluded.session_id,lease_issue_id=excluded.lease_issue_id,expires_at=excluded.expires_at,project_id=excluded.project_id WHERE (coord_file_claims.expires_at<=? OR coord_file_claims.session_id=? OR ?=1) AND coord_file_claims.session_id=?",
   touchClaims:
     "UPDATE coord_file_claims SET expires_at=? WHERE workspace_id=? AND session_id=? AND expires_at>?",
   dropClaim:
     "DELETE FROM coord_file_claims WHERE workspace_id=? AND repo=? AND path=? AND session_id=?",
   dropSessionClaims: "DELETE FROM coord_file_claims WHERE workspace_id=? AND session_id=?",
   report:
-    "INSERT INTO coord_reports(workspace_id,issue_id,session_id,fencing_token,text,status,reported_at) SELECT ?,?,?,?,?,?,? WHERE EXISTS (SELECT 1 FROM coord_leases WHERE workspace_id=? AND issue_id=? AND session_id=? AND fencing_token=? AND expires_at>?) ON CONFLICT(workspace_id,issue_id) DO UPDATE SET session_id=excluded.session_id,fencing_token=excluded.fencing_token,text=excluded.text,status=excluded.status,reported_at=excluded.reported_at",
+    "INSERT INTO coord_reports(workspace_id,issue_id,session_id,fencing_token,text,status,reported_at,project_id) SELECT ?,?,?,?,?,?,?,(SELECT project_id FROM coord_leases WHERE workspace_id=? AND issue_id=?) WHERE EXISTS (SELECT 1 FROM coord_leases WHERE workspace_id=? AND issue_id=? AND session_id=? AND fencing_token=? AND expires_at>?) ON CONFLICT(workspace_id,issue_id) DO UPDATE SET session_id=excluded.session_id,fencing_token=excluded.fencing_token,text=excluded.text,status=excluded.status,reported_at=excluded.reported_at,project_id=excluded.project_id",
   appendReport:
-    "INSERT INTO coord_report_history(workspace_id,issue_id,sequence,session_id,fencing_token,text,status,reported_at) SELECT r.workspace_id,r.issue_id,(SELECT COALESCE(MAX(sequence),0)+1 FROM coord_report_history WHERE workspace_id=? AND issue_id=?),r.session_id,r.fencing_token,r.text,r.status,r.reported_at FROM coord_reports r WHERE r.workspace_id=? AND r.issue_id=?",
+    "INSERT INTO coord_report_history(workspace_id,issue_id,sequence,session_id,fencing_token,text,status,reported_at,project_id) SELECT r.workspace_id,r.issue_id,(SELECT COALESCE(MAX(sequence),0)+1 FROM coord_report_history WHERE workspace_id=? AND issue_id=?),r.session_id,r.fencing_token,r.text,r.status,r.reported_at,r.project_id FROM coord_reports r WHERE r.workspace_id=? AND r.issue_id=?",
   trimReports:
     "DELETE FROM coord_report_history WHERE workspace_id=? AND issue_id=? AND sequence <= (SELECT MAX(sequence)-1000 FROM coord_report_history WHERE workspace_id=? AND issue_id=?)",
   progressHistory:
@@ -55,15 +55,60 @@ export const queries = {
   progress:
     "SELECT issue_id,session_id,fencing_token,text,status,reported_at FROM coord_reports WHERE workspace_id=? AND issue_id=?",
   receipt:
-    "INSERT INTO coord_receipts(workspace_id,principal_id,operation_id,fingerprint,result_json) VALUES(?,?,?,?,?)",
+    "INSERT INTO coord_receipts(workspace_id,principal_id,operation_id,fingerprint,result_json,project_id) SELECT workspace_id,principal_id,operation_id,fingerprint,result_json,COALESCE(json_extract(result_json,'$.projectId'),(SELECT project_id FROM coord_leases WHERE workspace_id=receipt_data.workspace_id AND issue_id=COALESCE(json_extract(receipt_data.result_json,'$.issueId'),json_extract(receipt_data.result_json,'$[0].leaseIssueId')))) FROM (SELECT ? AS workspace_id,? AS principal_id,? AS operation_id,? AS fingerprint,? AS result_json) receipt_data",
   readReceipt:
     "SELECT fingerprint,result_json FROM coord_receipts WHERE workspace_id=? AND principal_id=? AND operation_id=?",
   event:
-    "INSERT INTO coord_events(workspace_id,sequence,event_id,type,subject_id,actor_id,other_session_id,occurred_at,client_id,schema_version,issue_id,project_id) VALUES(?,(SELECT COALESCE(MAX(sequence),0)+1 FROM coord_events WHERE workspace_id=?),?,?,?,?,?,?,?,2,?,?)",
+    "INSERT INTO coord_events(workspace_id,sequence,event_id,type,subject_id,actor_id,other_session_id,occurred_at,client_id,schema_version,issue_id,project_id) VALUES(?,(SELECT COALESCE(MAX(sequence),0)+1 FROM coord_events WHERE workspace_id=?),?,?,?,?,?,?,?,2,?,COALESCE(?,(SELECT project_id FROM coord_leases WHERE workspace_id=? AND issue_id=?)))",
   agentEvents:
     "SELECT sequence,event_id,type,subject_id,actor_id,other_session_id,occurred_at,client_id,schema_version,issue_id,project_id FROM coord_events WHERE workspace_id=? AND sequence>? AND (actor_id=? OR other_session_id IN (SELECT id FROM coord_sessions WHERE workspace_id=? AND principal_id=?)) ORDER BY sequence LIMIT ?",
   events:
     "SELECT sequence,event_id,type,subject_id,actor_id,other_session_id,occurred_at,client_id,schema_version,issue_id,project_id FROM coord_events WHERE workspace_id=? AND sequence>? ORDER BY sequence LIMIT ?",
   guard: "INSERT INTO coord_guards(workspace_id,id,changed) VALUES(?,?,changes())",
   clearGuard: "DELETE FROM coord_guards WHERE workspace_id=? AND id=?",
+  maintenanceFreeze:
+    "INSERT INTO coord_frozen_scopes(workspace_id,project_id,state) VALUES(?,?,'frozen') ON CONFLICT(workspace_id,project_id) DO NOTHING",
+  maintenanceMarker: "SELECT state FROM coord_frozen_scopes WHERE workspace_id=? AND project_id=?",
+  maintenanceBegin:
+    "UPDATE coord_frozen_scopes SET state='purging' WHERE workspace_id=? AND project_id=? AND state='frozen'",
+  maintenanceDone:
+    "UPDATE coord_frozen_scopes SET state='purged' WHERE workspace_id=? AND project_id=? AND state='purging'",
+  maintenanceBypass: "INSERT INTO coord_purge_bypass(workspace_id,project_id) VALUES(?,?)",
+  maintenanceUnbypass: "DELETE FROM coord_purge_bypass WHERE workspace_id=? AND project_id=?",
+  maintenanceCountFileClaims:
+    "SELECT COUNT(*) AS n FROM coord_file_claims t WHERE t.workspace_id=? AND (?='' OR t.project_id=?)",
+  maintenanceDeleteFileClaims:
+    "DELETE FROM coord_file_claims WHERE rowid IN (SELECT t.rowid FROM coord_file_claims t WHERE t.workspace_id=? AND (?='' OR t.project_id=?) ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountReportHistory:
+    "SELECT COUNT(*) AS n FROM coord_report_history t WHERE t.workspace_id=? AND (?='' OR t.project_id=?)",
+  maintenanceDeleteReportHistory:
+    "DELETE FROM coord_report_history WHERE rowid IN (SELECT t.rowid FROM coord_report_history t WHERE t.workspace_id=? AND (?='' OR t.project_id=?) ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountReports:
+    "SELECT COUNT(*) AS n FROM coord_reports t WHERE t.workspace_id=? AND (?='' OR t.project_id=?)",
+  maintenanceDeleteReports:
+    "DELETE FROM coord_reports WHERE rowid IN (SELECT t.rowid FROM coord_reports t WHERE t.workspace_id=? AND (?='' OR t.project_id=?) ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountReceipts:
+    "SELECT COUNT(*) AS n FROM coord_receipts t WHERE t.workspace_id=? AND (?='' OR t.project_id=?)",
+  maintenanceDeleteReceipts:
+    "DELETE FROM coord_receipts WHERE rowid IN (SELECT t.rowid FROM coord_receipts t WHERE t.workspace_id=? AND (?='' OR t.project_id=?) ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountEvents:
+    "SELECT COUNT(*) AS n FROM coord_events t WHERE t.workspace_id=? AND (?='' OR t.project_id=?)",
+  maintenanceDeleteEvents:
+    "DELETE FROM coord_events WHERE rowid IN (SELECT t.rowid FROM coord_events t WHERE t.workspace_id=? AND (?='' OR t.project_id=?) ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountGuards:
+    "SELECT COUNT(*) AS n FROM coord_guards t WHERE t.workspace_id=? AND ?=''",
+  maintenanceDeleteGuards:
+    "DELETE FROM coord_guards WHERE rowid IN (SELECT t.rowid FROM coord_guards t WHERE t.workspace_id=? AND ?='' ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountLimits:
+    "SELECT COUNT(*) AS n FROM coord_limits t WHERE t.workspace_id=? AND (?='' OR t.project_id=?)",
+  maintenanceDeleteLimits:
+    "DELETE FROM coord_limits WHERE rowid IN (SELECT t.rowid FROM coord_limits t WHERE t.workspace_id=? AND (?='' OR t.project_id=?) ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountLeases:
+    "SELECT COUNT(*) AS n FROM coord_leases t WHERE t.workspace_id=? AND (?='' OR t.project_id=?)",
+  maintenanceDeleteLeases:
+    "DELETE FROM coord_leases WHERE rowid IN (SELECT t.rowid FROM coord_leases t WHERE t.workspace_id=? AND (?='' OR t.project_id=?) ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountSessions:
+    "SELECT COUNT(*) AS n FROM coord_sessions t WHERE t.workspace_id=? AND ?=''",
+  maintenanceDeleteSessions:
+    "DELETE FROM coord_sessions WHERE rowid IN (SELECT t.rowid FROM coord_sessions t WHERE t.workspace_id=? AND ?='' ORDER BY t.rowid LIMIT 50)",
 } as const;
