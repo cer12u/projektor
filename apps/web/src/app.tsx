@@ -119,7 +119,9 @@ function useQuery<T>(workspace: string, name: string, args: Record<string, unkno
     const controller = new AbortController();
     wire
       .call<T>(workspace, name, args, controller.signal)
-      .then(setData)
+      .then((value) => {
+        if (!controller.signal.aborted) setData(value);
+      })
       .catch((cause) => {
         if (!controller.signal.aborted)
           setError(cause instanceof Error ? cause.message : String(cause));
@@ -155,6 +157,7 @@ function useMe(enabled: boolean) {
         controller.signal,
       )
       .then((result) => {
+        if (controller.signal.aborted) return;
         setPrincipal(result.principal);
         setWorkspaces((current) =>
           cursor ? [...current, ...result.workspaces] : result.workspaces,
@@ -204,6 +207,7 @@ function usePaged<T>(workspace: string, name: string, scope: Record<string, unkn
         controller.signal,
       )
       .then((page) => {
+        if (controller.signal.aborted) return;
         setItems((current) => (cursor === null ? page.items : [...current, ...page.items]));
         setNextCursor(page.nextCursor);
       })

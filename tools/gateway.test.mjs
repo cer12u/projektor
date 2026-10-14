@@ -9,7 +9,7 @@ import { coordinationProviderContract } from "./coordination-provider-contract.m
 
 let contractProviders;
 
-let mf, platform, write, read, other, ownerAssertion, writeMachineId;
+let mf, platform, write, read, other, ownerAssertion, writeMachineId, unjoinedAssertion;
 const issuer = "https://unit.cloudflareaccess.com";
 const audience = "projektor-test";
 const b64 = (x) => Buffer.from(JSON.stringify(x)).toString("base64url");
@@ -117,6 +117,7 @@ before(async () => {
     const message = `${b64({ alg: "RS256", kid: "test" })}.${b64({ iss: issuer, aud: [audience], sub: subject, email: `${subject}@example.test`, type: "app", iat: clock.now() - 1, exp: clock.now() + 3600 })}`;
     return `${message}.${Buffer.from(await crypto.subtle.sign("RSASSA-PKCS1-v1_5", pair.privateKey, new TextEncoder().encode(message))).toString("base64url")}`;
   };
+  unjoinedAssertion = await sign("unjoined-07c");
   for (const w of ["w1", "w2"]) {
     const assertion = await sign(w);
     if (w === "w1") ownerAssertion = assertion;
@@ -637,4 +638,18 @@ test("audit real providers satisfy Coordination authorization contract", async (
     priority: "medium",
   });
   await coordinationProviderContract(f);
+});
+
+test("07c /api/me never provisions membership for an authenticated stranger", async () => {
+  const db = await mf.getD1Database("DB");
+  const before = await db.prepare("SELECT COUNT(*) AS n FROM access_memberships").first();
+  const response = await mf.dispatchFetch("http://localhost/api/me", {
+    headers: { "cf-access-jwt-assertion": unjoinedAssertion },
+  });
+  assert.equal(response.status, 200);
+  assert.deepEqual((await response.json()).workspaces, []);
+  assert.deepEqual(
+    await db.prepare("SELECT COUNT(*) AS n FROM access_memberships").first(),
+    before,
+  );
 });

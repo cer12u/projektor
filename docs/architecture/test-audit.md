@@ -476,3 +476,82 @@ files from `3bf12fa`: `mcp-write-scope`, `csrf-cookie`,
 The partial-claim probe splits only guarded claim groups, preserving each local
 CAS guard, so the result specifically tests cross-path atomicity rather than
 breaking all guarded commands during setup.
+
+## Web, 07b contracts and 06c smoke independent audit — 07c
+
+Baseline: merged `5a5f94a`. Reviewed the owner contracts and observable behavior
+before extending tests. Access and Coordination still use only their own
+migrations with public provider fakes; Gateway tests use the composed Worker.
+Browser verification is headless Chromium only, as explicitly required for this
+VM audit. All heavy processes and mutation probes run sequentially.
+
+Three runtime corrections were necessary: REST had started accepting MCP-resource
+OAuth tokens; OAuth-derived owners could change WIP policy; aborted queries could
+still paint a decoded response after workspace switching. The latter two were
+reproduced by new behavioral tests before fixing them. REST rejection restores
+the previously documented resource boundary, including `/api/me`, `access.create`
+and workspace listing. OAuth agents discover identity through MCP `access.me`.
+The earlier 08a `oauth-on-rest` probe's source anchor had drifted; it is updated
+and its original rejection assertion restored. No checker is relaxed.
+
+### Behavior → test map
+
+A = `tools/access.test.mjs`, C = `tools/coordination.test.mjs`,
+G = `tools/gateway.test.mjs`, O = `tools/gateway-oauth.test.mjs`,
+R = `tools/gateway-oauth-rules.test.mjs`, U = `tools/web-unit.test.mjs`,
+B = `tools/web-e2e/{core,audit}.spec.mjs`, S = `tools/smoke.test.mjs`.
+Names below are test-name prefixes.
+
+| Behavior / invariant | Executable evidence and what it proves |
+|---|---|
+| Markdown retains safe markup, removes scripts, event attributes and `javascript:` links | B `project, issue…`: real Wiki rendering checks DOM attributes/elements and absence of script side effects; sanitizer bypass and separate allow-script/event/URL probes |
+| Workspace switch rejects late responses, including already fetched/delayed JSON | B `07c late decoded…`: holds old response decoding until new workspace is visibly loaded, releases it and checks the new view remains; original delayed project-response scenario retained |
+| Unknown outcome retries exact operation ID, version and payload | U `unknown retries…`, `server unknown…`, `OAuth client revoke retry…`; B `project, issue…` lets create/revoke commit then loses the response and compares retry bytes |
+| Conflict, validation error and unknown outcome preserve typed drafts | B `project, issue…` (real Wiki CAS conflict and lost issue response); B `07c validation error keeps…` (project form validation failure) |
+| One-time credential is never stored in localStorage or shown after leaving Admin | B `07c validation error keeps…`: issues a real credential, checks token and secret suffix absent from storage, navigates away/back and reloads |
+| No test assertion injector/route in production artifacts | `tools/artifact.mjs`: all executable bundles scanned; probes insert a test route or issuer and recompute the artifact checksum so the intended exclusion assertion must detect it |
+| Browser operation path/method comes from OpenAPI; unpublished operation fails before a business request | U `OpenAPI-derived…`, `07c unpublished…`: missing operation produces unsupported/no request; relocated published operation uses its new path |
+| `/api/me` is read-only discovery; humans/machines allowed, OAuth REST denied | G `07c /api/me…` verifies empty discovery and unchanged membership count for an unjoined signed human; original G human/machine discovery; R `audit Gateway guards…` and O SDK/PKCE tests reject valid OAuth on REST |
+| OAuth `access.me` works through MCP; machine/OAuth credentials cannot expand workspace discovery | O `PKCE and redirect…`; A `07c discovery…` seeds extra machine membership; A `07c OAuth discovery…` gives the underlying human two workspaces and tests both principal/scope APIs |
+| Member/client lists are tenant confined and use bounded exclusive keysets | A `07c discovery…`: populated foreign workspace, exact ordered identities across one-row pages, terminal cursor; original viewer denial and limit validation remain |
+| Viewer and OAuth-derived principal cannot revoke a client | A original management matrix, `07c discovery…`, `07c client revoke…`; real public Access authorization and no client state change |
+| Client revoke retires access and refresh, preserves other client, CAS/retry semantics | A `07c revoke invalidates…` independently tests each token; A `07c discovery…` checks same-operation replay, stale conflict and second client's authentication/refresh; O `PKCE and redirect…` revokes through human REST, then verifies MCP 401 and refresh invalid_grant |
+| Project reads isolate both workspace and project; exact page limit and compound cursor | C `07c project pages…`: two tenants, two projects, three local rows, exact ID order, tied progress timestamps and different claim repositories, one-row pages and terminal cursors, live provider denial on every read |
+| Expired sessions/leases never appear as live project work | C `07c project pages…`: independent session and lease deadlines at equality; claims enforce their own and lease expiry. Progress remains historical by design |
+| Viewer/OAuth owner cannot set WIP cap; human owner can, with CAS/retry | C original `project pages expose…`, new `07c OAuth owner…`; O `PKCE and redirect…` exercises real OAuth over MCP |
+| Missing either smoke credential is nonzero; API token is not printed | S `07c smoke missing either…` requires exit 78 for three combinations; S `07c smoke successful…` exercises script orchestration with only subprocesses stubbed, using a fake sentinel |
+| Smoke Worker protects probes and performs real local storage checks | S `07c smoke Worker…`: missing/wrong secret rejected; existing `checkSmoke` executes migrations twice, D1 rollback/bind limit, R2 cleanup, REST/MCP retry/CAS/search |
+
+### Reproducible mutation evidence
+
+`node tools/audit-web-contract-mutations.mjs` runs the bounded campaign; optional
+`--group=server`, `--group=browser`, `--group=artifact` or exact case IDs select a
+subset. Each distinct command must pass healthy first. Source targets must match
+exactly, SQL catalogs regenerate, and a lock plus `finally` restore source and
+catalogs. Artifact probes repair hashes before validation. Only behavioral
+assertion failures count as kills; setup/compiler errors are invalid. Logs and
+JSON results are under `reports/07c-*` and `reports/web-contract-*-mutations.json`.
+Do not run alongside another build/test/source editor.
+
+No public command/query/event or table was added. Owner registry/dependencies and
+migrations are unchanged. The plan now explicitly restricts WIP policy changes
+to interactive owners/admins, matching the owner's audit requirement. Remaining
+later-step evidence: protected-main real Cloudflare smoke and live client/provider
+interoperability; local workerd and subprocess stubs do not establish those.
+
+Executed result: **58/58 current mutants killed**, with healthy regressions
+passing. The original `5a5f94a` tests **survived all three** selected probes:
+`unpublished-route`, `projectClaims-cursor`, and `projectProgress-cursor`. Reproduce
+that comparison with `--original` followed by those IDs. The same probes are
+killed by the added regressions. Removing unrelated-client confinement initially
+produced an unwrapped domain error; the regression now explicitly asserts that
+the second client's authentication/refresh must succeed, and the rerun is an
+assertion kill. No setup failure is counted in the 58 results. This is a bounded
+campaign, not an exhaustive mutation score.
+
+Final local verification: the single `pnpm verify` run exited 0 (133 module tests,
+Gateway, Web unit, smoke, boundary/schema/type/lint checks, build and artifact
+validation). The three affected headless browser scenarios passed healthy before
+their mutations; GitLab's browser job also runs the unchanged discovery/mobile
+scenarios. No GUI browser, real Cloudflare deployment or production credential
+was used for this audit.

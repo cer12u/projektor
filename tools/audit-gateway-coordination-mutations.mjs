@@ -83,8 +83,8 @@ const cases = [
     patches: [
       {
         path: "gateway/public.ts",
-        before: 'if (endpoint === "mcp") {',
-        after: 'if (endpoint === "mcp" || endpoint === "rest") {',
+        before: 'if (endpoint === "mcp" && services.oauthOrigin) {',
+        after: "if (services.oauthOrigin) {",
       },
     ],
     file: "tools/gateway-oauth-rules.test.mjs",

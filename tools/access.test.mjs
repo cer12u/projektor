@@ -1715,3 +1715,176 @@ test("OAuth forms: Access-only D1 nonce consumption is tenant/subject bound, dur
     [],
   );
 });
+
+test("07c discovery and member/client keysets cannot expand credential authority", async () => {
+  const f = await oauthFixture();
+  const owner = f.ownerIdentity;
+  await f.owner("w2");
+  await f.owner("w3");
+  const stranger = await f.human("unjoined");
+  const before = await f.db.prepare("SELECT COUNT(*) AS n FROM access_memberships").first();
+  assert.deepEqual((await f.api.me(stranger)).workspaces, []);
+  assert.deepEqual(
+    await f.db.prepare("SELECT COUNT(*) AS n FROM access_memberships").first(),
+    before,
+  );
+  const bot = await machine(f, owner.scope);
+  await f.store.run("addMember", ["w2", bot.id, "member", 0]);
+  const tokens = await f.api.exchangeOAuthToken((await authorization(f, owner, f.client)).exchange);
+  const oauth = await oauthLogin(f, tokens);
+  const oauthScope = await f.api.requireMembership(oauth, "w1", "audit", "write");
+  for (const actor of [bot.principal, oauth]) {
+    assert.deepEqual(
+      (await f.api.me(actor)).workspaces.map((w) => w.id),
+      ["w1"],
+    );
+    assert.deepEqual((await f.api.me(actor, "w1", 1)).workspaces, []);
+  }
+  await f.api.inviteMember(owner.scope, invite("charlie"));
+  const foreign = await f.owner("w4", "foreign-only");
+  const second = await f.api.registerOAuthClient({ ...oauthInput, client_name: "Second" });
+  const secondTokens = await f.api.exchangeOAuthToken(
+    (await authorization(f, owner, second)).exchange,
+  );
+  await authorization(f, foreign, second);
+  const cases = [
+    [
+      async (c) => {
+        const p = await f.api.me(owner.principal, c, 1);
+        return { items: p.workspaces, nextCursor: p.nextCursor };
+      },
+      ["w1", "w2", "w3"],
+      (x) => x.id,
+    ],
+    [(c) => f.api.listMembers(owner.scope, c, 1), [], (x) => x.principalId],
+    [
+      (c) => f.api.listOAuthClients(owner.scope, c, 1),
+      [f.client.client_id, second.client_id].sort(),
+      (x) => x.clientId,
+    ],
+  ];
+  // Expected membership identities come from explicit provider commands, not the query under test.
+  const charlie = await f.api.requireMembership(await f.human("charlie"), "w1", "audit");
+  cases[1][1] = [owner.scope.principalId, bot.id, charlie.principalId].sort();
+  for (const [read, expected, key] of cases) {
+    let cursor;
+    const seen = [];
+    for (let i = 0; i < expected.length; i++) {
+      const page = await read(cursor);
+      assert.equal(page.items.length, 1);
+      seen.push(key(page.items[0]));
+      assert.equal(page.nextCursor === null, i === expected.length - 1);
+      cursor = page.nextCursor;
+    }
+    assert.deepEqual(seen, expected);
+  }
+  assert.deepEqual(
+    (await f.api.listMembers(foreign.scope)).items.map((x) => x.principalId),
+    [foreign.scope.principalId],
+  );
+  for (const scope of [oauthScope, bot.scope]) {
+    await assert.rejects(f.api.listOAuthClients(scope), code("forbidden"));
+    await assert.rejects(
+      f.api.revokeOAuthClient(scope, {
+        operationId: "denied",
+        clientId: f.client.client_id,
+        expectedVersion: 1,
+      }),
+      code("forbidden"),
+    );
+  }
+  const command = { operationId: "revoke-07c", clientId: f.client.client_id, expectedVersion: 1 };
+  const result = await f.api.revokeOAuthClient(owner.scope, command);
+  assert.deepEqual(await f.api.revokeOAuthClient(owner.scope, command), result);
+  await assert.rejects(
+    f.api.revokeOAuthClient(owner.scope, { ...command, operationId: "stale-07c" }),
+    code("conflict"),
+  );
+  await assert.rejects(oauthLogin(f, tokens), code("forbidden"));
+  await assert.rejects(
+    f.api.exchangeOAuthToken(refreshInput(f.client, tokens)),
+    code("invalid_grant"),
+  );
+  await assert.doesNotReject(() => oauthLogin(f, secondTokens));
+  await assert.doesNotReject(async () =>
+    oauthLogin(f, await f.api.exchangeOAuthToken(refreshInput(second, secondTokens))),
+  );
+  assert.equal((await f.api.getOAuthClient(foreign.scope, second.client_id)).revoked, false);
+});
+
+test("07c OAuth discovery remains confined when its human owns two workspaces", async () => {
+  const f = await oauthFixture();
+  await f.owner("w2");
+  const tokens = await f.api.exchangeOAuthToken(
+    (await authorization(f, f.ownerIdentity, f.client)).exchange,
+  );
+  const principal = await oauthLogin(f, tokens);
+  assert.deepEqual(
+    (await f.api.me(principal)).workspaces.map((w) => w.id),
+    ["w1"],
+  );
+  const scope = await f.api.requireMembership(principal, "w1", "me");
+  assert.deepEqual(
+    (await f.api.meForScope(scope)).workspaces.map((w) => w.id),
+    ["w1"],
+  );
+});
+
+for (const tokenKind of ["access", "refresh"]) {
+  test(`07c revoke invalidates ${tokenKind} token independently`, async () => {
+    const f = await oauthFixture();
+    const tokens = await f.api.exchangeOAuthToken(
+      (await authorization(f, f.ownerIdentity, f.client)).exchange,
+    );
+    await f.api.revokeOAuthClient(f.ownerIdentity.scope, {
+      operationId: "revoke",
+      clientId: f.client.client_id,
+      expectedVersion: 1,
+    });
+    if (tokenKind === "access") await assert.rejects(oauthLogin(f, tokens), code("forbidden"));
+    else
+      await assert.rejects(
+        f.api.exchangeOAuthToken(refreshInput(f.client, tokens)),
+        code("invalid_grant"),
+      );
+  });
+}
+
+test("07c client revoke rejects viewer before effects", async () => {
+  const f = await oauthFixture();
+  await authorization(f, f.ownerIdentity, f.client);
+  await f.api.inviteMember(f.ownerIdentity.scope, invite("viewer", "viewer"));
+  const scope = await f.api.requireMembership(await f.human("viewer"), "w1", "viewer");
+  await assert.rejects(
+    f.api.revokeOAuthClient(scope, {
+      operationId: "viewer-revoke",
+      clientId: f.client.client_id,
+      expectedVersion: 1,
+    }),
+    code("forbidden"),
+  );
+  assert.equal(
+    (await f.api.getOAuthClient(f.ownerIdentity.scope, f.client.client_id)).revoked,
+    false,
+  );
+});
+
+test("07c client revoke rejects OAuth-derived owner before effects", async () => {
+  const f = await oauthFixture();
+  const tokens = await f.api.exchangeOAuthToken(
+    (await authorization(f, f.ownerIdentity, f.client)).exchange,
+  );
+  const scope = await f.api.requireMembership(await oauthLogin(f, tokens), "w1", "oauth", "write");
+  await assert.rejects(
+    f.api.revokeOAuthClient(scope, {
+      operationId: "oauth-revoke",
+      clientId: f.client.client_id,
+      expectedVersion: 1,
+    }),
+    code("forbidden"),
+  );
+  assert.equal(
+    (await f.api.getOAuthClient(f.ownerIdentity.scope, f.client.client_id)).revoked,
+    false,
+  );
+});

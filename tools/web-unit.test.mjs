@@ -115,3 +115,19 @@ test("OAuth client revoke retry preserves client version and generated operation
   await op.retry();
   assert.equal(bodies[0], bodies[1]);
 });
+
+test("07c unpublished operations never send a business request and published paths are authoritative", async () => {
+  const seen = [];
+  const client = new WireClient(async (url) => {
+    seen.push(url);
+    return Response.json(
+      url === "/api/openapi.json"
+        ? { paths: { "/api/w/{workspaceId}/moved": { get: { operationId: "issues.get" } } } }
+        : { id: "ok" },
+    );
+  });
+  await assert.rejects(client.call("w1", "issues.create", {}), (e) => e.code === "unsupported");
+  assert.deepEqual(seen, ["/api/openapi.json"]);
+  await client.call("w1", "issues.get", { issueId: "i" });
+  assert.equal(seen[1], "/api/w/w1/moved?issueId=i");
+});

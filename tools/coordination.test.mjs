@@ -836,3 +836,127 @@ test("audit session visibility, operation partition and event reader capabilitie
   await f.api.endSession(a, { operationId: "end", sessionId: "sa" });
   assert.equal((await f.api.listSessions(a))[0].live, false);
 });
+
+test("07c project pages bind tenant, project, both cursor components and live deadlines", async () => {
+  const f = await fixture();
+  const a = f.issue("w1", "a");
+  const other = f.issue("w2", "b");
+  for (const [scope, pid, suffix] of [
+    [a, "p1", "a"],
+    [a, "p1", "b"],
+    [a, "p1", "c"],
+    [a, "p2", "foreign"],
+    [other, "p1", "foreign"],
+  ]) {
+    const sid = `${pid}-${suffix}`;
+    await start(f.api, scope, sid);
+    await acquire(f.api, scope, sid, sid);
+    // Two tied timestamps plus a later timestamp exercise both progress cursor bounds.
+    if (suffix === "c") f.advance(1);
+    await f.api.reportProgress(scope, {
+      operationId: `report-${sid}`,
+      sessionId: sid,
+      issueId: sid,
+      fencingToken: 1,
+      text: `${scope.workspaceId}:${sid}`,
+      status: "working",
+    });
+    await f.api.claimFiles(scope, {
+      operationId: `claim-${sid}`,
+      sessionId: sid,
+      repo: suffix === "c" ? "z-repo" : "repo",
+      paths: [sid],
+      leaseIssueId: sid,
+      fencingToken: 1,
+    });
+  }
+  const expected = {
+    projectSessions: ["p1-a", "p1-b", "p1-c"],
+    projectLeases: ["p1-a", "p1-b", "p1-c"],
+    projectClaims: ["p1-a", "p1-b", "p1-c"],
+    projectProgress: ["p1-c", "p1-b", "p1-a"],
+  };
+  for (const [method, ids] of Object.entries(expected)) {
+    let cursor;
+    const seen = [];
+    for (let i = 0; i < 3; i++) {
+      const page = await f.api[method](a, "p1", cursor, 1);
+      assert.equal(page.items.length, 1, `${method} page size`);
+      const item = page.items[0];
+      seen.push(item.id ?? item.issueId ?? item.path);
+      if (method === "projectProgress") assert.equal(item.text, `w1:${item.issueId}`);
+      assert.equal(page.nextCursor === null, i === 2, `${method} terminal cursor`);
+      cursor = page.nextCursor;
+    }
+    assert.deepEqual(seen, ids, method);
+    assert.equal((await f.api[method](other, "p1")).items.length, 1, `${method} other tenant`);
+    f.denied.add("w1:a:p1");
+    await assert.rejects(f.api[method](a, "p1"), code("not_found"));
+    f.denied.delete("w1:a:p1");
+  }
+  // Independent expiry predicates: live session with expired lease; expired session
+  // with live lease. Storage fixture avoids one expiry masking the other.
+  await f.db
+    .prepare("UPDATE coord_leases SET expires_at=10001 WHERE workspace_id='w1' AND issue_id='p1-a'")
+    .run();
+  await f.db
+    .prepare("UPDATE coord_sessions SET expires_at=10001 WHERE workspace_id='w1' AND id='p1-b'")
+    .run();
+  for (const method of ["projectSessions", "projectLeases"]) {
+    const page = await f.api[method](a, "p1");
+    assert.deepEqual(
+      page.items.map((x) => x.id ?? x.issueId),
+      ["p1-c"],
+      method,
+    );
+  }
+  await f.db
+    .prepare(
+      "UPDATE coord_file_claims SET expires_at=10001 WHERE workspace_id='w1' AND path='p1-c'",
+    )
+    .run();
+  assert.deepEqual(
+    (await f.api.projectClaims(a, "p1")).items.map((x) => x.path),
+    ["p1-b"],
+  );
+  // Progress is history, deliberately retained when the holder expires.
+  assert.equal((await f.api.projectProgress(a, "p1")).items.length, 3);
+});
+
+test("07c OAuth owner cannot set WIP cap; interactive owner retains CAS and retry", async () => {
+  const f = await fixture();
+  const actor = {
+    id: "owner",
+    workspaceId: "w1",
+    role: "owner",
+    kind: "human",
+    scope: "write",
+    active: true,
+  };
+  const oauth = f.auth.issue({ ...actor, clientId: "oauth-client" });
+  const command = { operationId: "cap", projectId: "p1", cap: 2, expectedVersion: 0 };
+  await assert.rejects(f.api.setProjectLimit(oauth, command), code("forbidden"));
+  assert.deepEqual(await f.api.getProjectLimit(oauth, "p1"), {
+    projectId: "p1",
+    cap: 3,
+    version: 0,
+  });
+  assert.equal(await f.api.readOperation(oauth, "cap"), null);
+  const human = f.auth.issue(actor);
+  const result = await f.api.setProjectLimit(human, command);
+  for (const [scope, project] of [
+    [human, "p2"],
+    [f.auth.issue({ ...actor, workspaceId: "w2" }), "p1"],
+  ]) {
+    assert.deepEqual(await f.api.getProjectLimit(scope, project), {
+      projectId: project,
+      cap: 3,
+      version: 0,
+    });
+  }
+  assert.deepEqual(await f.api.setProjectLimit(human, command), result);
+  await assert.rejects(
+    f.api.setProjectLimit(human, { ...command, operationId: "stale" }),
+    code("conflict"),
+  );
+});

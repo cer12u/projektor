@@ -219,8 +219,9 @@ test("audit Gateway guards before dispatch and sanitizes internal errors on REST
     assert.equal((await request(get, headers)).status, status);
     assert.equal(reads, 0);
   }
-  assert.equal((await request(get, { authorization: "Bearer oauth-token" })).status, 200);
-  assert.equal(reads, 1);
+  assert.equal((await request(get, { authorization: "Bearer oauth-token" })).status, 403);
+  assert.equal((await request("/api/me", { authorization: "Bearer oauth-token" })).status, 403);
+  assert.equal(reads, 0);
   const args = {
     operationId: "op",
     issueId: "new",

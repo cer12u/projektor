@@ -50,6 +50,6 @@ project attribution and are excluded. Each page has `items` and `nextCursor`;
 default size is 50, maximum 100. Cursors are exclusive and pages are not a
 transactional snapshot across requests. `getProjectLimit` returns the default
 cap 3/version 0 until set. The existing `setProjectLimit` CAS and operation
-receipt power REST/MCP `coordination.wipCap.set`; only a workspace owner/admin with project management access can set
+receipt power REST/MCP `coordination.wipCap.set`; only an interactive (non-OAuth) workspace owner/admin with project management access can set
 it. All queries use Coordination tables only, with Access/Projects public APIs
 for admission.
