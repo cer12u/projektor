@@ -2,6 +2,7 @@ import { createOAuthHttp, handleHttp } from "../../gateway/public";
 import { createAccess } from "../../modules/access/internal/factory";
 import { createAssets } from "../../modules/assets/internal/factory";
 import { createCoordination } from "../../modules/coordination/internal/factory";
+import { createInsights } from "../../modules/insights/internal/factory";
 import { createIssues } from "../../modules/issues/internal/factory";
 import { createPlanning } from "../../modules/planning/internal/factory";
 import { createProjects } from "../../modules/projects/internal/factory";
@@ -48,34 +49,42 @@ function compose(env: Env) {
       ? { oauth: { issuer: env.OAUTH_ISSUER, resource: env.OAUTH_RESOURCE } }
       : {}),
   }).api;
-  const projects = createProjects({
+  const projectModule = createProjects({
     store: createModuleStore(env.DB, "projects"),
     access,
     clock: systemClock,
     ids: randomIds,
-  }).api;
-  const issues = createIssues({
+    eventConsumer: "insights",
+  });
+  const projects = projectModule.api;
+  const issueModule = createIssues({
     store: createModuleStore(env.DB, "issues"),
     access,
     projects,
     clock: systemClock,
     ids: randomIds,
-  }).api;
-  const wiki = createWiki({
+    eventConsumer: "insights",
+  });
+  const issues = issueModule.api;
+  const wikiModule = createWiki({
     store: createModuleStore(env.DB, "wiki"),
     projects,
     clock: systemClock,
     ids: randomIds,
-  }).api;
-  const coordination = createCoordination({
+    eventConsumer: "insights",
+  });
+  const wiki = wikiModule.api;
+  const coordinationModule = createCoordination({
     store: createModuleStore(env.DB, "coordination"),
     access,
     issues,
     projects,
     clock: systemClock,
     ids: randomIds,
-  }).api;
-  const assets = createAssets({
+    eventConsumer: "insights",
+  });
+  const coordination = coordinationModule.api;
+  const assetModule = createAssets({
     store: createModuleStore(env.DB, "assets"),
     bucketFor: (workspaceId) => createScopedBucket(env.R2, "assets", workspaceId),
     access,
@@ -84,12 +93,45 @@ function compose(env: Env) {
     wiki,
     clock: systemClock,
     ids: randomIds,
-  }).api;
-  const planning = createPlanning({
+    eventConsumer: "insights",
+  });
+  const assets = assetModule.api;
+  const planningModule = createPlanning({
     store: createModuleStore(env.DB, "planning"),
     access,
     projects,
     issues,
+    clock: systemClock,
+    ids: randomIds,
+    eventConsumer: "insights",
+  });
+  const planning = planningModule.api;
+  if (
+    !projectModule.eventReader ||
+    !issueModule.eventReader ||
+    !wikiModule.eventReader ||
+    !coordinationModule.eventReader ||
+    !assetModule.eventReader ||
+    !planningModule.eventReader
+  )
+    throw new Error("Insights event capabilities unavailable");
+  const insights = createInsights({
+    store: createModuleStore(env.DB, "insights"),
+    access,
+    projects,
+    issues,
+    wiki,
+    coordination,
+    planning,
+    assets,
+    readers: {
+      projects: { api: projects, cap: projectModule.eventReader },
+      issues: { api: issues, cap: issueModule.eventReader },
+      wiki: { api: wiki, cap: wikiModule.eventReader },
+      coordination: { api: coordination, cap: coordinationModule.eventReader },
+      planning: { api: planning, cap: planningModule.eventReader },
+      assets: { api: assets, cap: assetModule.eventReader },
+    },
     clock: systemClock,
     ids: randomIds,
   }).api;
@@ -119,6 +161,7 @@ function compose(env: Env) {
     coordination,
     assets,
     planning,
+    insights,
     oauthHttp,
     oauthOrigin: env.OAUTH_ISSUER,
   };
@@ -134,5 +177,6 @@ export default {
   async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
     services ??= compose(env);
     await services.assets.drainGc();
+    await services.insights.drainKnownWorkspaces();
   },
 };

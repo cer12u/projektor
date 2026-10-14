@@ -1,6 +1,7 @@
 import type { AccessApi, RequestScope } from "../modules/access/public";
 import type { AssetsApi } from "../modules/assets/public";
 import type { CoordinationApi } from "../modules/coordination/public";
+import type { InsightsApi } from "../modules/insights/public";
 import type { IssuesApi } from "../modules/issues/public";
 import type { PlanningApi } from "../modules/planning/public";
 import type { ProjectsApi } from "../modules/projects/public";
@@ -13,6 +14,7 @@ export interface Services {
   readonly oauthOrigin?: string;
   readonly projects: ProjectsApi;
   readonly issues: IssuesApi;
+  readonly insights: InsightsApi;
   readonly wiki: WikiApi;
   readonly coordination: CoordinationApi;
   readonly assets: AssetsApi;
@@ -47,6 +49,56 @@ const op = (fields: Fields, write: boolean, call: Operation["call"]): Operation 
 const operationId = { operationId: "string" } as const;
 const version = { ...operationId, expectedVersion: "number" } as const;
 export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
+  "insights.subscription": op({ issueId: "string" }, false, (s, c, a) =>
+    s.insights.getSubscription(c, str(a, "issueId")),
+  ),
+  "insights.activity": op(
+    {
+      projectId: "optionalString",
+      principalId: "optionalString",
+      clientId: "optionalString",
+      cursor: "optionalString",
+      limit: "optionalNumber",
+    },
+    false,
+    (s, c, a) =>
+      s.insights.getActivity(c, {
+        projectId: optStr(a, "projectId"),
+        principalId: optStr(a, "principalId"),
+        clientId: optStr(a, "clientId"),
+        cursor: optStr(a, "cursor"),
+        limit: optNum(a, "limit"),
+      }),
+  ),
+  "insights.metrics": op({ projectId: "string" }, false, (s, c, a) =>
+    s.insights.getMetrics(c, str(a, "projectId")),
+  ),
+  "insights.notifications": op(
+    { cursor: "optionalString", limit: "optionalNumber" },
+    false,
+    (s, c, a) => s.insights.listNotifications(c, optStr(a, "cursor"), optNum(a, "limit")),
+  ),
+  "insights.subscribe": op({ ...version, issueId: "string" }, true, (s, c, a) =>
+    s.insights.subscribe(c, {
+      operationId: str(a, "operationId"),
+      expectedVersion: num(a, "expectedVersion"),
+      issueId: str(a, "issueId"),
+    }),
+  ),
+  "insights.unsubscribe": op({ ...version, issueId: "string" }, true, (s, c, a) =>
+    s.insights.unsubscribe(c, {
+      operationId: str(a, "operationId"),
+      expectedVersion: num(a, "expectedVersion"),
+      issueId: str(a, "issueId"),
+    }),
+  ),
+  "insights.markRead": op({ ...version, notificationId: "string" }, true, (s, c, a) =>
+    s.insights.markRead(c, {
+      operationId: str(a, "operationId"),
+      expectedVersion: num(a, "expectedVersion"),
+      notificationId: str(a, "notificationId"),
+    }),
+  ),
   "planning.create": op(
     { ...operationId, sprintId: "string", projectId: "string", name: "string" },
     true,

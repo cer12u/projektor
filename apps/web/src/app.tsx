@@ -76,7 +76,27 @@ type Principal = {
   clientName?: string;
 };
 type Me = { principal: Principal; workspaces: Workspace[]; nextCursor: string | null };
-type View = "projects" | "issues" | "wiki" | "planning" | "activity" | "admin";
+type View = "projects" | "issues" | "wiki" | "planning" | "activity" | "notifications" | "admin";
+type Lag = { source: string; sequence: number; consumedAt: number | null };
+type ActivityEntry = {
+  source: string;
+  sequence: number;
+  type: string;
+  entityId: string;
+  projectId: string;
+  title: string;
+  actorId: string;
+  clientId: string | null;
+  occurredAt: number;
+};
+type NotificationEntry = {
+  id: string;
+  issueId: string;
+  kind: string;
+  occurredAt: number;
+  version: number;
+  read: boolean;
+};
 const wire = new WireClient();
 const date = (value: number) => new Date(value * 1000).toLocaleString("ja-JP");
 const identity = (actor: {
@@ -322,6 +342,7 @@ function Projects({
         </ul>
         {query.data?.projects.length === 0 && <p class="muted">{ja.ui.noProjects}</p>}
       </section>
+      {project && <MetricsPanel workspace={workspace} projectId={project.id} />}
       <section class="panel">
         <h3>{ja.ui.createProject}</h3>
         <form
@@ -366,6 +387,130 @@ function Projects({
         />
       </section>
     </>
+  );
+}
+function MetricsPanel({ workspace, projectId }: { workspace: string; projectId: string }) {
+  const metrics = useQuery<{
+    todo: number;
+    inProgress: number;
+    done: number;
+    activeLeases: number;
+    activeSessions: number;
+    completed7Days: { principalId: string; clientId: string | null; count: number }[];
+    completed30Days: { principalId: string; clientId: string | null; count: number }[];
+    lag: Lag[];
+  }>(workspace, "insights.metrics", { projectId }, projectId);
+  return (
+    <section class="panel">
+      <h3>指標</h3>
+      {metrics.error && <p role="alert">{metrics.error}</p>}
+      {metrics.data && (
+        <>
+          <p>
+            未着手 {metrics.data.todo} · 進行中 {metrics.data.inProgress} · 完了 {metrics.data.done}
+          </p>
+          <p>
+            稼働中のリース {metrics.data.activeLeases} · セッション {metrics.data.activeSessions}
+          </p>
+          <h4>完了した課題</h4>
+          <p>
+            7日:{" "}
+            {metrics.data.completed7Days
+              .map((x) => `${x.principalId}${x.clientId ? ` (${x.clientId} 経由)` : ""} ${x.count}`)
+              .join("、") || "0"}
+          </p>
+          <p>
+            30日:{" "}
+            {metrics.data.completed30Days
+              .map((x) => `${x.principalId}${x.clientId ? ` (${x.clientId} 経由)` : ""} ${x.count}`)
+              .join("、") || "0"}
+          </p>
+          <ProjectionLag lag={metrics.data.lag} />
+        </>
+      )}
+    </section>
+  );
+}
+function ProjectionLag({ lag }: { lag: Lag[] }) {
+  return (
+    <small class="muted">
+      投影:{" "}
+      {lag
+        .map(
+          (x) =>
+            `${x.source} #${x.sequence} (${x.consumedAt === null ? "未取得" : date(x.consumedAt)})`,
+        )
+        .join(" · ")}
+    </small>
+  );
+}
+function Notifications({ workspace }: { workspace: string }) {
+  const [cursor, setCursor] = useState<string | null>(null);
+  const page = useQuery<{
+    items: NotificationEntry[];
+    nextCursor: string | null;
+    unread: number;
+    lag: Lag[];
+  }>(
+    workspace,
+    "insights.notifications",
+    { limit: 50, cursor: cursor ?? undefined },
+    `${workspace}:${cursor ?? ""}`,
+  );
+  const op = useAction(workspace);
+  return (
+    <section class="panel">
+      <h2>通知 {page.data?.unread ? `(${page.data.unread})` : ""}</h2>
+      {page.error && <p role="alert">{page.error}</p>}
+      <button type="button" class="secondary" onClick={page.refresh}>
+        更新
+      </button>
+      <ul class="list">
+        {page.data?.items.map((item) => (
+          <li key={item.id}>
+            <span>
+              {date(item.occurredAt)} · {item.kind} · 課題 {item.issueId}
+            </span>
+            {!item.read && (
+              <button
+                type="button"
+                class="secondary"
+                onClick={() => {
+                  void op
+                    .run(workspace, "insights.markRead", {
+                      notificationId: item.id,
+                      expectedVersion: item.version,
+                    })
+                    .then((result) => {
+                      if (result) page.refresh();
+                    });
+                }}
+              >
+                既読にする
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {page.data?.nextCursor && (
+        <button
+          type="button"
+          class="secondary"
+          onClick={() => setCursor(page.data?.nextCursor ?? null)}
+        >
+          次のページ
+        </button>
+      )}
+      <Status
+        op={op}
+        onRetry={() => {
+          void op.retry().then((result) => {
+            if (result) page.refresh();
+          });
+        }}
+      />
+      {page.data && <ProjectionLag lag={page.data.lag} />}
+    </section>
   );
 }
 function Issues({ workspace, project }: { workspace: string; project: Project }) {
@@ -711,6 +856,13 @@ function IssueDetail({
 }) {
   const issue = useQuery<Issue>(workspace, "issues.get", { issueId: id }, id);
   const history = useQuery<History[]>(workspace, "issues.history", { issueId: id }, id);
+  const subscription = useQuery<{ version: number; active: boolean } | null>(
+    workspace,
+    "insights.subscription",
+    { issueId: id },
+    id,
+  );
+  const watchOp = useAction(workspace);
   const op = useAction(workspace);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -757,6 +909,32 @@ function IssueDetail({
         {issue.data?.reference ?? ja.issue} {ja.ui.details}
       </h2>
       {issue.error && <p role="alert">{issue.error}</p>}
+      <button
+        type="button"
+        class="secondary"
+        disabled={watchOp.status === "pending" || watchOp.status === "unknown"}
+        onClick={() => {
+          void watchOp
+            .run(
+              workspace,
+              subscription.data?.active ? "insights.unsubscribe" : "insights.subscribe",
+              { issueId: id, expectedVersion: subscription.data?.version ?? 0 },
+            )
+            .then((result) => {
+              if (result) subscription.refresh();
+            });
+        }}
+      >
+        {subscription.data?.active ? "監視を解除" : "この課題を監視"}
+      </button>
+      <Status
+        op={watchOp}
+        onRetry={() => {
+          void watchOp.retry().then((result) => {
+            if (result) subscription.refresh();
+          });
+        }}
+      />
       {issue.data && (
         <>
           <form
@@ -1114,6 +1292,22 @@ function WikiDetail({
 }
 function Activity({ workspace, project }: { workspace: string; project: Project | null }) {
   const projectId = project?.id ?? "";
+  const [actorFilter, setActorFilter] = useState("");
+  const [clientFilter, setClientFilter] = useState("");
+  const [feedCursor, setFeedCursor] = useState<string | null>(null);
+  useEffect(() => setFeedCursor(null), [projectId, actorFilter, clientFilter]);
+  const feed = useQuery<{ items: ActivityEntry[]; nextCursor: string | null; lag: Lag[] }>(
+    workspace,
+    "insights.activity",
+    {
+      projectId: projectId || undefined,
+      principalId: actorFilter || undefined,
+      clientId: clientFilter || undefined,
+      cursor: feedCursor ?? undefined,
+      limit: 50,
+    },
+    `${projectId}:${actorFilter}:${clientFilter}:${feedCursor ?? ""}`,
+  );
   const sessions = usePaged<Session>(workspace, "coordination.projectSessions", { projectId });
   const leases = usePaged<Lease>(workspace, "coordination.projectLeases", { projectId });
   const progress = usePaged<Progress>(workspace, "coordination.projectProgress", { projectId });
@@ -1129,6 +1323,51 @@ function Activity({ workspace, project }: { workspace: string; project: Project 
   useEffect(() => setCapInput(cap.data ? String(cap.data.cap) : ""), [cap.data?.version]);
   return (
     <>
+      <section class="panel">
+        <h2>統合アクティビティ</h2>
+        <div class="row">
+          <label>
+            実行者 ID{" "}
+            <input
+              value={actorFilter}
+              onInput={(event) => setActorFilter(event.currentTarget.value)}
+            />
+          </label>
+          <label>
+            クライアント ID{" "}
+            <input
+              value={clientFilter}
+              onInput={(event) => setClientFilter(event.currentTarget.value)}
+            />
+          </label>
+          <button type="button" class="secondary" onClick={feed.refresh}>
+            更新
+          </button>
+        </div>
+        {feed.error && <p role="alert">{feed.error}</p>}
+        <ul class="list">
+          {feed.data?.items.map((item) => (
+            <li key={`${item.source}:${item.sequence}`}>
+              <strong>{item.title}</strong> · {item.type} · {item.source}
+              <br />
+              <small>
+                {item.actorId}
+                {item.clientId ? ` · ${item.clientId} 経由` : ""} · {date(item.occurredAt)}
+              </small>
+            </li>
+          ))}
+        </ul>
+        {feed.data?.nextCursor && (
+          <button
+            type="button"
+            class="secondary"
+            onClick={() => setFeedCursor(feed.data?.nextCursor ?? null)}
+          >
+            次のページ
+          </button>
+        )}
+        {feed.data && <ProjectionLag lag={feed.data.lag} />}
+      </section>
       <section class="panel">
         <h2>{ja.activity}</h2>
         {!project && <p>{ja.ui.chooseProject}</p>}
@@ -1696,6 +1935,12 @@ function App() {
   const [project, setProject] = useState<Project | null>(null);
   const [view, setView] = useState<View>("projects");
   const workspaceInfo = useQuery<Workspace[]>(workspace, "access.workspaces", {}, workspace);
+  const notificationBadge = useQuery<{ unread: number }>(
+    workspace,
+    "insights.notifications",
+    { limit: 1 },
+    workspace,
+  );
   const meQuery = useMe(!workspace);
   const selectWorkspace = (id: string) => {
     setWorkspace(id);
@@ -1752,18 +1997,36 @@ function App() {
               </p>
             )}
             <nav aria-label={ja.ui.mainMenu}>
-              {(["projects", "issues", "wiki", "planning", "activity", "admin"] as View[]).map(
-                (item, i) => (
-                  <button
-                    type="button"
-                    key={item}
-                    aria-current={view === item ? "page" : undefined}
-                    onClick={() => setView(item)}
-                  >
-                    {[ja.project, ja.issue, ja.wiki, "計画", ja.activity, ja.admin][i]}
-                  </button>
-                ),
-              )}
+              {(
+                [
+                  "projects",
+                  "issues",
+                  "wiki",
+                  "planning",
+                  "activity",
+                  "notifications",
+                  "admin",
+                ] as View[]
+              ).map((item, i) => (
+                <button
+                  type="button"
+                  key={item}
+                  aria-current={view === item ? "page" : undefined}
+                  onClick={() => setView(item)}
+                >
+                  {
+                    [
+                      ja.project,
+                      ja.issue,
+                      ja.wiki,
+                      "計画",
+                      ja.activity,
+                      `通知${notificationBadge.data?.unread ? ` (${notificationBadge.data.unread})` : ""}`,
+                      ja.admin,
+                    ][i]
+                  }
+                </button>
+              ))}
             </nav>
             {view === "projects" && (
               <Projects
@@ -1808,6 +2071,7 @@ function App() {
                 project={project}
               />
             )}
+            {view === "notifications" && <Notifications key={workspace} workspace={workspace} />}
             {view === "admin" && <Admin key={workspace} workspace={workspace} />}
           </>
         )}
