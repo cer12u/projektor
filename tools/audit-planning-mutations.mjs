@@ -27,7 +27,13 @@ add(
 );
 add(
   "cross-workspace",
-  [patch(factory, 'one("sprint", [ws(s), id(sprintId)])', 'one("sprint", ["w1", id(sprintId)])')],
+  [
+    patch(
+      factory,
+      "const ws = (s: RequestScope) => id(s.workspaceId),",
+      'const ws = (s: RequestScope) => id("w1"),',
+    ),
+  ],
   "10a scheduling",
 );
 add(

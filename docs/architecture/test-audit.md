@@ -723,7 +723,8 @@ in `finally`. Logs stay in `reports/10a-*`; the compact result is
 compile/import/setup errors are invalid. Selected reruns replace their own
 records. These probes establish sensitivity to named faults, not an exhaustive
 mutation score. Redundant runtime/storage checks are removed together only
-where needed to make the named defect observable. The Gateway event probe adds
+where needed to make the named defect observable. The workspace probe redirects both reads and writes to another workspace,
+so the injected fault actually admits the forbidden schedule. The Gateway event probe adds
 a catalog entry, proving transport reachability even when the owner capability
 still refuses the call.
 
