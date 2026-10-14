@@ -93,6 +93,19 @@ async function fixture() {
         role: "editor",
       };
     },
+    async getProjectIncludingArchived(s, projectId) {
+      await auth.access.authorize(s, "read");
+      if (
+        !["p1", "p2"].includes(projectId) ||
+        state.denied.has(`${s.workspaceId}:${s.principalId}:${projectId}`)
+      )
+        throw new platform.PlatformError("not_found", "Project absent");
+      return {
+        id: projectId,
+        key: projectKey(projectId),
+        archived: state.archived.has(`${s.workspaceId}:${projectId}`),
+      };
+    },
     async getProject(s, projectId) {
       return this.authorizeProject(s, projectId);
     },
@@ -1064,4 +1077,38 @@ test("unassignment, duplicate comment IDs, terminal archive and current write is
     );
   assert.equal((await f.api.readOperation(f.human, "archive")).version, 5);
   assert.equal((await counts(f)).history, 5);
+});
+
+test("10a getIssueIncludingArchived preserves grants and cannot authorize archived writes", async () => {
+  const { planningHistoricalContract } = await import("./planning-provider-contract.mjs");
+  const f = await fixture();
+  await f.api.createIssue(f.human, input("i1"));
+  const denied = f.issueScope("w1", "outsider");
+  f.state.denied.add("w1:outsider:p1");
+  await planningHistoricalContract({
+    get: f.api.getIssueIncludingArchived,
+    id: "i1",
+    authorized: f.human,
+    denied,
+    archive: () =>
+      f.api.archiveIssue(f.human, { operationId: "archive", issueId: "i1", expectedVersion: 1 }),
+  });
+  await assert.rejects(f.api.getIssueIncludingArchived(f.other, "i1"), code("not_found"));
+  const before = (await f.db.prepare("SELECT * FROM issues_issues").all()).results;
+  for (const [method, args] of [
+    ["editIssue", { title: "forbidden", description: "", priority: "medium" }],
+    ["transitionIssue", { state: "in_progress" }],
+    ["assignIssue", { assigneeId: null }],
+    ["addComment", { commentId: "c", body: "forbidden" }],
+    ["archiveIssue", {}],
+  ])
+    await assert.rejects(
+      f.api[method](f.human, { operationId: method, issueId: "i1", expectedVersion: 2, ...args }),
+      code("not_found"),
+    );
+  await assert.rejects(f.api.authorizeIssue(f.human, "i1", "write"), code("not_found"));
+  assert.deepEqual((await f.db.prepare("SELECT * FROM issues_issues").all()).results, before);
+  f.state.archived.add("w1:p1");
+  assert.equal((await f.api.getIssueIncludingArchived(f.human, "i1")).archived, true);
+  await assert.rejects(f.api.getIssueIncludingArchived(denied, "i1"), code("not_found"));
 });

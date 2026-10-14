@@ -1531,6 +1531,7 @@ type Sprint = {
 };
 type SprintItem = { issueId: string; issue: Issue | null; archived: boolean };
 function Planning({ workspace, project }: { workspace: string; project: Project }) {
+  const [cursor, setCursor] = useState("");
   const [name, setName] = useState("");
   const [issueId, setIssueId] = useState("");
   const [selected, setSelected] = useState("");
@@ -1540,11 +1541,11 @@ function Planning({ workspace, project }: { workspace: string; project: Project 
     { projectId: project.id },
     project.id,
   );
-  const detail = useQuery<{ sprint: Sprint; items: SprintItem[] }>(
+  const detail = useQuery<{ sprint: Sprint; items: SprintItem[]; nextCursor: string | null }>(
     workspace,
     "planning.items",
-    { sprintId: selected },
-    selected,
+    { sprintId: selected, ...(cursor ? { cursor } : {}) },
+    `${selected}:${cursor}`,
   );
   const op = useAction(workspace);
   const current = detail.data?.sprint;
@@ -1583,7 +1584,14 @@ function Planning({ workspace, project }: { workspace: string; project: Project 
       <ul class="list">
         {list.data?.map((s) => (
           <li key={s.id}>
-            <button type="button" class="secondary" onClick={() => setSelected(s.id)}>
+            <button
+              type="button"
+              class="secondary"
+              onClick={() => {
+                setSelected(s.id);
+                setCursor("");
+              }}
+            >
               {s.name}
             </button>{" "}
             <span class="badge">
@@ -1622,6 +1630,18 @@ function Planning({ workspace, project }: { workspace: string; project: Project 
               </li>
             ))}
           </ul>
+          <div class="row">
+            {cursor && (
+              <button type="button" onClick={() => setCursor("")}>
+                最初のページ
+              </button>
+            )}
+            {detail.data?.nextCursor && (
+              <button type="button" onClick={() => setCursor(detail.data?.nextCursor ?? "")}>
+                次のページ
+              </button>
+            )}
+          </div>
           {current && !current.closed && !current.archived && (
             <div class="row">
               <label>

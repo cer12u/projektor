@@ -75,7 +75,12 @@ export interface PlanningApi {
   getSprintItems(
     scope: RequestScope,
     sprintId: string,
-  ): Promise<{ readonly sprint: Sprint; readonly items: readonly SprintItem[] }>;
+    page?: { readonly cursor?: string; readonly limit?: number },
+  ): Promise<{
+    readonly sprint: Sprint;
+    readonly items: readonly SprintItem[];
+    readonly nextCursor: string | null;
+  }>;
   readOperation(scope: RequestScope, operationId: string): Promise<PlanningResult | null>;
   readEvents(
     reader: PlanningEventReader,

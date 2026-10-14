@@ -675,3 +675,110 @@ type checks, owner/public/SQL boundaries, 62 boundary-checker tests, 158 module
 tests, migration checks, build, artifact smoke, Gateway/OAuth, Web unit and smoke
 tests. The focused headless attachment test passed separately; CI also runs the
 whole browser suite. No check, allowlist or expected error was relaxed.
+
+## Planning independent test audit — 10a
+
+Reviewed merged step 10 (`a41efc2`) against the public API, Planning docs, §7.1,
+and owner Q1. The original five Planning test blocks exercised useful happy
+paths but did not prove post-admission SQL CAS, live state refresh, or bounded
+provider reads. The original `getSprintItems` query was unbounded. This audit
+adds ID-keyset pagination (default 50, maximum 100) through owner API, REST/MCP
+and Web. SQL reads at most one extra ID to detect continuation; Issues resolves
+only the returned items. It also corrects the plan's omitted Access dependency
+to match the already merged manifest and live scope admission.
+
+### Behavior → test map
+
+Names below are executable test-name prefixes. Planning tests migrate only
+Planning tables; dependencies are public-contract fakes. Provider tests use
+only their owner's migrations. Transport tests compose real owners and use
+actual Worker HTTP. No checker, allowlist or existing expectation was weakened.
+
+| Behavior | Test / evidence | What it establishes |
+|---|---|---|
+| Same project/workspace and actor visibility on schedule | Planning `10a scheduling rejects foreign…` | Wrong project, other workspace and invisible issue reject, with all six owned tables unchanged |
+| Populated tenant and actor isolation | `10a populated tenants isolate…` | Both workspaces use identical sprint/issue/operation IDs; removing in one leaves the other intact; receipts and events remain tenant/actor scoped; ungranted sprint reader denied |
+| One issue in at most one open sprint | `10a two open sprints race…`; existing close/release test | Two simultaneous schedules across sprints have exactly one winner; retry adds no item or audit record; closing releases membership |
+| Closed sprint is immutable; close never writes Issues | `10a closed sprint rejects…` | Schedule/unschedule at the current version fail without mutation; spies on all six Issues commands record zero calls on close |
+| Every command fingerprints its full input | Four `10a <command> fingerprint, retry and atomic rollback` cases | Each individual non-operation field changed on retry conflicts; same-input result and every owned table remain identical |
+| Batch rollback | Same four command tests | Injected final-event constraint failure rolls back sprint/item/history/receipt/event/guard writes; a subsequent valid command succeeds |
+| Storage CAS for schedule, unschedule, close | Three `10a <command> storage CAS rejects a race after admission` cases | A version change immediately before the D1 batch causes conflict and leaves only the competing version change, with no loser receipt or item |
+| Response loss and recovery | Existing `committed response loss…` and `two workspaces…` | Committed response loss recovers the durable receipt; uncommitted failure has no receipt. Does not claim process-restart coverage |
+| Historical Projects read preserves ACL | Projects `10a getProjectIncludingArchived…` | Granted reader succeeds before/after archive; no grant, copied scope and foreign workspace fail; archive does not open write authorization |
+| Historical Issues read preserves ACL and archive write rules | Issues `10a getIssueIncludingArchived…` | Live and archived reads deny an ungranted actor; foreign tenant denied; edit/transition/assign/comment/archive and write authorization reject archived issue; project archive preserves authorized history only |
+| Fake/provider consistency | `planningHistoricalContract` in Planning, Projects and Issues tests | Same visible/missing/ungranted/copied-scope/archive expectations run against owner implementations and Planning's historical-read fakes |
+| Live item state and unavailable-item fallback | `10a item reads are live…`; Gateway `10a Planning page cursor…`; Web `sprint view schedules…` | A later state is read from Issues; hidden issue returns null+archived marker; real HTTP transition appears in the next read and browser reload |
+| Bounded reads and complete pages | Same Planning/Gateway tests; Web `10a sprint paging…` | 101 owning-table items: default 50, max 100, exact final page/cursor; exactly one Issues call per returned ID; invalid sizes/cursors fail; both transports carry page args; browser reaches last page and resets on sprint switch |
+| Transport write permissions | Gateway `10a Planning REST and MCP deny…`; OAuth `10a OAuth viewer…` | Real project viewer and read-scoped machine fail over both REST and MCP; SDK OAuth login for viewer/read-only owner cannot schedule through MCP and creates no item |
+| Events remain composition-only | `10a event reader requires…`; same Gateway denial test | Wrong/missing/copied/other-factory capability fails; tenant-local event cursor; REST 404 and MCP method-not-found for `planning.readEvents` |
+| Web archived/closed controls | Web `sprint view schedules…` | Create/schedule/remove, live state, archived marker, archived remove control hidden, closed sprint schedule/close controls absent, historical item still displayed |
+
+### Reproducible mutation evidence
+
+Run `node tools/audit-planning-mutations.mjs [case-id ...]` alone. It reuses the
+09a runner method: a healthy test command first, one bounded defect at a time,
+exclusive lock, generated SQL catalogs refreshed, all changed source restored
+in `finally`. Logs stay in `reports/10a-*`; the compact result is
+`reports/planning-mutations.json`. Only assertion failures count as killed;
+compile/import/setup errors are invalid. Selected reruns replace their own
+records. These probes establish sensitivity to named faults, not an exhaustive
+mutation score. Redundant runtime/storage checks are removed together only
+where needed to make the named defect observable. The Gateway event probe adds
+a catalog entry, proving transport reachability even when the owner capability
+still refuses the call.
+
+Original-suite probes use the test file from `a41efc2` via `--original`. They run
+against the audit implementation with the named defect; they compare regression
+sensitivity, not a claim to reconstruct the entire old runtime. The original
+suite does not know the added page arguments. Example:
+
+```sh
+node tools/audit-planning-mutations.mjs scheduleIssue-cas unscheduleIssue-cas \
+  closeSprint-cas stale-item-state double-item-read unbounded-items \
+  page-size-validation --original
+```
+
+All 28 final probes were killed by assertion failures, including both headless
+browser probes; no survivor or invalid result remains. Their healthy baselines
+passed. `node tools/audit-planning-mutations.mjs --check` also validates all patch
+targets without executing tests.
+
+The ten original-suite probes rejected the three shared fingerprint-check removal
+probes, but survived all seven CAS/live-read/bound probes listed below. In
+particular, the old create retry assertion could kill a shared fingerprint
+mutation without establishing that each later command fingerprints every field.
+The added tests bind every field independently and snapshot retries.
+
+| Mutation IDs | Original suite (sampled) | Added regression |
+|---|---|---|
+| `scheduleIssue-cas`, `unscheduleIssue-cas`, `closeSprint-cas` | Survived all three | Post-admission D1 race and complete losing-command snapshot |
+| `stale-item-state`, `double-item-read`, `unbounded-items`, `page-size-validation` | Survived all four | Live provider state, exact call IDs/count, 101-item pages and invalid page input |
+| `createSprint-fingerprint`, `scheduleIssue-fingerprint`, `unscheduleIssue-fingerprint`, `closeSprint-fingerprint` | Shared check removal killed for the three sampled non-create probes | Per-command full-input fingerprint and identical durable retry snapshot |
+| `cross-project`, `cross-workspace`, `invisible-issue`, `two-open-sprints` | Not rerun | Owner scheduling denials, unchanged storage and two-sprint race |
+| `scheduleIssue-closed`, `unscheduleIssue-closed`, `close-issues-write`, `retry-duplicate-item` | Not rerun | Closed-current-version rejections, all Issues write spies, retry snapshot |
+| `projects-historical-grant`, `issues-historical-grant`, `archived-issue-write` | Not rerun | Provider ACL contract and archive write matrix |
+| `transport-viewer`, `oauth-write-scope`, `gateway-events`, `gateway-page-args` | Not rerun | Actual Worker REST/MCP, SDK OAuth login and page dispatch |
+| `web-next-page`, `web-closed-controls` | Not rerun | Headless last-page navigation and closed-sprint controls |
+
+### Scope and remaining limits
+
+No commands, events, tables, indexes or runtime dependencies are added. The only
+public shape change is optional `getSprintItems` page input plus `nextCursor`,
+propagated to both transports and Web. Existing migrations remain unchanged.
+The OAuth HTTP fixture gives each test a distinct simulated client IP so the
+intentional rate-exhaustion test cannot consume later tests' budgets. Rate
+limits and exhaustion assertions are unchanged; a full-suite run exposed this
+interference even though the isolated new OAuth test passed. The Planning OAuth
+case also uses a dedicated viewer, since the existing step-up test promotes its
+viewer. The entire OAuth file passes with both fixtures isolated.
+
+The Issues test's Projects fake now supplies the historical query it previously
+omitted; the provider implementations need no runtime change.
+
+Evidence is local Miniflare D1, real local Worker REST/MCP/OAuth, and headless
+Playwright. Browser pagination uses a deterministic HTTP fixture; owner and
+transport paging use real D1 separately. No deployed-D1 or main-only Cloudflare
+smoke claim is made. Pages are live, not a snapshot during concurrent changes;
+listSprints pagination, process-restart recovery, broader Q1 race matrices and
+Insights consumption are outside these bounded probes. No merge or deployment
+is part of this audit.

@@ -1235,3 +1235,114 @@ test("archived project keeps sprint and live issue details read-only", async () 
     "not_found",
   );
 });
+
+test("10a Planning REST and MCP deny project viewers and read credentials; events stay private", async () => {
+  const { projects, issues, manager } = contractProviders;
+  await projects.createProject(manager, {
+    operationId: "audit-project",
+    projectId: "audit-project",
+    name: "Audit",
+    key: "AUDIT",
+  });
+  await projects.grantProjectRole(manager, {
+    operationId: "audit-viewer",
+    projectId: "audit-project",
+    principalId: writeMachineId,
+    role: "viewer",
+    expectedVersion: 1,
+  });
+  await issues.createIssue(manager, {
+    operationId: "audit-issue",
+    issueId: "audit-issue",
+    projectId: "audit-project",
+    title: "Audit",
+    description: "",
+    priority: "medium",
+  });
+  const created = await mf.dispatchFetch(endpoint("w1", "planning.create"), {
+    method: "POST",
+    headers: { "cf-access-jwt-assertion": ownerAssertion, "content-type": "application/json" },
+    body: JSON.stringify({
+      operationId: "audit-sprint",
+      sprintId: "audit-sprint",
+      projectId: "audit-project",
+      name: "Audit",
+    }),
+  });
+  assert.equal(created.status, 200);
+  for (const token of [write, read]) {
+    const input = {
+      operationId: `audit-${token === write ? "viewer" : "read"}-schedule`,
+      sprintId: "audit-sprint",
+      issueId: "audit-issue",
+      expectedVersion: 1,
+    };
+    assert.equal((await req("w1", "planning.schedule", input, token)).data.code, "forbidden");
+    assert.equal(mcpResult(await rpc("w1", "planning.schedule", input, token)).code, "forbidden");
+  }
+  assert.equal(
+    (await req("w1", "planning.items", { sprintId: "audit-sprint" }, write)).data.items.length,
+    0,
+  );
+  const args = { workspaceId: "w1", cursor: 0, limit: 10 };
+  assert.equal((await req("w1", "planning.readEvents", args, write)).status, 404);
+  assert.equal((await rpc("w1", "planning.readEvents", args, write)).data.error?.code, -32601);
+});
+
+test("10a Planning page cursor and limit cross REST and MCP with live issue updates", async () => {
+  for (const [id, op, args] of [
+    [
+      "a",
+      "issues.create",
+      { issueId: "page-a", projectId: "p1", title: "Page A", description: "", priority: "medium" },
+    ],
+    [
+      "b",
+      "issues.create",
+      { issueId: "page-b", projectId: "p1", title: "Page B", description: "", priority: "medium" },
+    ],
+    ["s", "planning.create", { sprintId: "page-s", projectId: "p1", name: "Pages" }],
+    ["sa", "planning.schedule", { sprintId: "page-s", issueId: "page-a", expectedVersion: 1 }],
+    ["sb", "planning.schedule", { sprintId: "page-s", issueId: "page-b", expectedVersion: 2 }],
+  ])
+    assert.equal((await req("w1", op, { operationId: `page-${id}`, ...args }, write)).status, 200);
+  for (const call of [
+    async (args) => (await req("w1", "planning.items", args, read)).data,
+    async (args) => mcpResult(await rpc("w1", "planning.items", args, read)),
+  ]) {
+    const first = await call({ sprintId: "page-s", limit: 1 });
+    assert.deepEqual(
+      first.items.map((i) => i.issueId),
+      ["page-a"],
+    );
+    assert.equal(first.nextCursor, "page-a");
+    const last = await call({ sprintId: "page-s", limit: 1, cursor: first.nextCursor });
+    assert.deepEqual(
+      last.items.map((i) => i.issueId),
+      ["page-b"],
+    );
+    assert.equal(last.nextCursor, null);
+    assert.equal((await call({ sprintId: "page-s", limit: 101 })).code, "validation");
+  }
+  assert.equal(
+    (
+      await req(
+        "w1",
+        "issues.transition",
+        {
+          operationId: "page-transition",
+          issueId: "page-a",
+          expectedVersion: 1,
+          state: "in_progress",
+        },
+        write,
+      )
+    ).status,
+    200,
+  );
+  assert.equal(
+    (await req("w1", "planning.items", { sprintId: "page-s", limit: 1 }, read)).data.items[0].issue
+      .state,
+    "in_progress",
+  );
+});

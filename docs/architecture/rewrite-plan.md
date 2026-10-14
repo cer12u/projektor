@@ -117,7 +117,7 @@ docs/architecture/           # 本文と採用した変更判断
 | **Web** | 表示、route、未保存入力、pending operation。DB/KV/R2 なし。cosmetic localStorage は `ui:*`、下書きは初期はメモリ内 | route components、Gateway から生成した wire client。principal/workspace/project の切替で表示・query cache を破棄 | Gateway の wire DTO/client のみ。server implementation の import 不可 |
 | **Coordination** | agent session、issue lease、repo/path claim、fencing、進捗、WIP cap。`coord_sessions`, `coord_leases`, `coord_file_claims`, `coord_reports`, `coord_report_history`, `coord_limits` | C `startSession`, `heartbeat`, `endSession`, `acquireLease`, `renewLease`, `releaseLease`, `setProjectLimit`（interactive workspace owner/admin、OAuth 由来は不可）, `claimFiles`, `releaseFiles`, `reportProgress`; Q `getLease`, `listLeases`, `listClaims`, `getProgress`, `listProgress`, `listSessions`, `getProjectLimit`, `projectSessions`, `projectLeases`, `projectProgress`, `projectClaims`, `readOperation`, `readEvents`; E `LeaseChanged`, `ProgressReported`, `FileClaimForced` | Issues, Projects, Access |
 | **Assets**（後続） | binary と attachment link、その lifecycle。`assets_blobs`, `assets_links`, `assets_gc_jobs`、R2 `assets/<workspace>/<blobId>` のみ | C `beginUpload`, `completeUpload`, `linkAsset`, `unlinkAsset`; Q `getMetadata`, `downloadAsset`, `listAssets`, `readOperation`, `readEvents`; E `AssetBegun`, `AssetCompleted`, `AssetLinked`, `AssetUnlinked` | Issues, Wiki, Projects, Access |
-| **Planning**（後続） | sprint と issue の計画上の所属。`planning_sprints`, `planning_items`（workspace/project/issue の opaque ID） | C `createSprint`, `scheduleIssue`, `unscheduleIssue`, `closeSprint`; Q `listSprints`, `getSprintItems`, `readOperation`, `readEvents`; E `SprintChanged`, `IssueScheduled` | Issues, Projects |
+| **Planning**（後続） | sprint と issue の計画上の所属。`planning_sprints`, `planning_items`（workspace/project/issue の opaque ID） | C `createSprint`, `scheduleIssue`, `unscheduleIssue`, `closeSprint`; Q `listSprints`, `getSprintItems`, `readOperation`, `readEvents`; E `SprintChanged`, `IssueScheduled` | Issues, Projects, Access |
 | **Insights**（後続） | 統合 activity / metrics / 通知対象。`insights_activity`, `insights_metrics`, `insights_subscriptions`, `insights_notifications`。正本の業務判断には使わない | C `subscribe`, `markRead`, `consumeEvents`; Q `getActivity`, `getMetrics`, `listNotifications`。外部配送はここではしない | Projects, Issues, Wiki, Coordination, Planning, Assets |
 | **Integrations**（後続） | 外部参照、feedback、webhook の重複防止と配送状態。`integrations_links`, `integrations_sources`, `integrations_feedback`, `integrations_deliveries` | C `registerSource`, `receiveFeedback`, `convertFeedback`, `linkExternalRef`, `deliverWebhook`; Q `getDeliveryStatus`, `listFeedback`。外部接続は限定 port | Issues, Wiki, Projects, Access |
 | **Lifecycle**（後続） | workspace/project の段階的 purge の進捗と再試行。`lifecycle_jobs`, `lifecycle_steps` | C `requestPurge`, `resumePurge`; Q `getPurgeStatus`。各対象 owner の型付き maintenance API `freezeScope`, `purgeScope`, `purgeStatus` を使う | Access, Projects, Issues, Wiki, Coordination, Assets, Planning, Insights, Integrations |
@@ -152,6 +152,7 @@ flowchart TD
   Assets --> Access
   Planning --> Issues
   Planning --> Projects
+  Planning --> Access
   Insights --> Coordination
   Insights --> Planning
   Insights --> Assets
@@ -510,3 +511,11 @@ no-referrer to origin-only: Chrome otherwise sends `Origin: null` on form POST,
 which conflicts with the mandatory exact-Origin check. Callback responses retain
 no-referrer; authorization query data never enters the referrer. CSP permits
 only self and the already validated callback origin for the form redirect chain.
+
+### Step 10a audit refinements
+
+`getSprintItems` now uses bounded keyset pagination (default 50, max 100) with
+`nextCursor`; REST/MCP and Web carry the page through. This corrects the unbounded
+Issues fan-out in step 10 while preserving live, authorized historical reads.
+The Planning dependency table/DAG now lists Access, matching the already merged
+manifest and admission-time scope checks; no new runtime dependency is introduced.

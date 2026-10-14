@@ -9,3 +9,17 @@ Planning owns `planning_sprints`, `planning_items`, `planning_history`, `plannin
 The Gateway catalog exposes sprint create/list/items/schedule/unschedule/close and operation recovery through REST and MCP. Web provides a project-scoped sprint view with live issue state and scheduling controls. `readEvents` is a capability-gated outbox API for later owner composition and is not exposed to untrusted transport callers.
 
 Miniflare tests run only Planning migrations with Access, Issues, and Projects public contract fakes. Worker transport parity uses the actual providers and D1. The owner boundary checker rejects SQL reads of Issues/Projects tables from Planning. No velocity, burndown, or Insights projection is introduced.
+
+Step 10a audit: item reads use an issue-ID keyset page (`cursor`, `limit`, default
+50, maximum 100) and return `nextCursor`. SQL fetches at most `limit + 1` IDs;
+only the returned page is resolved through Issues, exactly once per item. The
+extra ID determines whether another page exists and is not resolved. REST and
+MCP accept the same optional page fields; Web offers next/first page navigation
+and resets the cursor when the selected sprint changes. Pages are live reads,
+not a snapshot across concurrent membership changes. This bounds the previously
+unbounded provider fan-out without silently hiding the remainder of a sprint.
+
+Access is also a declared direct dependency for live scope admission (as already
+implemented in step 10); Issues and Projects remain the only business-data
+providers. The step 10a audit and reproducible mutation runner are documented in
+[test-audit.md](test-audit.md).

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { after, before, test } from "node:test";
+import { after, before, beforeEach, test } from "node:test";
 import { auth, extractWWWAuthenticateParams } from "@modelcontextprotocol/sdk/client/auth.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -11,15 +11,21 @@ const origin = "https://projektor.example";
 const resource = `${origin}/mcp`;
 const issuer = "https://unit.cloudflareaccess.com";
 const audience = "projektor-test";
-let mf, api, ownerScope, adminScope, ownerAssertion, viewerAssertion;
+let mf, api, ownerScope, adminScope, ownerAssertion, viewerAssertion, planningViewerAssertion;
 const calls = [];
+let clientNumber = 0,
+  clientIp;
+// Isolate each HTTP client's budget; the rate-limit test still exhausts its own IP.
+beforeEach(() => {
+  clientIp = `192.0.2.${++clientNumber}`;
+});
 const b64 = (x) => Buffer.from(JSON.stringify(x)).toString("base64url");
 const fetcher = async (input, init) => {
   const request = new Request(input, init);
   calls.push(new URL(request.url).pathname);
   const response = await mf.dispatchFetch(request.url, {
     method: request.method,
-    headers: Object.fromEntries(request.headers),
+    headers: { "cf-connecting-ip": clientIp, ...Object.fromEntries(request.headers) },
     ...(request.body ? { body: await request.text() } : {}),
     redirect: "manual",
   });
@@ -200,7 +206,15 @@ before(async () => {
     },
   });
   const db = await mf.getD1Database("DB");
-  await platform.migrate(db, ["access", "projects", "issues", "wiki", "coordination", "assets"]);
+  await platform.migrate(db, [
+    "access",
+    "projects",
+    "issues",
+    "wiki",
+    "coordination",
+    "assets",
+    "planning",
+  ]);
   const clock = { now: () => Math.floor(Date.now() / 1000) };
   const options = {
     store: platform.createModuleStore(db, "access"),
@@ -218,6 +232,7 @@ before(async () => {
   }
   ownerAssertion = await sign("owner");
   viewerAssertion = await sign("viewer");
+  planningViewerAssertion = await sign("planning-viewer");
   const owner = await api.authenticate({ kind: "human", assertion: ownerAssertion });
   for (const w of ["w1", "w2"])
     await api.createWorkspace(owner, { workspaceId: w, name: `Workspace ${w}`, operationId: w });
@@ -227,6 +242,13 @@ before(async () => {
     expectedVersion: 0,
     issuer,
     subject: "viewer",
+    role: "viewer",
+  });
+  await api.inviteMember(ownerScope, {
+    operationId: "invite-planning-viewer",
+    expectedVersion: 0,
+    issuer,
+    subject: "planning-viewer",
     role: "viewer",
   });
   await api.inviteMember(ownerScope, {
@@ -264,6 +286,18 @@ before(async () => {
     projectId: "p1",
     expectedVersion: 1,
     principalId: viewer.principalId,
+    role: "viewer",
+  });
+  const planningViewer = await api.requireMembership(
+    await api.authenticate({ kind: "human", assertion: planningViewerAssertion }),
+    "w1",
+    "planning-viewer",
+  );
+  await projects.grantProjectRole(ownerScope, {
+    operationId: "planning-viewer-project",
+    projectId: "p1",
+    expectedVersion: 2,
+    principalId: planningViewer.principalId,
     role: "viewer",
   });
 });
@@ -630,4 +664,56 @@ test("metadata aliases, duplicate/oversize/unsupported forms, CORS and bounded e
     }
   }
   assert(tokenLimited);
+});
+
+test("10a OAuth viewer and read-only owner cannot schedule through MCP", async () => {
+  const owner = await login();
+  const ownerToken = owner.tokens().access_token;
+  for (const [name, args] of [
+    [
+      "issues.create",
+      {
+        operationId: "plan-i",
+        issueId: "plan-i",
+        projectId: "p1",
+        title: "Planned",
+        description: "",
+        priority: "medium",
+      },
+    ],
+    [
+      "planning.create",
+      { operationId: "plan-s", sprintId: "plan-s", projectId: "p1", name: "Plan" },
+    ],
+  ]) {
+    const response = await rpc(ownerToken, "w1", name, args);
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).result.isError, false);
+  }
+  const viewer = await login(provider(), planningViewerAssertion),
+    readProvider = provider();
+  await start(readProvider);
+  const approved = await approve(
+    await page(readProvider, ownerAssertion, { scope: "read" }),
+    ownerAssertion,
+  );
+  assert.equal(approved.status, 303);
+  await auth(readProvider, {
+    serverUrl: `${resource}/w1`,
+    authorizationCode: new URL(approved.headers.get("location")).searchParams.get("code"),
+    fetchFn: fetcher,
+  });
+  for (const p of [viewer, readProvider]) {
+    assert.equal(p.tokens().scope, "read");
+    const response = await rpc(p.tokens().access_token, "w1", "planning.schedule", {
+      operationId: `denied-${p === viewer ? "viewer" : "owner"}`,
+      sprintId: "plan-s",
+      issueId: "plan-i",
+      expectedVersion: 1,
+    });
+    assert.equal(response.status, 403);
+    assert.match(response.headers.get("www-authenticate"), /insufficient_scope/);
+  }
+  const pageResult = await rpc(ownerToken, "w1", "planning.items", { sprintId: "plan-s" });
+  assert.equal(JSON.parse((await pageResult.json()).result.content[0].text).items.length, 0);
 });

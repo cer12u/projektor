@@ -87,8 +87,14 @@ export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
   "planning.list": op({ projectId: "string" }, false, (s, c, a) =>
     s.planning.listSprints(c, str(a, "projectId")),
   ),
-  "planning.items": op({ sprintId: "string" }, false, (s, c, a) =>
-    s.planning.getSprintItems(c, str(a, "sprintId")),
+  "planning.items": op(
+    { sprintId: "string", cursor: "optionalString", limit: "optionalNumber" },
+    false,
+    (s, c, a) =>
+      s.planning.getSprintItems(c, str(a, "sprintId"), {
+        cursor: optStr(a, "cursor"),
+        limit: optNum(a, "limit"),
+      }),
   ),
   "planning.readOperation": op({ operationId: "string" }, false, (s, c, a) =>
     s.planning.readOperation(c, str(a, "operationId")),

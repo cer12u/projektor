@@ -828,3 +828,34 @@ test("concurrent duplicate operations recover one result and cross-command ID re
   assert.equal(stored.projects_receipts.length, 2);
   assert.equal(stored.projects_events.length, 2);
 });
+
+test("10a getProjectIncludingArchived preserves grants, provenance and tenant isolation", async () => {
+  const { planningHistoricalContract } = await import("./planning-provider-contract.mjs");
+  const f = await fixture();
+  await f.api.createProject(f.owner, create("p1", "ONE"));
+  const viewer = f.access.issue(actor("reader", "w1"));
+  await f.api.grantProjectRole(f.owner, {
+    operationId: "grant-reader",
+    projectId: "p1",
+    principalId: "reader",
+    role: "viewer",
+    expectedVersion: 1,
+  });
+  await planningHistoricalContract({
+    get: f.api.getProjectIncludingArchived,
+    id: "p1",
+    authorized: viewer,
+    denied: f.access.issue(actor("outsider", "w1")),
+    archive: () =>
+      f.api.archiveProject(f.owner, {
+        operationId: "archive",
+        projectId: "p1",
+        expectedVersion: 2,
+      }),
+  });
+  await assert.rejects(
+    f.api.getProjectIncludingArchived(f.access.issue(actor("owner", "w2", "owner")), "p1"),
+    code("not_found"),
+  );
+  await assert.rejects(f.api.authorizeProject(f.owner, "p1", "write"), code("not_found"));
+});

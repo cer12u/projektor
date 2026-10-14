@@ -3,7 +3,7 @@ export const queries = {
     "SELECT id,project_id,name,version,closed FROM planning_sprints WHERE workspace_id=? AND id=?",
   list: "SELECT id,project_id,name,version,closed FROM planning_sprints WHERE workspace_id=? AND project_id=? ORDER BY id",
   items:
-    "SELECT issue_id FROM planning_items WHERE workspace_id=? AND sprint_id=? AND present=1 ORDER BY issue_id",
+    "SELECT issue_id FROM planning_items WHERE workspace_id=? AND sprint_id=? AND present=1 AND issue_id>? ORDER BY issue_id LIMIT ?",
   create:
     "INSERT INTO planning_sprints(workspace_id,id,project_id,name,version,closed) VALUES(?,?,?,?,1,0)",
   bump: "UPDATE planning_sprints SET version=version+1 WHERE workspace_id=? AND id=? AND version=? AND closed=0",
