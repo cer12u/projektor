@@ -56,3 +56,5 @@ together. Keep the secret outside source/vars. Only the interactive authorizatio
 page belongs behind Cloudflare Access login; discovery, register, token, revoke
 and MCP must return their protocol responses. See [Gateway OAuth operations](docs/architecture/gateway.md#step-06b-oauth-http)
 for consent, rate limits, tests and remaining deployment acceptance.
+
+Coordination sessions, issue leases and exact-path claims: [Coordination contract](docs/architecture/coordination.md).

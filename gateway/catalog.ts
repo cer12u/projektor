@@ -1,4 +1,5 @@
 import type { AccessApi, RequestScope } from "../modules/access/public";
+import type { CoordinationApi } from "../modules/coordination/public";
 import type { IssuesApi } from "../modules/issues/public";
 import type { ProjectsApi } from "../modules/projects/public";
 import type { WikiApi } from "../modules/wiki/public";
@@ -11,8 +12,16 @@ export interface Services {
   readonly projects: ProjectsApi;
   readonly issues: IssuesApi;
   readonly wiki: WikiApi;
+  readonly coordination: CoordinationApi;
 }
-type Field = "string" | "number" | "optionalString" | "optionalNumber" | "nullableString";
+type Field =
+  | "string"
+  | "number"
+  | "optionalString"
+  | "optionalNumber"
+  | "nullableString"
+  | "stringArray"
+  | "optionalBoolean";
 type Fields = Readonly<Record<string, Field>>;
 type Operation = Readonly<{
   fields: Fields;
@@ -23,6 +32,8 @@ const str = (a: Record<string, unknown>, k: string) => a[k] as string;
 const num = (a: Record<string, unknown>, k: string) => a[k] as number;
 const optStr = (a: Record<string, unknown>, k: string) => a[k] as string | undefined;
 const optNum = (a: Record<string, unknown>, k: string) => a[k] as number | undefined;
+const arr = (a: Record<string, unknown>, k: string) => a[k] as string[];
+const optBool = (a: Record<string, unknown>, k: string) => a[k] as boolean | undefined;
 const nullable = (a: Record<string, unknown>, k: string) => a[k] as string | null | undefined;
 const op = (fields: Fields, write: boolean, call: Operation["call"]): Operation => ({
   fields,
@@ -268,6 +279,153 @@ export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
     false,
     (s, c, a) => s.wiki.listRevisions(c, str(a, "pageId"), optNum(a, "cursor"), optNum(a, "limit")),
   ),
+  "coordination.start": op(
+    {
+      ...operationId,
+      sessionId: "string",
+      agentLabel: "string",
+      clientKind: "string",
+      repo: "optionalString",
+      ttlSeconds: "optionalNumber",
+    },
+    true,
+    (s, c, a) =>
+      s.coordination.startSession(c, {
+        operationId: str(a, "operationId"),
+        sessionId: str(a, "sessionId"),
+        agentLabel: str(a, "agentLabel"),
+        clientKind: str(a, "clientKind"),
+        repo: optStr(a, "repo"),
+        ttlSeconds: optNum(a, "ttlSeconds"),
+      }),
+  ),
+  "coordination.heartbeat": op({ ...operationId, sessionId: "string" }, true, (s, c, a) =>
+    s.coordination.heartbeat(c, {
+      operationId: str(a, "operationId"),
+      sessionId: str(a, "sessionId"),
+    }),
+  ),
+  "coordination.end": op({ ...operationId, sessionId: "string" }, true, (s, c, a) =>
+    s.coordination.endSession(c, {
+      operationId: str(a, "operationId"),
+      sessionId: str(a, "sessionId"),
+    }),
+  ),
+  "coordination.acquire": op(
+    { ...operationId, sessionId: "string", issueId: "string" },
+    true,
+    (s, c, a) =>
+      s.coordination.acquireLease(c, {
+        operationId: str(a, "operationId"),
+        sessionId: str(a, "sessionId"),
+        issueId: str(a, "issueId"),
+      }),
+  ),
+  "coordination.renew": op(
+    { ...operationId, sessionId: "string", issueId: "string", fencingToken: "number" },
+    true,
+    (s, c, a) =>
+      s.coordination.renewLease(c, {
+        operationId: str(a, "operationId"),
+        sessionId: str(a, "sessionId"),
+        issueId: str(a, "issueId"),
+        fencingToken: num(a, "fencingToken"),
+      }),
+  ),
+  "coordination.release": op(
+    { ...operationId, sessionId: "string", issueId: "string", fencingToken: "number" },
+    true,
+    (s, c, a) =>
+      s.coordination.releaseLease(c, {
+        operationId: str(a, "operationId"),
+        sessionId: str(a, "sessionId"),
+        issueId: str(a, "issueId"),
+        fencingToken: num(a, "fencingToken"),
+      }),
+  ),
+  "coordination.limit": op(
+    { ...operationId, projectId: "string", cap: "number", expectedVersion: "number" },
+    true,
+    (s, c, a) =>
+      s.coordination.setProjectLimit(c, {
+        operationId: str(a, "operationId"),
+        projectId: str(a, "projectId"),
+        cap: num(a, "cap"),
+        expectedVersion: num(a, "expectedVersion"),
+      }),
+  ),
+  "coordination.claim": op(
+    {
+      ...operationId,
+      sessionId: "string",
+      repo: "string",
+      paths: "stringArray",
+      leaseIssueId: "optionalString",
+      fencingToken: "optionalNumber",
+      force: "optionalBoolean",
+    },
+    true,
+    (s, c, a) =>
+      s.coordination.claimFiles(c, {
+        operationId: str(a, "operationId"),
+        sessionId: str(a, "sessionId"),
+        repo: str(a, "repo"),
+        paths: arr(a, "paths"),
+        leaseIssueId: optStr(a, "leaseIssueId"),
+        fencingToken: optNum(a, "fencingToken"),
+        force: optBool(a, "force"),
+      }),
+  ),
+  "coordination.releaseFiles": op(
+    { ...operationId, sessionId: "string", repo: "string", paths: "stringArray" },
+    true,
+    (s, c, a) =>
+      s.coordination.releaseFiles(c, {
+        operationId: str(a, "operationId"),
+        sessionId: str(a, "sessionId"),
+        repo: str(a, "repo"),
+        paths: arr(a, "paths"),
+      }),
+  ),
+  "coordination.report": op(
+    {
+      ...operationId,
+      sessionId: "string",
+      issueId: "string",
+      fencingToken: "number",
+      text: "string",
+      status: "string",
+    },
+    true,
+    (s, c, a) =>
+      s.coordination.reportProgress(c, {
+        operationId: str(a, "operationId"),
+        sessionId: str(a, "sessionId"),
+        issueId: str(a, "issueId"),
+        fencingToken: num(a, "fencingToken"),
+        text: str(a, "text"),
+        status: str(a, "status"),
+      }),
+  ),
+  "coordination.getLease": op({ issueId: "string" }, false, (s, c, a) =>
+    s.coordination.getLease(c, str(a, "issueId")),
+  ),
+  "coordination.listLeases": op({ projectId: "string" }, false, (s, c, a) =>
+    s.coordination.listLeases(c, str(a, "projectId")),
+  ),
+  "coordination.listClaims": op({ repo: "string", sessionId: "string" }, false, (s, c, a) =>
+    s.coordination.listClaims(c, str(a, "repo"), str(a, "sessionId")),
+  ),
+  "coordination.getProgress": op({ issueId: "string" }, false, (s, c, a) =>
+    s.coordination.getProgress(c, str(a, "issueId")),
+  ),
+  "coordination.listSessions": op({}, false, (s, c) => s.coordination.listSessions(c)),
+  "coordination.readEvents": op({ cursor: "number", limit: "optionalNumber" }, false, (s, c, a) =>
+    s.coordination.readAgentEvents(c, num(a, "cursor"), optNum(a, "limit") ?? 50),
+  ),
+  "coordination.readOperation": op({ operationId: "string" }, false, (s, c, a) =>
+    s.coordination.readOperation(c, str(a, "operationId")),
+  ),
   "access.workspaces": op({}, false, async () => {
     throw new PlatformError("unknown", "Use workspace listing route");
   }),
@@ -335,6 +493,15 @@ export function inputFor(name: string, value: unknown): Record<string, unknown> 
     const val = a[key];
     if (val === undefined && kind.startsWith("optional")) continue;
     if (val === null && kind === "nullableString") continue;
+    if (kind === "stringArray") {
+      if (!Array.isArray(val) || !val.every((x) => typeof x === "string"))
+        throw new PlatformError("validation", `Invalid field: ${key}`);
+      continue;
+    }
+    if (kind === "optionalBoolean") {
+      if (val === undefined || typeof val === "boolean") continue;
+      throw new PlatformError("validation", `Invalid field: ${key}`);
+    }
     if (
       kind.endsWith("String") || kind === "string"
         ? typeof val !== "string"
@@ -349,14 +516,25 @@ export function toolCatalog() {
     .filter(([name]) => name !== "access.workspaces" && !restOnly.includes(name))
     .map(([name, entry]) => ({
       name,
-      description: name.replace(".", " "),
+      description: name.startsWith("coordination.")
+        ? "Agent workflow: start session → acquire issue lease → claim exact repo paths → work → report progress → release files and lease. " +
+          name.replace(".", " ")
+        : name.replace(".", " "),
       inputSchema: {
         type: "object",
         properties: Object.fromEntries(
           Object.entries(entry.fields).map(([field, kind]) => [
             field,
             {
-              type: kind.includes("Number") || kind === "number" ? "integer" : "string",
+              type:
+                kind === "stringArray"
+                  ? "array"
+                  : kind === "optionalBoolean"
+                    ? "boolean"
+                    : kind.includes("Number") || kind === "number"
+                      ? "integer"
+                      : "string",
+              ...(kind === "stringArray" ? { items: { type: "string" } } : {}),
               ...(kind === "nullableString" ? { type: ["string", "null"] } : {}),
             },
           ]),

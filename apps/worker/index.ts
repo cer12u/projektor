@@ -1,5 +1,6 @@
 import { createOAuthHttp, handleHttp } from "../../gateway/public";
 import { createAccess } from "../../modules/access/internal/factory";
+import { createCoordination } from "../../modules/coordination/internal/factory";
 import { createIssues } from "../../modules/issues/internal/factory";
 import { createProjects } from "../../modules/projects/internal/factory";
 import { createWiki } from "../../modules/wiki/internal/factory";
@@ -58,6 +59,14 @@ function compose(env: Env) {
     clock: systemClock,
     ids: randomIds,
   }).api;
+  const coordination = createCoordination({
+    store: createModuleStore(env.DB, "coordination"),
+    access,
+    issues,
+    projects,
+    clock: systemClock,
+    ids: randomIds,
+  }).api;
   const oauthHttp =
     env.OAUTH_ISSUER &&
     env.OAUTH_RESOURCE &&
@@ -76,7 +85,7 @@ function compose(env: Env) {
           access,
         )
       : undefined;
-  return { access, projects, issues, wiki, oauthHttp, oauthOrigin: env.OAUTH_ISSUER };
+  return { access, projects, issues, wiki, coordination, oauthHttp, oauthOrigin: env.OAUTH_ISSUER };
 }
 
 // One composition per isolate keeps the verifier’s bounded trusted JWKS cache.
