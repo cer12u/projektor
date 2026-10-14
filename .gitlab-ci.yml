@@ -76,10 +76,12 @@ cloudflare-smoke:
       artifacts: true
     - job: integration
   resource_group: cloudflare-verify
+  # The runner reports script failures as exit 1, so exit_codes: [78] cannot mark
+  # missing credentials as a warning. Select by variable presence instead.
   rules:
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true" && $CLOUDFLARE_API_TOKEN && $CLOUDFLARE_ACCOUNT_ID'
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH && $CI_COMMIT_REF_PROTECTED == "true"'
-  allow_failure:
-    exit_codes: [78]
+      allow_failure: true
   script: ["pnpm smoke:cloudflare"]
 deploy:
   stage: deploy

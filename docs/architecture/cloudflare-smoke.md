@@ -2,8 +2,10 @@
 
 The `cloudflare-smoke` GitLab job runs only on protected `main`, after the build and
 local integration check. Missing protected `CLOUDFLARE_API_TOKEN` or
-`CLOUDFLARE_ACCOUNT_ID` exits 78 and leaves a warning; all other errors fail the
-pipeline. The MR pipeline runs the same smoke assertions against Miniflare with
+`CLOUDFLARE_ACCOUNT_ID` selects an `allow_failure` rule: the script still exits 78,
+and the job shows as a warning. With both variables present, any error fails the
+pipeline. (The runner reports script failures as exit 1, so `exit_codes: [78]`
+could not tell these cases apart.) The MR pipeline runs the same smoke assertions against Miniflare with
 `pnpm test:smoke`. A green MR does not prove real D1 behavior.
 
 The token needs account permissions **Workers Scripts:Edit**, **D1:Edit**,
