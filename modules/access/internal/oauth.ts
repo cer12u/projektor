@@ -12,6 +12,7 @@ import {
   type EventType,
   type OAuthApi,
   type OAuthAuthorizationRequest,
+  type OAuthClientItem,
   type OAuthConsent,
   OAuthError,
   type OAuthTokens,
@@ -541,6 +542,19 @@ export function createOAuth(deps: Dependencies): {
       if (!row) throw new PlatformError("not_found", "Client not found");
       return { id: clientId, version: num(row, "version"), revoked: row.revoked === 1 };
     },
+    async listOAuthClients(scope, cursor = "", limit = 50) {
+      const s = await deps.manager(scope);
+      if (cursor) identifier(cursor);
+      valid(Number.isSafeInteger(limit) && limit >= 1 && limit <= 100);
+      const rows = (await store.run("oauthListClients", [s.workspaceId, cursor, limit + 1])).rows;
+      const items: OAuthClientItem[] = rows.slice(0, limit).map((r) => ({
+        clientId: str(r, "client_id"),
+        name: str(r, "name"),
+        version: num(r, "version"),
+        revoked: r.revoked === 1,
+      }));
+      return { items, nextCursor: rows.length > limit ? items[items.length - 1].clientId : null };
+    },
     async revokeOAuthClient(scope, input) {
       const s = await deps.manager(scope);
       inputObject(input);
@@ -562,6 +576,11 @@ export function createOAuth(deps: Dependencies): {
         { id: input.clientId, version: input.expectedVersion + 1 },
         "OAuthClientRevoked",
         [
+          { name: "oauthRevokeClientFamilies", values: [s.workspaceId, input.clientId] },
+          {
+            name: "oauthRevokeClientTokens",
+            values: [s.workspaceId, s.workspaceId, input.clientId],
+          },
           {
             name: "oauthRevokeClient",
             values: [s.workspaceId, input.clientId, input.expectedVersion],

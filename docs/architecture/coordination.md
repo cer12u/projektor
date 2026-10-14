@@ -5,7 +5,7 @@ Coordination lets agents share an issue backlog. Start a session, acquire an iss
 ## Contract
 
 - Session labels and client kinds are descriptive (`codex`, `claude-code`, `dots`, or another client). A session belongs to the authenticated principal and workspace. Its default TTL is 120 seconds; `startSession` accepts 30–3600 seconds. Every call carrying the session ID extends its liveness while it is still live. A terminated or expired session cannot be revived; start a new ID. `listSessions` shows one's own sessions, or all sessions to workspace admins and owners.
-- One issue has one current lease row. Acquisition is conditional on vacancy or expiry and atomically increments its persistent fencing token. The default per-project cap is three live leases. A project manager can set a cap of 1–100 with `expectedVersion`; an update cannot lower it below the current live count. Expiry is checked using the server clock on each command. `renewLease`, `releaseLease`, and `reportProgress` require the current session and fencing token. Reclaim records `release_reason=expired` and a `LeaseChanged` event. Stale tokens cannot write progress. A released or ended lease is available immediately.
+- One issue has one current lease row. Acquisition is conditional on vacancy or expiry and atomically increments its persistent fencing token. The default per-project cap is three live leases. A workspace owner/admin with project management access can set a cap of 1–100 with `expectedVersion`; an update cannot lower it below the current live count. Expiry is checked using the server clock on each command. `renewLease`, `releaseLease`, and `reportProgress` require the current session and fencing token. Reclaim records `release_reason=expired` and a `LeaseChanged` event. Stale tokens cannot write progress. A released or ended lease is available immediately.
 - Claims match the exact repository and path string, including case. Paths are relative, use `/`, and are not glob patterns or directory locks. A call claims 1–20 distinct paths in one D1 batch; one conflict rolls back all its claims. The conflict names each contested path and holder session. A project manager with a current issue lease may force a claim. Each live contention records `FileClaimForced` with both the acting principal and displaced session; both can poll it through `coordination.readEvents`. Heartbeat and other live session calls extend existing claim expiry. Claims expire with the session unless released earlier.
 - REST routes use `/api/w/{workspaceId}/coordination/{action}`. MCP tools use the same `coordination.{action}` catalog and validation. The commands are `start`, `heartbeat`, `end`, `acquire`, `renew`, `release`, `limit`, `claim`, `releaseFiles`, `report`; queries are `getLease`, `listLeases`, `listClaims`, `getProgress`, `listProgress`, `listSessions`, `readOperation`, `readEvents`. The latter returns events involving the calling principal or one of its displaced sessions. Internal consumers use the separate reader capability.
 - Every command accepts an `operationId`. Receipts are unique by workspace, principal and operation ID, and bind the command and inputs to a stored result. Use the same ID to recover an uncertain outcome. A reused ID with different inputs conflicts. Cross-owner authorization uses Access, Projects and Issues public APIs on admission; no Coordination SQL reads or updates their tables. Admission before a concurrent revoke may still commit, per the approved Q1 contract.
@@ -38,3 +38,18 @@ pruning. Receipts and events retain their existing lifecycle policy.
 Migration `0002_progress_history.sql` copies each existing latest report as
 sequence 1 without editing migration 0001 or removing the latest table. Already
 overwritten reports cannot be reconstructed. No dependency edges change.
+
+## Project view (07b)
+
+`projectSessions`, `projectLeases`, `projectProgress` and `projectClaims` return
+bounded keyset pages after a live project read authorization. Sessions are active
+ones holding a live lease in the project. Leases show holder session/principal,
+agent label, client kind, fencing token and expiry. Progress is the latest report per issue, newest first. Claims
+are live exact paths tied to that project's issue lease; unlinked claims have no
+project attribution and are excluded. Each page has `items` and `nextCursor`;
+default size is 50, maximum 100. Cursors are exclusive and pages are not a
+transactional snapshot across requests. `getProjectLimit` returns the default
+cap 3/version 0 until set. The existing `setProjectLimit` CAS and operation
+receipt power REST/MCP `coordination.wipCap.set`; only a workspace owner/admin with project management access can set
+it. All queries use Coordination tables only, with Access/Projects public APIs
+for admission.

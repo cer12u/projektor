@@ -119,6 +119,80 @@ const start = (api, s, sessionId) =>
   });
 const acquire = (api, s, sessionId, issueId, operationId = `acq-${sessionId}-${issueId}`) =>
   api.acquireLease(s, { operationId, sessionId, issueId });
+test("project pages expose active work and enforce project/tenant authorization", async () => {
+  const f = await fixture();
+  const a = f.issue("w1", "a"),
+    b = f.issue("w1", "b"),
+    other = f.issue("w2", "a");
+  const viewer = f.issue("w1", "viewer", "viewer");
+  await start(f.api, a, "sa");
+  await start(f.api, b, "sb");
+  await start(f.api, other, "sa");
+  await acquire(f.api, a, "sa", "p1-a");
+  await acquire(f.api, b, "sb", "p1-b");
+  await acquire(f.api, other, "sa", "p2-other");
+  await f.api.reportProgress(a, {
+    operationId: "progress-a",
+    sessionId: "sa",
+    issueId: "p1-a",
+    fencingToken: 1,
+    text: "A",
+    status: "working",
+  });
+  await f.api.reportProgress(b, {
+    operationId: "progress-b",
+    sessionId: "sb",
+    issueId: "p1-b",
+    fencingToken: 1,
+    text: "B",
+    status: "working",
+  });
+  await f.api.claimFiles(a, {
+    operationId: "claim-a",
+    sessionId: "sa",
+    repo: "repo",
+    paths: ["src/a"],
+    leaseIssueId: "p1-a",
+    fencingToken: 1,
+  });
+  await f.api.claimFiles(b, {
+    operationId: "claim-b",
+    sessionId: "sb",
+    repo: "repo",
+    paths: ["src/b"],
+    leaseIssueId: "p1-b",
+    fencingToken: 1,
+  });
+  for (const method of ["projectSessions", "projectLeases", "projectProgress", "projectClaims"]) {
+    const first = await f.api[method](viewer, "p1", undefined, 1);
+    assert.equal(first.items.length, 1);
+    assert.ok(first.nextCursor);
+    assert.equal((await f.api[method](viewer, "p1", first.nextCursor, 1)).items.length, 1);
+    assert.deepEqual((await f.api[method](other, "p1")).items, []);
+    await assert.rejects(f.api[method](viewer, "p1", undefined, 101), code("validation"));
+  }
+  assert.equal((await f.api.getProjectLimit(viewer, "p1")).cap, 3);
+  await assert.rejects(
+    f.api.setProjectLimit(viewer, {
+      operationId: "viewer-cap",
+      projectId: "p1",
+      cap: 2,
+      expectedVersion: 0,
+    }),
+    code("forbidden"),
+  );
+  await assert.rejects(
+    f.api.setProjectLimit(a, {
+      operationId: "member-cap",
+      projectId: "p1",
+      cap: 2,
+      expectedVersion: 0,
+    }),
+    code("forbidden"),
+  );
+  f.denied.add("w1:viewer:p1");
+  await assert.rejects(f.api.projectLeases(viewer, "p1"), code("not_found"));
+});
 test("concurrent acquire, fencing, stale recovery and retries after restart", async () => {
   const f = await fixture(),
     a = f.issue("w1", "a"),

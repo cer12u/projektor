@@ -703,6 +703,63 @@ async function oauthFixture() {
   return { ...f, ownerIdentity: owner, client };
 }
 
+test("current principal, member/client pages and revocation stay workspace scoped", async () => {
+  const f = await oauthFixture();
+  const other = await f.owner("w2", "bob");
+  const empty = await f.human("unjoined");
+  assert.deepEqual((await f.api.me(empty)).workspaces, []);
+  assert.deepEqual(
+    (await f.api.me(f.ownerIdentity.principal)).workspaces.map((w) => w.id),
+    ["w1"],
+  );
+  await f.api.inviteMember(f.ownerIdentity.scope, invite("charlie"));
+  const first = await f.api.listMembers(f.ownerIdentity.scope, "", 1);
+  assert.equal(first.items.length, 1);
+  assert.equal(
+    (await f.api.listMembers(f.ownerIdentity.scope, first.nextCursor, 1)).items.length,
+    1,
+  );
+  assert.deepEqual(
+    (await f.api.listMembers(other.scope)).items.map((m) => m.displayName),
+    ["bob"],
+  );
+  const auth = await authorization(f, f.ownerIdentity, f.client);
+  const tokens = await f.api.exchangeOAuthToken(auth.exchange);
+  const oauth = await oauthLogin(f, tokens);
+  assert.equal((await f.api.me(oauth)).principal.kind, "oauth");
+  assert.deepEqual(
+    (await f.api.me(oauth)).workspaces.map((w) => w.id),
+    ["w1"],
+  );
+  const listed = await f.api.listOAuthClients(f.ownerIdentity.scope);
+  assert.equal(listed.items[0].clientId, f.client.client_id);
+  assert.deepEqual((await f.api.listOAuthClients(other.scope)).items, []);
+  const viewerMember = await f.api.inviteMember(f.ownerIdentity.scope, invite("viewer", "viewer"));
+  const viewer = await f.api.requireMembership(await f.human("viewer"), "w1", "viewer");
+  assert.equal(viewerMember.version, 1);
+  await assert.rejects(f.api.listOAuthClients(viewer), code("forbidden"));
+  await assert.rejects(
+    f.api.revokeOAuthClient(viewer, {
+      clientId: f.client.client_id,
+      expectedVersion: 1,
+      operationId: "no",
+    }),
+    code("forbidden"),
+  );
+  const client2 = await f.api.registerOAuthClient({ ...oauthInput, client_name: "Other" });
+  const auth2 = await authorization(f, f.ownerIdentity, client2);
+  const tokens2 = await f.api.exchangeOAuthToken(auth2.exchange);
+  const command = { clientId: f.client.client_id, expectedVersion: 1, operationId: "revoke-page" };
+  const result = await f.api.revokeOAuthClient(f.ownerIdentity.scope, command);
+  assert.deepEqual(await f.api.revokeOAuthClient(f.ownerIdentity.scope, command), result);
+  await assert.rejects(oauthLogin(f, tokens), code("forbidden"));
+  await assert.rejects(
+    f.api.exchangeOAuthToken(refreshInput(f.client, tokens)),
+    code("invalid_grant"),
+  );
+  await oauthLogin(f, tokens2);
+});
+
 test("OAuth rules: HTTPS/exact redirects, IP loopback port exception, registration limits and S256", async () => {
   const r = platform.oauthRules;
   for (const uri of [

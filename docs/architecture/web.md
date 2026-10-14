@@ -7,27 +7,23 @@ the browser. Cloudflare Access supplies the assertion to the Worker in productio
 The local `tools/web-dev.mjs` fixture signs an assertion and injects it only in its
 Node HTTP proxy. Neither that proxy nor its signing key enters `dist/worker.js` or
 `dist/assets`. Start the local browser fixture with `pnpm build && node
-tools/web-dev.mjs`; open `http://127.0.0.1:8789/?w=web1`. The fixture migrates an
-in-memory Miniflare database and seeds two owner workspaces and machine tokens.
+tools/web-dev.mjs`; open `http://127.0.0.1:8789/`. The fixture migrates an
+in-memory Miniflare database and seeds two owner workspaces and test tokens.
 `pnpm test:web` runs the wire/state tests and Chromium browser suite. On a VM
 without Playwright's supported browser archive, set `WEB_CHROME_PATH` to an
 installed Chrome binary. CI uses the pinned official Playwright image.
 
-Navigation: known workspace ID → project list → issue/wiki/activity/admin views.
-Recent workspace IDs are cosmetic `ui:*` localStorage values. Typed drafts stay in
+Navigation: `/api/me` principal/workspace discovery → workspace selection → project
+list → issue/wiki/activity/admin views. Typed drafts stay in
 memory. On a lost response, the pending command keeps its IDs, version and payload
 for an exact retry; a conflict keeps the draft and Wiki fetches the newer page
 alongside it. Queries abort on workspace/project changes so old responses cannot
 paint the new view. Markdown is sanitized after rendering.
 
-The Web view is limited by current Gateway contracts. Initial workspace discovery
-requires a known ID because `access.workspaces` itself requires a workspace path.
-Access has no member list REST route and OAuth clients have no list/revoke REST
-routes. Coordination has no project-wide progress, file-claim or WIP-limit read
-route, so activity reads the published per-issue and per-repo/session operations.
-An external principal change cannot be observed reliably because Gateway exposes
-no current-principal endpoint; reloading resets in-memory state. These contracts
-need a later owner-approved Gateway change rather than private server imports.
+The admin view reads paged members and OAuth clients and revokes a client through
+Access. The activity view reads project-scoped sessions, live leases, latest
+progress, file claims and WIP cap through Coordination. `/api/me` is the
+non-workspace entry point; workspace and actor changes clear old view data.
 
 The Web step also found that the REST-only `access.credential.issue/revoke`
 operations had three-part names but Gateway and OpenAPI exposed only two-part

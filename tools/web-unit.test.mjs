@@ -13,8 +13,16 @@ const { WireClient, WireError, OperationState } = await import("../.tmp/test-ent
 globalThis.location = new URL("http://localhost/");
 const spec = {
   paths: {
+    "/api/me": { get: { operationId: "access.me" } },
     "/api/w/{workspaceId}/issues/create": { post: { operationId: "issues.create" } },
     "/api/w/{workspaceId}/issues/get": { get: { operationId: "issues.get" } },
+    "/api/w/{workspaceId}/access/members/list": { get: { operationId: "access.members.list" } },
+    "/api/w/{workspaceId}/access/oauthClients/revoke": {
+      post: { operationId: "access.oauthClients.revoke" },
+    },
+    "/api/w/{workspaceId}/coordination/projectLeases": {
+      get: { operationId: "coordination.projectLeases" },
+    },
   },
 };
 test("OpenAPI-derived route, cookie transport and no browser token", async () => {
@@ -31,6 +39,14 @@ test("OpenAPI-derived route, cookie transport and no browser token", async () =>
   assert.equal(seen[1][1].headers.authorization, undefined);
   await client.call("w1", "issues.get", { issueId: "i" });
   assert.equal(seen[2][0], "/api/w/w1/issues/get?issueId=i");
+  await client.call(undefined, "access.me");
+  assert.equal(seen[3][0], "/api/me");
+  await client.call(undefined, "access.me", { limit: 100, cursor: "workspace-50" });
+  assert.equal(seen[4][0], "/api/me?limit=100&cursor=workspace-50");
+  await client.call("w1", "access.members.list", { cursor: "c1", limit: 25 });
+  assert.equal(seen[5][0], "/api/w/w1/access/members/list?cursor=c1&limit=25");
+  await client.call("w1", "coordination.projectLeases", { projectId: "p1", limit: 50 });
+  assert.equal(seen[6][0], "/api/w/w1/coordination/projectLeases?projectId=p1&limit=50");
 });
 test("unknown retries identical request; conflict releases it", async () => {
   const calls = [];
@@ -79,4 +95,23 @@ test("server unknown outcome keeps operation identity for replay", async () => {
   assert.equal(op.status, "unknown");
   await op.retry();
   assert.deepEqual(seen[0], seen[1]);
+});
+
+test("OAuth client revoke retry preserves client version and generated operation ID", async () => {
+  const bodies = [];
+  const client = new WireClient(async (url, init) => {
+    if (url === "/api/openapi.json") return Response.json(spec);
+    bodies.push(init.body);
+    return bodies.length === 1
+      ? Response.json({ code: "unknown", message: "uncertain" }, { status: 500 })
+      : Response.json({ revoked: true });
+  });
+  const op = new OperationState(client, () => {});
+  await op.run("w1", "access.oauthClients.revoke", { clientId: "c1", expectedVersion: 7 });
+  assert.equal(op.status, "unknown");
+  const pending = JSON.parse(op.pending.args && JSON.stringify(op.pending.args));
+  assert.equal(pending.expectedVersion, 7);
+  assert.equal(typeof pending.operationId, "string");
+  await op.retry();
+  assert.equal(bodies[0], bodies[1]);
 });

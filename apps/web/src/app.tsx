@@ -33,7 +33,15 @@ type Session = {
   live: boolean;
   expiresAt: number;
 };
-type Lease = { issueId: string; sessionId: string | null; fencingToken: number; expiresAt: number };
+type Lease = {
+  issueId: string;
+  sessionId: string | null;
+  holderPrincipalId: string;
+  agentLabel: string;
+  clientKind: string;
+  fencingToken: number;
+  expiresAt: number;
+};
 type History = {
   version: number;
   action: string;
@@ -61,6 +69,13 @@ type Progress = {
 };
 type Claim = { repo: string; path: string; sessionId: string; expiresAt: number };
 type Workspace = { id: string; name: string; role: string; version: number };
+type Principal = {
+  id: string;
+  kind: "human" | "machine" | "oauth";
+  displayName: string;
+  clientName?: string;
+};
+type Me = { principal: Principal; workspaces: Workspace[]; nextCursor: string | null };
 type View = "projects" | "issues" | "wiki" | "activity" | "admin";
 const wire = new WireClient();
 const date = (value: number) => new Date(value * 1000).toLocaleString("ja-JP");
@@ -96,7 +111,11 @@ function useQuery<T>(workspace: string, name: string, args: Record<string, unkno
   useEffect(() => {
     setData(null);
     setError("");
-    if (!workspace) return;
+    if (
+      (!workspace && name !== "access.me") ||
+      ((name.startsWith("coordination.") || name === "access.wipCap") && !args.projectId)
+    )
+      return;
     const controller = new AbortController();
     wire
       .call<T>(workspace, name, args, controller.signal)
@@ -109,53 +128,144 @@ function useQuery<T>(workspace: string, name: string, args: Record<string, unkno
   }, [workspace, name, key, reload]);
   return { data, error, refresh: () => setReload((x) => x + 1) };
 }
-function WorkspacePicker({ value, onSelect }: { value: string; onSelect: (id: string) => void }) {
-  const [input, setInput] = useState(value);
-  const [known, setKnown] = useState<string[]>(
-    () => JSON.parse(localStorage.getItem("ui:workspaces") ?? "[]") as string[],
-  );
-  const select = (id: string) => {
-    const next = [...new Set([id, ...known])];
-    setKnown(next);
-    localStorage.setItem("ui:workspaces", JSON.stringify(next));
-    onSelect(id);
+function useMe(enabled: boolean) {
+  const [principal, setPrincipal] = useState<Principal | null>(null);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    setPrincipal(null);
+    setWorkspaces([]);
+    setNextCursor(null);
+    setCursor(null);
+    setError("");
+  }, [enabled]);
+  useEffect(() => {
+    if (!enabled) return;
+    const controller = new AbortController();
+    setLoading(true);
+    setError("");
+    wire
+      .call<Me>(
+        undefined,
+        "access.me",
+        { limit: 100, cursor: cursor ?? undefined },
+        controller.signal,
+      )
+      .then((result) => {
+        setPrincipal(result.principal);
+        setWorkspaces((current) =>
+          cursor ? [...current, ...result.workspaces] : result.workspaces,
+        );
+        setNextCursor(result.nextCursor);
+      })
+      .catch((cause) => {
+        if (!controller.signal.aborted)
+          setError(cause instanceof Error ? cause.message : String(cause));
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [enabled, cursor]);
+  return {
+    principal,
+    workspaces,
+    nextCursor,
+    error,
+    loading,
+    loadMore: () => setCursor(nextCursor),
   };
+}
+function usePaged<T>(workspace: string, name: string, scope: Record<string, unknown>) {
+  const scopeKey = JSON.stringify(scope);
+  const [items, setItems] = useState<T[]>([]);
+  const [cursor, setCursor] = useState<string | number | null>(null);
+  const [nextCursor, setNextCursor] = useState<string | number | null>(null);
+  const [error, setError] = useState("");
+  const [reload, setReload] = useState(0);
+  useEffect(() => {
+    setItems([]);
+    setCursor(null);
+    setNextCursor(null);
+    setError("");
+  }, [workspace, name, scopeKey]);
+  useEffect(() => {
+    setError("");
+    if (!workspace || ("projectId" in scope && !scope.projectId)) return;
+    const controller = new AbortController();
+    wire
+      .call<{ items: T[]; nextCursor: string | number | null }>(
+        workspace,
+        name,
+        { ...scope, cursor: cursor ?? undefined, limit: 50 },
+        controller.signal,
+      )
+      .then((page) => {
+        setItems((current) => (cursor === null ? page.items : [...current, ...page.items]));
+        setNextCursor(page.nextCursor);
+      })
+      .catch((cause) => {
+        if (!controller.signal.aborted)
+          setError(cause instanceof Error ? cause.message : String(cause));
+      });
+    return () => controller.abort();
+  }, [workspace, name, scopeKey, cursor, reload]);
+  return {
+    items,
+    error,
+    hasMore: nextCursor !== null,
+    loadMore: () => setCursor(nextCursor),
+    refresh: () => {
+      setCursor(null);
+      setReload((value) => value + 1);
+    },
+  };
+}
+function WorkspacePicker({
+  me,
+  error,
+  loading,
+  hasMore,
+  onSelect,
+  onMore,
+}: {
+  me: Omit<Me, "nextCursor"> | null;
+  error: string;
+  loading: boolean;
+  hasMore: boolean;
+  onSelect: (id: string) => void;
+  onMore: () => void;
+}) {
   return (
     <section class="panel">
       <h2>{ja.ui.selectWorkspace}</h2>
-      <p class="muted">{ja.ui.workspaceHint}</p>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (/^[a-zA-Z0-9_-]{1,128}$/.test(input)) select(input);
-        }}
-      >
-        <label>
-          {ja.ui.workspaceId}
-          <input
-            required
-            pattern="[a-zA-Z0-9_-]{1,128}"
-            value={input}
-            onInput={(event) => setInput(event.currentTarget.value)}
-          />
-        </label>
-        <button type="submit" class="primary">
-          {ja.ui.open}
+      <p class="muted">
+        {me ? `${me.principal.displayName} · ${ja.actor[me.principal.kind]}` : ja.ui.workspaceHint}
+      </p>
+      {error && <p role="alert">{error}</p>}
+      {!me && !error && <p role="status">{ja.pending}</p>}
+      {me && me.workspaces.length === 0 && <p>{ja.ui.noWorkspaces}</p>}
+      <ul class="list">
+        {me?.workspaces.map((workspace) => (
+          <li key={workspace.id}>
+            <div class="item">
+              <button type="button" class="secondary" onClick={() => onSelect(workspace.id)}>
+                <strong>{workspace.name}</strong>
+              </button>
+              <span class="badge">
+                {ja.roles[workspace.role as keyof typeof ja.roles] ?? workspace.role}
+              </span>
+            </div>
+          </li>
+        ))}
+      </ul>
+      {hasMore && (
+        <button type="button" class="secondary" onClick={onMore} disabled={loading}>
+          {loading ? ja.pending : ja.ui.loadMore}
         </button>
-      </form>
-      {known.length > 0 && (
-        <>
-          <h3>{ja.ui.recentWorkspaces}</h3>
-          <ul class="list">
-            {known.map((id) => (
-              <li key={id}>
-                <button type="button" class="secondary" onClick={() => select(id)}>
-                  {id}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
       )}
     </section>
   );
@@ -814,47 +924,43 @@ function WikiDetail({
   );
 }
 function Activity({ workspace, project }: { workspace: string; project: Project | null }) {
-  const sessions = useQuery<Session[]>(workspace, "coordination.listSessions", {}, workspace);
-  const leases = useQuery<Lease[]>(
+  const projectId = project?.id ?? "";
+  const sessions = usePaged<Session>(workspace, "coordination.projectSessions", { projectId });
+  const leases = usePaged<Lease>(workspace, "coordination.projectLeases", { projectId });
+  const progress = usePaged<Progress>(workspace, "coordination.projectProgress", { projectId });
+  const claims = usePaged<Claim>(workspace, "coordination.projectClaims", { projectId });
+  const cap = useQuery<{ projectId: string; cap: number; version: number }>(
     workspace,
-    "coordination.listLeases",
-    { projectId: project?.id },
-    project?.id ?? "",
+    "coordination.wipCap",
+    { projectId },
+    projectId,
   );
-  const [repo, setRepo] = useState("");
-  const [sessionId, setSessionId] = useState("");
-  const [issueId, setIssueId] = useState("");
-  const claims = useQuery<Claim[]>(
-    workspace,
-    "coordination.listClaims",
-    { repo, sessionId },
-    `${repo}:${sessionId}`,
-  );
-  const progress = useQuery<{ items: Progress[] }>(
-    workspace,
-    "coordination.listProgress",
-    { issueId },
-    issueId,
-  );
+  const capOp = useAction(workspace);
+  const [capInput, setCapInput] = useState("");
+  useEffect(() => setCapInput(cap.data ? String(cap.data.cap) : ""), [cap.data?.version]);
   return (
     <>
       <section class="panel">
         <h2>{ja.activity}</h2>
+        {!project && <p>{ja.ui.chooseProject}</p>}
         <button
           type="button"
           class="secondary"
+          disabled={!project}
           onClick={() => {
             sessions.refresh();
             leases.refresh();
-            claims.refresh();
             progress.refresh();
+            claims.refresh();
+            cap.refresh();
           }}
         >
           {ja.ui.refresh}
         </button>
         <h3>{ja.ui.sessions}</h3>
+        {sessions.error && <p role="alert">{sessions.error}</p>}
         <ul class="list">
-          {sessions.data?.map((s) => (
+          {sessions.items.map((s) => (
             <li key={s.id}>
               <div class="item">
                 <strong>{s.agentLabel}</strong>
@@ -866,57 +972,115 @@ function Activity({ workspace, project }: { workspace: string; project: Project 
             </li>
           ))}
         </ul>
+        {sessions.hasMore && (
+          <button type="button" class="secondary" onClick={sessions.loadMore}>
+            {ja.ui.loadMore}
+          </button>
+        )}
       </section>
       <section class="panel">
         <h3>
           {ja.ui.leases} {project && `· ${project.name}`}
         </h3>
-        {!project && <p>{ja.ui.chooseProject}</p>}
+        {leases.error && <p role="alert">{leases.error}</p>}
         <ul class="list">
-          {leases.data?.map((l) => (
+          {leases.items.map((l) => (
             <li key={l.issueId}>
-              <strong>{l.issueId}</strong> · {ja.ui.holder} {l.sessionId ?? ja.ui.none} ·{" "}
-              {ja.ui.fencingToken} {l.fencingToken} · {date(l.expiresAt)}
+              <strong>{l.issueId}</strong> · {ja.ui.holder} {l.agentLabel} ({l.clientKind}) ·{" "}
+              {l.sessionId ?? ja.ui.none} · {ja.ui.fencingToken} {l.fencingToken} ·{" "}
+              {date(l.expiresAt)}
             </li>
           ))}
         </ul>
-        <p class="muted">{ja.ui.wipNote}</p>
+        {leases.hasMore && (
+          <button type="button" class="secondary" onClick={leases.loadMore}>
+            {ja.ui.loadMore}
+          </button>
+        )}
+        <h3>{ja.ui.wipCap}</h3>
+        {cap.error && <p role="alert">{cap.error}</p>}
+        {cap.data && (
+          <p>
+            {cap.data.cap} · v{cap.data.version}
+          </p>
+        )}
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!cap.data) return;
+            void capOp
+              .run(workspace, "coordination.wipCap.set", {
+                projectId,
+                cap: Number(capInput),
+                expectedVersion: cap.data.version,
+              })
+              .then((result) => {
+                if (result) cap.refresh();
+              });
+          }}
+        >
+          <div class="row">
+            <label>
+              {ja.ui.wipCap}
+              <input
+                type="number"
+                min="1"
+                max="100"
+                required
+                value={capInput}
+                onInput={(event) => setCapInput(event.currentTarget.value)}
+              />
+            </label>
+            <button
+              type="submit"
+              class="secondary"
+              disabled={!cap.data || capOp.status === "pending" || capOp.status === "unknown"}
+            >
+              {ja.save}
+            </button>
+          </div>
+        </form>
+        <Status
+          op={capOp}
+          onRetry={() => {
+            void capOp.retry().then((result) => {
+              if (result) cap.refresh();
+            });
+          }}
+        />
       </section>
       <section class="panel">
         <h3>{ja.ui.progress}</h3>
-        <label>
-          {ja.ui.issueId}
-          <input value={issueId} onInput={(event) => setIssueId(event.currentTarget.value)} />
-        </label>
+        {progress.error && <p role="alert">{progress.error}</p>}
         <ul class="list">
-          {progress.data?.items.map((p, i) => (
+          {progress.items.map((p, i) => (
             <li key={i}>
               {date(p.reportedAt)} · {p.sessionId} · {p.status}
               <p>{p.text}</p>
             </li>
           ))}
         </ul>
+        {progress.hasMore && (
+          <button type="button" class="secondary" onClick={progress.loadMore}>
+            {ja.ui.loadMore}
+          </button>
+        )}
       </section>
       <section class="panel">
         <h3>{ja.ui.claims}</h3>
-        <div class="row">
-          <label>
-            {ja.ui.repo}
-            <input value={repo} onInput={(event) => setRepo(event.currentTarget.value)} />
-          </label>
-          <label>
-            {ja.ui.sessionId}
-            <input value={sessionId} onInput={(event) => setSessionId(event.currentTarget.value)} />
-          </label>
-        </div>
+        {claims.error && <p role="alert">{claims.error}</p>}
         <ul class="list">
-          {claims.data?.map((c) => (
+          {claims.items.map((c) => (
             <li key={c.path}>
               {c.path} · {c.sessionId} · {date(c.expiresAt)}
             </li>
           ))}
         </ul>
-        <p class="muted">{ja.ui.claimsNote}</p>
+        {claims.hasMore && (
+          <button type="button" class="secondary" onClick={claims.loadMore}>
+            {ja.ui.loadMore}
+          </button>
+        )}
       </section>
     </>
   );
@@ -935,6 +1099,19 @@ function Admin({ workspace }: { workspace: string }) {
     { principalId },
     principalId,
   );
+  const members = usePaged<{
+    principalId: string;
+    kind: "human" | "machine" | "oauth";
+    displayName: string;
+    role: string;
+    version: number;
+  }>(workspace, "access.members.list", {});
+  const oauthClients = usePaged<{
+    clientId: string;
+    name: string;
+    version: number;
+    revoked: boolean;
+  }>(workspace, "access.oauthClients.list", {});
   const op = useAction(workspace);
   const busy = op.status === "pending" || op.status === "unknown";
   const submit = async (name: string, args: Record<string, unknown>) => {
@@ -949,6 +1126,38 @@ function Admin({ workspace }: { workspace: string }) {
     <>
       <section class="panel">
         <h2>{ja.ui.workspaceAdmin}</h2>
+        <h3>{ja.ui.members}</h3>
+        {members.error && <p role="alert">{members.error}</p>}
+        <ul class="list">
+          {members.items.map((entry) => (
+            <li key={entry.principalId}>
+              <div class="item">
+                <strong>{entry.displayName}</strong>
+                <span class="badge">
+                  {ja.roles[entry.role as keyof typeof ja.roles] ?? entry.role}
+                </span>
+              </div>
+              <small>
+                {entry.kind} · {entry.principalId} · v{entry.version}
+              </small>
+              <button
+                type="button"
+                class="secondary"
+                onClick={() => {
+                  setPrincipalId(entry.principalId);
+                  setRole(entry.role);
+                }}
+              >
+                {ja.ui.select}
+              </button>
+            </li>
+          ))}
+        </ul>
+        {members.hasMore && (
+          <button type="button" class="secondary" onClick={members.loadMore}>
+            {ja.ui.loadMore}
+          </button>
+        )}
         <p class="muted">{ja.ui.adminHint}</p>
         <label>
           {ja.ui.principalId}
@@ -1066,11 +1275,47 @@ function Admin({ workspace }: { workspace: string }) {
       </section>
       <section class="panel">
         <h3>{ja.ui.oauthClients}</h3>
-        <p>{ja.ui.oauthUnavailable}</p>
+        {oauthClients.error && <p role="alert">{oauthClients.error}</p>}
+        <ul class="list">
+          {oauthClients.items.map((client) => (
+            <li key={client.clientId}>
+              <div class="item">
+                <strong>{client.name}</strong>
+                <span class="badge">{client.revoked ? ja.ui.inactive : ja.ui.active}</span>
+              </div>
+              <small>
+                {client.clientId} · v{client.version}
+              </small>
+              {!client.revoked && (
+                <button
+                  type="button"
+                  class="secondary"
+                  disabled={busy}
+                  onClick={() => {
+                    void submit("access.oauthClients.revoke", {
+                      clientId: client.clientId,
+                      expectedVersion: client.version,
+                    }).then((result) => {
+                      if (result) oauthClients.refresh();
+                    });
+                  }}
+                >
+                  {ja.ui.revoke}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+        {oauthClients.hasMore && (
+          <button type="button" class="secondary" onClick={oauthClients.loadMore}>
+            {ja.ui.loadMore}
+          </button>
+        )}
       </section>
       <Status
         op={op}
         onRetry={() => {
+          const retryName = op.pending?.name;
           void op.retry().then((result) => {
             if (
               result &&
@@ -1079,6 +1324,7 @@ function Admin({ workspace }: { workspace: string }) {
               typeof result.token === "string"
             )
               setToken(result.token);
+            if (result && retryName === "access.oauthClients.revoke") oauthClients.refresh();
             member.refresh();
           });
         }}
@@ -1093,6 +1339,7 @@ function App() {
   const [project, setProject] = useState<Project | null>(null);
   const [view, setView] = useState<View>("projects");
   const workspaceInfo = useQuery<Workspace[]>(workspace, "access.workspaces", {}, workspace);
+  const meQuery = useMe(!workspace);
   const selectWorkspace = (id: string) => {
     setWorkspace(id);
     setProject(null);
@@ -1120,7 +1367,18 @@ function App() {
       </header>
       <main>
         {!workspace ? (
-          <WorkspacePicker value="" onSelect={selectWorkspace} />
+          <WorkspacePicker
+            me={
+              meQuery.principal
+                ? { principal: meQuery.principal, workspaces: meQuery.workspaces }
+                : null
+            }
+            error={meQuery.error}
+            loading={meQuery.loading}
+            hasMore={meQuery.nextCursor !== null}
+            onSelect={selectWorkspace}
+            onMore={meQuery.loadMore}
+          />
         ) : (
           <>
             {workspaceInfo.error && (

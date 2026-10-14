@@ -3,6 +3,8 @@ export const queries = {
     "SELECT id,principal_id,agent_label,client_kind,repo,ttl_seconds,expires_at,ended FROM coord_sessions WHERE workspace_id=? AND id=?",
   sessions:
     "SELECT id,principal_id,agent_label,client_kind,repo,ttl_seconds,expires_at,ended FROM coord_sessions WHERE workspace_id=? ORDER BY id LIMIT 100",
+  projectSessions:
+    "SELECT s.id,s.principal_id,s.agent_label,s.client_kind,s.repo,s.ttl_seconds,s.expires_at,s.ended FROM coord_sessions s WHERE s.workspace_id=? AND s.id>? AND s.ended=0 AND s.expires_at>? AND EXISTS (SELECT 1 FROM coord_leases l WHERE l.workspace_id=s.workspace_id AND l.project_id=? AND l.session_id=s.id AND l.expires_at>?) ORDER BY s.id LIMIT ?",
   start:
     "INSERT INTO coord_sessions(workspace_id,id,principal_id,agent_label,client_kind,repo,ttl_seconds,expires_at) VALUES(?,?,?,?,?,?,?,?)",
   touch:
@@ -14,6 +16,8 @@ export const queries = {
     "SELECT issue_id,project_id,session_id,fencing_token,expires_at,release_reason FROM coord_leases WHERE workspace_id=? AND issue_id=?",
   leases:
     "SELECT issue_id,project_id,session_id,fencing_token,expires_at,release_reason FROM coord_leases WHERE workspace_id=? AND project_id=? ORDER BY issue_id LIMIT 100",
+  projectLeases:
+    "SELECT l.issue_id,l.project_id,l.session_id,l.fencing_token,l.expires_at,l.release_reason,s.principal_id,s.agent_label,s.client_kind FROM coord_leases l JOIN coord_sessions s ON s.workspace_id=l.workspace_id AND s.id=l.session_id WHERE l.workspace_id=? AND l.project_id=? AND l.issue_id>? AND l.session_id IS NOT NULL AND l.expires_at>? AND s.ended=0 AND s.expires_at>? ORDER BY l.issue_id LIMIT ?",
   acquire:
     "INSERT INTO coord_leases(workspace_id,issue_id,project_id,session_id,fencing_token,expires_at,release_reason) SELECT ?,?,?,?,1,?,NULL WHERE (SELECT COUNT(*) FROM coord_leases WHERE workspace_id=? AND project_id=? AND session_id IS NOT NULL AND expires_at>?) < COALESCE((SELECT cap FROM coord_limits WHERE workspace_id=? AND project_id=?),3)",
   acquireCap:
@@ -23,6 +27,10 @@ export const queries = {
   release:
     "UPDATE coord_leases SET session_id=NULL,expires_at=?,release_reason='released' WHERE workspace_id=? AND issue_id=? AND session_id=? AND fencing_token=? AND expires_at>?",
   limit: "SELECT cap,version FROM coord_limits WHERE workspace_id=? AND project_id=?",
+  projectClaims:
+    "SELECT c.repo,c.path,c.session_id,c.lease_issue_id,c.expires_at FROM coord_file_claims c JOIN coord_leases l ON l.workspace_id=c.workspace_id AND l.issue_id=c.lease_issue_id AND l.session_id=c.session_id WHERE c.workspace_id=? AND l.project_id=? AND c.expires_at>? AND l.expires_at>? AND (c.repo>? OR (c.repo=? AND c.path>?)) ORDER BY c.repo,c.path LIMIT ?",
+  projectProgress:
+    "SELECT r.issue_id,r.session_id,r.fencing_token,r.text,r.status,r.reported_at,l.project_id FROM coord_reports r JOIN coord_leases l ON l.workspace_id=r.workspace_id AND l.issue_id=r.issue_id WHERE r.workspace_id=? AND l.project_id=? AND (r.reported_at<? OR (r.reported_at=? AND r.issue_id<?)) ORDER BY r.reported_at DESC,r.issue_id DESC LIMIT ?",
   setLimit:
     "INSERT INTO coord_limits(workspace_id,project_id,cap,version) SELECT ?,?,?,1 WHERE ?=0 AND (SELECT COUNT(*) FROM coord_leases WHERE workspace_id=? AND project_id=? AND session_id IS NOT NULL AND expires_at>?)<=? ON CONFLICT(workspace_id,project_id) DO UPDATE SET cap=excluded.cap,version=coord_limits.version+1 WHERE coord_limits.version=? AND (SELECT COUNT(*) FROM coord_leases WHERE workspace_id=? AND project_id=? AND session_id IS NOT NULL AND expires_at>?)<=?",
   claim:

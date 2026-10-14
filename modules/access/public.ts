@@ -50,6 +50,29 @@ export interface Workspace extends CommandResult {
   readonly name: string;
   readonly role: Role;
 }
+export interface AccessPage<T> {
+  readonly items: readonly T[];
+  readonly nextCursor: string | null;
+}
+export interface CurrentPrincipal {
+  readonly id: string;
+  readonly kind: "human" | "machine" | "oauth";
+  readonly displayName: string;
+  readonly clientName?: string;
+}
+export interface MemberItem {
+  readonly principalId: string;
+  readonly kind: "human" | "machine";
+  readonly displayName: string;
+  readonly role: Role;
+  readonly version: number;
+}
+export interface OAuthClientItem {
+  readonly clientId: string;
+  readonly name: string;
+  readonly version: number;
+  readonly revoked: boolean;
+}
 export interface Membership extends CommandResult {
   readonly role: Role;
   readonly active: boolean;
@@ -96,6 +119,29 @@ export interface AccessApi extends OAuthApi {
   authorize(scope: RequestScope, permission?: Permission): Promise<RequestScope>;
   getPrincipalSummary(scope: RequestScope, principalId: string): Promise<PrincipalSummary>;
   listWorkspaces(principal: AuthenticatedPrincipal): Promise<readonly Workspace[]>;
+  me(
+    principal: AuthenticatedPrincipal,
+    cursor?: string,
+    limit?: number,
+  ): Promise<{
+    readonly principal: CurrentPrincipal;
+    readonly workspaces: readonly Workspace[];
+    readonly nextCursor: string | null;
+  }>;
+  meForScope(
+    scope: RequestScope,
+    cursor?: string,
+    limit?: number,
+  ): Promise<{
+    readonly principal: CurrentPrincipal;
+    readonly workspaces: readonly Workspace[];
+    readonly nextCursor: string | null;
+  }>;
+  listMembers(
+    scope: RequestScope,
+    cursor?: string,
+    limit?: number,
+  ): Promise<AccessPage<MemberItem>>;
   getMembership(scope: RequestScope, principalId: string): Promise<Membership>;
   getCredential(scope: RequestScope, credentialId: string): Promise<Credential>;
   bootstrap(
@@ -298,6 +344,11 @@ export interface OAuthApi {
     scope: RequestScope,
     clientId: string,
   ): Promise<CommandResult & { readonly revoked: boolean }>;
+  listOAuthClients(
+    scope: RequestScope,
+    cursor?: string,
+    limit?: number,
+  ): Promise<AccessPage<OAuthClientItem>>;
   revokeOAuthClient(
     scope: RequestScope,
     input: VersionedOperation & { readonly clientId: string },

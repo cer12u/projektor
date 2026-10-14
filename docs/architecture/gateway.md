@@ -153,3 +153,20 @@ Unexpected exceptions and `PlatformError` with code `unknown` return only
 conflict messages remain actionable. Gateway owns no report storage; its new
 `coordination.listProgress` catalog entry delegates to Coordination. See
 [test audit](test-audit.md) for behavioral maps and executable mutations.
+
+## 07b core contracts
+
+`GET /api/me` authenticates without a workspace path and returns a keyset page
+of the current principal's workspaces. It accepts `cursor` and `limit` (1–100)
+and does not create membership. The same `access.me` read is available to MCP
+inside an admitted workspace. Workspace-bound machine and OAuth bearers remain
+confined to their own workspace; OAuth access tokens now authenticate REST reads
+and writes subject to their existing Access scope and live membership checks.
+
+The catalog delegates `access.members.list`, `access.oauthClients.list/revoke`,
+and project-scoped Coordination pages and WIP cap to their owners. OAuth client
+administration is REST only. MCP tools expose the other new reads and cap set;
+no Gateway SQL or permission branching was added. OpenAPI and MCP descriptions
+come from the dispatch catalog. The client revoke route returns the stored
+result on an exact operationId retry; subsequent REST and MCP admission rejects
+its access token, and refresh exchange rejects its refresh token.

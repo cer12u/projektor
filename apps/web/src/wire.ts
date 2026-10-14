@@ -35,7 +35,7 @@ export class WireClient {
     return operations;
   }
   async call<T>(
-    workspaceId: string,
+    workspaceId: string | undefined,
     name: string,
     args: Record<string, unknown> = {},
     signal?: AbortSignal,
@@ -43,7 +43,7 @@ export class WireClient {
     const entry = (await this.catalog()).get(name);
     if (!entry) throw new WireError("unsupported", `${name} ${ja.ui.notPublished}`);
     const url = new URL(
-      entry.path.replace("{workspaceId}", encodeURIComponent(workspaceId)),
+      entry.path.replace("{workspaceId}", encodeURIComponent(workspaceId ?? "")),
       location.origin,
     );
     if (entry.method === "GET")

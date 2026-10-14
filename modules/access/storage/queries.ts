@@ -19,6 +19,10 @@ export const queries = {
     "SELECT m.role, m.version FROM access_memberships m JOIN access_workspaces w ON w.workspace_id=m.workspace_id WHERE m.workspace_id=? AND m.principal_id=? AND m.active=1 AND w.archived=0",
   listWorkspaces:
     "SELECT w.workspace_id, w.name, w.version, m.role FROM access_workspaces w JOIN access_memberships m ON m.workspace_id=w.workspace_id WHERE m.principal_id=? AND m.active=1 AND w.archived=0 AND (? IS NULL OR w.workspace_id=?) ORDER BY w.workspace_id LIMIT 100",
+  discoverWorkspaces:
+    "SELECT w.workspace_id,w.name,w.version,m.role FROM access_workspaces w JOIN access_memberships m ON m.workspace_id=w.workspace_id WHERE m.principal_id=? AND m.active=1 AND w.archived=0 AND (? IS NULL OR w.workspace_id=?) AND w.workspace_id>? ORDER BY w.workspace_id LIMIT ?",
+  listMembers:
+    "SELECT m.principal_id,m.role,m.version,p.kind,p.subject FROM access_memberships m JOIN access_principals p ON p.id=m.principal_id WHERE m.workspace_id=? AND m.active=1 AND m.principal_id>? ORDER BY m.principal_id LIMIT ?",
   addMember:
     "INSERT INTO access_memberships(workspace_id,principal_id,role,active,version) SELECT ?,?,?,1,1 WHERE ?=0 ON CONFLICT(workspace_id,principal_id) DO NOTHING",
   restoreMember:
@@ -53,6 +57,12 @@ export const queries = {
     "SELECT id,name,redirect_uris,scope,refresh_allowed,created_at FROM access_oauth_clients WHERE id=?",
   oauthWorkspaceClient:
     "SELECT version,revoked FROM access_oauth_workspace_clients WHERE workspace_id=? AND client_id=?",
+  oauthListClients:
+    "SELECT w.client_id,w.version,w.revoked,c.name FROM access_oauth_workspace_clients w JOIN access_oauth_clients c ON c.id=w.client_id WHERE w.workspace_id=? AND w.client_id>? ORDER BY w.client_id LIMIT ?",
+  oauthRevokeClientFamilies:
+    "UPDATE access_oauth_families SET revoked=1,version=version+1 WHERE workspace_id=? AND client_id=? AND revoked=0",
+  oauthRevokeClientTokens:
+    "UPDATE access_oauth_tokens SET used=1 WHERE workspace_id=? AND family_id IN (SELECT id FROM access_oauth_families WHERE workspace_id=? AND client_id=?)",
   oauthBindClient:
     "INSERT INTO access_oauth_workspace_clients(workspace_id,client_id) VALUES(?,?) ON CONFLICT(workspace_id,client_id) DO NOTHING",
   oauthRevokeClient:
