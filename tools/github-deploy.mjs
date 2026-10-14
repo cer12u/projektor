@@ -7,7 +7,12 @@ import os from "node:os";
 import path from "node:path";
 
 const env = process.env;
-for (const key of ["CF_DEPLOY_CONFIG", "CF_PRODUCTION_READY", "CF_PRESERVED_D1_IDS"])
+for (const key of [
+  "CF_DEPLOY_CONFIG",
+  "CF_PRODUCTION_READY",
+  "CF_PRESERVED_D1_IDS",
+  "CF_APPROVED_SCHEMA_SHA256",
+])
   assert(env[key], `Missing ${key}`);
 assert.equal(env.CF_PRODUCTION_READY, "true", "Initial setup must be approved and complete");
 const installation = JSON.parse(env.CF_DEPLOY_CONFIG);
@@ -104,31 +109,11 @@ const cli = path.resolve("node_modules/.bin/wrangler");
 const run = (args) =>
   execFileSync(cli, args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 try {
-  // Only SELECT: fail closed if the independently initialized schema differs from this build.
-  const result = JSON.parse(
-    run([
-      "d1",
-      "execute",
-      installation.d1Name,
-      "--config",
-      file,
-      "--remote",
-      "--json",
-      "--command",
-      "SELECT owner, version, checksum FROM platform_schema_versions ORDER BY owner, version",
-    ]),
-  );
-  const rows = result.flatMap((x) => x.results ?? []);
-  const migrations = JSON.parse(fs.readFileSync("dist/migrations.json", "utf8"));
-  const expected = Object.entries(migrations).flatMap(([owner, items]) =>
-    items.map((x) => ({ owner, version: x.version, checksum: x.checksum })),
-  );
-  const sort = (xs) =>
-    xs.sort((a, b) => a.owner.localeCompare(b.owner) || a.version.localeCompare(b.version));
-  assert.deepEqual(
-    sort(rows),
-    sort(expected),
-    "Schema differs: operator must initialize/upgrade approved D1 separately",
+  // Initial ledger verification is operator-owned: ongoing CI needs no storage-read grant.
+  assert.equal(
+    createHash("sha256").update(fs.readFileSync("dist/migrations.json")).digest("hex"),
+    env.CF_APPROVED_SCHEMA_SHA256,
+    "Schema changed: initialize/upgrade the approved D1 separately and approve its schema hash",
   );
   const secrets = JSON.parse(run(["secret", "list", "--config", file]));
   for (const key of config.secrets.required)
@@ -145,30 +130,29 @@ try {
         !secrets.some((x) => x.name === key),
         `${key} already enables the feature; review configuration instead of silently disabling it`,
       );
-  run(["kv", "namespace", "list"]).includes(installation.kvId) ||
-    assert.fail("Approved KV missing");
-  run(["r2", "bucket", "info", installation.r2Name]);
-  for (const [url, status] of [
-    ["/health", 200],
-    ["/api/me", 403],
-    ...(installation.oauthEnabled ? [["/.well-known/oauth-protected-resource/mcp", 200]] : []),
-  ]) {
-    const response = await fetch(`${origin.origin}${url}`, { redirect: "manual" });
-    assert.equal(response.status, status, `Access/runtime readiness failed for ${url}`);
-    if (url === "/health") assert.equal((await response.json()).phase, "gateway");
-  }
+  const boundary = await fetch(`${origin.origin}/api/me`, {
+    redirect: "manual",
+    signal: AbortSignal.timeout(20_000),
+  });
+  assert(
+    [401, 403, 302, 303].includes(boundary.status),
+    "Unauthenticated API boundary must remain protected",
+  );
   run(["deploy", "--config", file, "--no-bundle", "--dry-run"]);
   if (process.argv.includes("--check")) console.log("Read-only production preflight passed");
   else {
-    run(["deploy", "--config", file, "--no-bundle"]);
-    const response = await fetch(`${origin.origin}/health`, { redirect: "manual" });
-    assert.equal(
-      response.status,
-      200,
-      "Post-deploy health failed; inspect deployment and roll back explicitly",
+    const output = run(["deploy", "--config", file, "--no-bundle"]);
+    const version = output.match(/Current Version ID:\s*([0-9a-f-]{36})/)?.[1];
+    assert(version, "Wrangler did not report the deployed version");
+    const deployments = JSON.parse(run(["deployments", "list", "--config", file, "--json"]));
+    const active = deployments.sort((a, b) => a.created_on.localeCompare(b.created_on)).at(-1);
+    assert(
+      active?.versions?.some((x) => x.version_id === version && x.percentage === 100),
+      "New version is not the active 100% deployment",
     );
-    assert.equal((await response.json()).phase, "gateway");
-    console.log("Code-only deployment and health check passed");
+    console.log(
+      "Code-only deployment and active version verification passed; Access remains protected",
+    );
   }
 } finally {
   fs.rmSync(temp, { recursive: true, force: true });

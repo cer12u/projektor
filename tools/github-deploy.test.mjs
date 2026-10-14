@@ -7,7 +7,7 @@ function rejected(settings, message) {
   for (const key of ["CF_DEPLOY_CONFIG", "CF_PRODUCTION_READY", "CF_PRESERVED_D1_IDS"])
     delete env[key];
   const result = spawnSync(process.execPath, ["tools/github-deploy.mjs", "--check"], {
-    env: { ...env, ...settings },
+    env: { ...env, CF_APPROVED_SCHEMA_SHA256: "0".repeat(64), ...settings },
     encoding: "utf8",
   });
   assert.notEqual(result.status, 0);
