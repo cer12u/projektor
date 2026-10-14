@@ -193,7 +193,9 @@ before(async () => {
     compatibilityDate: "2026-07-30",
     ratelimits: {
       OAUTH_REGISTER_LIMIT: { namespace_id: "1001", simple: { limit: 10, period: 60 } },
-      OAUTH_TOKEN_LIMIT: { namespace_id: "1002", simple: { limit: 60, period: 60 } },
+      // Keep the quota small so the test exhausts it before a slow CI runner's 60s window rolls.
+      OAUTH_TOKEN_LIMIT: { namespace_id: "1002", simple: { limit: 10, period: 60 } },
+      FEEDBACK_LIMIT: { namespace_id: "1003", simple: { limit: 60, period: 60 } },
     },
     d1Databases: ["DB"],
     kvNamespaces: ["KV"],
@@ -203,6 +205,7 @@ before(async () => {
       OAUTH_ISSUER: origin,
       OAUTH_RESOURCE: resource,
       OAUTH_FORM_SECRET: "test-only-secret".repeat(4),
+      INTEGRATIONS_KEY: "ab".repeat(32),
     },
   });
   const db = await mf.getD1Database("DB");
@@ -214,6 +217,7 @@ before(async () => {
     "coordination",
     "assets",
     "planning",
+    "integrations",
   ]);
   const clock = { now: () => Math.floor(Date.now() / 1000) };
   const options = {
@@ -642,7 +646,7 @@ test("metadata aliases, duplicate/oversize/unsupported forms, CORS and bounded e
   assert.equal(preflight.status, 204);
   assert.equal(preflight.headers.get("access-control-allow-origin"), "*");
   let registrationLimited = false;
-  for (let n = 0; n < 11; n++) {
+  for (let n = 0; n < 2 * 10 + 1; n++) {
     const r = await fetcher(`${origin}/oauth/register`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -656,10 +660,11 @@ test("metadata aliases, duplicate/oversize/unsupported forms, CORS and bounded e
   }
   assert(registrationLimited);
   let tokenLimited = false;
-  for (let n = 0; n < 61; n++) {
+  for (let n = 0; n < 2 * 10 + 1; n++) {
     const r = await post("/oauth/token", { grant_type: "password" });
     if (r.status === 429) {
       tokenLimited = true;
+      assert(r.headers.get("retry-after"));
       break;
     }
   }

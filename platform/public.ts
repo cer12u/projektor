@@ -35,7 +35,13 @@ export interface ScopedBucket {
   put(key: string, value: ArrayBuffer): Promise<void>;
   delete(key: string): Promise<void>;
 }
-export type ErrorCode = "validation" | "not_found" | "forbidden" | "conflict" | "unknown";
+export type ErrorCode =
+  | "validation"
+  | "not_found"
+  | "forbidden"
+  | "conflict"
+  | "unavailable"
+  | "unknown";
 export class PlatformError extends Error {
   constructor(
     readonly code: ErrorCode,
@@ -48,4 +54,11 @@ export class PlatformError extends Error {
 
 export interface RateLimiter {
   allow(key: string): Promise<boolean>;
+}
+
+/** Narrow cryptographic port; Worker secret never crosses the adapter. */
+export interface SecretVault {
+  inboundSecret(label: string): Promise<string>;
+  seal(value: string): Promise<string>;
+  open(ciphertext: string): Promise<string>;
 }

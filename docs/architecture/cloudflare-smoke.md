@@ -46,7 +46,14 @@ The smoke runs all module migrations in owner order twice and compares the
 ledger count. It checks a D1 batch rollback on a mid-batch constraint error,
 100 accepted bind values and the adapter's 101-bind rejection, R2 put/get/delete,
 health, REST creation/read/retry, stale-version conflict with no receipt, Japanese
-FTS5 trigram search and short-term search, and an MCP tool call. If real D1 lacks
+FTS5 trigram search and short-term search, and an MCP tool call. Each job provisions a fresh random 64-hex `INTEGRATIONS_KEY`
+in its mode-0600 secrets file, with feedback and OAuth rate-limit bindings in the
+generated verification config. The authenticated smoke-only bootstrap seeds one
+source with a vault-derived secret hash and returns the secret transiently to the
+checker. The checker signs the raw feedback JSON, posts it twice through the public
+route and asserts one feedback ID/row. This verifies reception/deduplication; it
+does not substitute for human source-administration authorization tests. Remote
+error diagnostics include only path and HTTP status, never response bodies or secrets. If real D1 lacks
 the required FTS5 trigram support, migration or search fails the job. Cloudflare
 Access human login is deferred until the owner supplies a Zero Trust team domain
 and audience; the placeholder Access configuration cannot authenticate humans.

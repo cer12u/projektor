@@ -3,6 +3,8 @@ import { createAccess } from "../../modules/access/internal/factory";
 import { createAssets } from "../../modules/assets/internal/factory";
 import { createCoordination } from "../../modules/coordination/internal/factory";
 import { createInsights } from "../../modules/insights/internal/factory";
+import { createIntegrations } from "../../modules/integrations/internal/factory";
+import type { IntegrationsApi } from "../../modules/integrations/public";
 import { createIssues } from "../../modules/issues/internal/factory";
 import { createPlanning } from "../../modules/planning/internal/factory";
 import { createProjects } from "../../modules/projects/internal/factory";
@@ -12,8 +14,10 @@ import {
   createRateLimiter,
   createScopedBucket,
   createScopedKV,
+  createSecretVault,
 } from "../../platform/adapters";
 import { randomIds, systemClock } from "../../platform/primitives";
+import { PlatformError, type SecretVault } from "../../platform/public";
 
 export interface Env {
   readonly DB: D1Database;
@@ -27,7 +31,33 @@ export interface Env {
   readonly OAUTH_FORM_SECRET?: string;
   readonly OAUTH_REGISTER_LIMIT?: RateLimit;
   readonly OAUTH_TOKEN_LIMIT?: RateLimit;
+  readonly INTEGRATIONS_KEY?: string;
+  readonly FEEDBACK_LIMIT: RateLimit;
 }
+function integrationVault(key: string | undefined): SecretVault | undefined {
+  try {
+    return createSecretVault(key ?? "");
+  } catch (error) {
+    if (error instanceof PlatformError && error.code === "validation") return undefined;
+    throw error;
+  }
+}
+async function integrationsUnavailable(): Promise<never> {
+  throw new PlatformError("unavailable", "Integrations unavailable: invalid or missing server key");
+}
+const unavailableIntegrations: IntegrationsApi = {
+  linkExternalRef: integrationsUnavailable,
+  unlinkExternalRef: integrationsUnavailable,
+  listExternalRefs: integrationsUnavailable,
+  registerSource: integrationsUnavailable,
+  registerWebhook: integrationsUnavailable,
+  listSources: integrationsUnavailable,
+  receiveFeedback: integrationsUnavailable,
+  convertFeedback: integrationsUnavailable,
+  listFeedback: integrationsUnavailable,
+  deliverWebhook: integrationsUnavailable,
+  getDeliveryStatus: integrationsUnavailable,
+};
 function compose(env: Env) {
   const configured = !!(env.OAUTH_ISSUER || env.OAUTH_RESOURCE || env.OAUTH_FORM_SECRET);
   if (
@@ -155,8 +185,28 @@ function compose(env: Env) {
           access,
         )
       : undefined;
+  const vault = integrationVault(env.INTEGRATIONS_KEY);
+  const integrationsModule = vault
+    ? createIntegrations({
+        store: createModuleStore(env.DB, "integrations"),
+        access,
+        projects,
+        issues,
+        wiki,
+        clock: systemClock,
+        ids: randomIds,
+        vault,
+        limiter: createRateLimiter(env.FEEDBACK_LIMIT),
+        // Native Worker fetch rejects the dependency object as its receiver.
+        send: (url, init) => fetch(url, init),
+      })
+    : { api: unavailableIntegrations, background: { drain: async () => 0 } };
   return {
-    background: { access: accessModule.background, insights: insightsModule.background },
+    background: {
+      access: accessModule.background,
+      insights: insightsModule.background,
+      integrations: integrationsModule.background,
+    },
     gateway: {
       access,
       projects,
@@ -166,6 +216,7 @@ function compose(env: Env) {
       assets,
       planning,
       insights,
+      integrations: integrationsModule.api,
       oauthHttp,
       oauthOrigin: env.OAUTH_ISSUER,
     },
@@ -194,6 +245,7 @@ export default {
   async scheduled(_event: ScheduledEvent, env: Env): Promise<void> {
     services ??= compose(env);
     await services.gateway.assets.drainGc();
+    await services.background.integrations.drain();
     await consumeActiveWorkspaces(services.background.access, services.background.insights);
   },
 };

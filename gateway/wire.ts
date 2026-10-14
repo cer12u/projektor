@@ -68,6 +68,9 @@ export function openApi() {
           "403": { description: "Forbidden" },
           "404": { description: "Not found" },
           "409": { description: "Conflict" },
+          ...(owner === "integrations"
+            ? { "503": { description: "Integrations unavailable" } }
+            : {}),
         },
       },
     };
@@ -114,6 +117,26 @@ export function openApi() {
         { name: "limit", in: "query", required: false, schema: { type: "integer" } },
       ],
       responses: { "200": { description: "Success" } },
+    },
+  };
+  paths["/integrations/feedback/{workspaceId}/{sourceId}"] = {
+    post: {
+      operationId: "integrations.receiveFeedback",
+      parameters: [
+        workspaceParameter,
+        { name: "sourceId", in: "path", required: true, schema: { type: "string" } },
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": { schema: { type: "object", required: ["title", "body"] } },
+        },
+      },
+      responses: {
+        "200": { description: "Accepted or deduplicated" },
+        "403": { description: "Invalid signature or stale timestamp" },
+        "503": { description: "Integrations unavailable" },
+      },
     },
   };
   return { openapi: "3.1.0", info: { title: "Projektor Gateway", version: "0.1.0" }, paths };

@@ -17,6 +17,7 @@ const status: Record<string, number> = {
   not_found: 404,
   forbidden: 403,
   conflict: 409,
+  unavailable: 503,
   unknown: 500,
 };
 const json = (value: unknown, code = 200, headers?: HeadersInit) =>
@@ -66,6 +67,40 @@ async function body(request: Request): Promise<unknown> {
     return JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(joined));
   } catch {
     throw new PlatformError("validation", "Invalid JSON");
+  }
+}
+async function rawJson(request: Request, maxBytes: number): Promise<string> {
+  if (
+    request.headers.get("content-type")?.toLowerCase().split(";")[0].trim() !== "application/json"
+  )
+    throw new PlatformError("validation", "Expected application/json");
+  const length = Number(request.headers.get("content-length"));
+  if (Number.isFinite(length) && length > maxBytes)
+    throw new PlatformError("validation", "Body too large");
+  const reader = request.body?.getReader();
+  if (!reader) throw new PlatformError("validation", "Expected body");
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const part = await reader.read();
+    if (part.done) break;
+    size += part.value.byteLength;
+    if (size > maxBytes) {
+      await reader.cancel();
+      throw new PlatformError("validation", "Body too large");
+    }
+    chunks.push(part.value);
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes);
+  } catch {
+    throw new PlatformError("validation", "Invalid UTF-8");
   }
 }
 function workspace(request: Request, fromPath: string): string {
@@ -134,6 +169,25 @@ export async function handleHttp(request: Request, services: Services): Promise<
         pragma: "no-cache",
         "retry-after": "5",
       });
+    }
+    const feedbackRoute = url.pathname.match(
+      /^\/integrations\/feedback\/([A-Za-z0-9_-]{1,128})\/([A-Za-z0-9_-]{1,128})$/,
+    );
+    if (feedbackRoute) {
+      if (request.method !== "POST") throw new PlatformError("not_found", "Unknown route");
+      const rawBody = await rawJson(request, 32768);
+      return json(
+        await services.integrations.receiveFeedback({
+          workspaceId: feedbackRoute[1],
+          sourceId: feedbackRoute[2],
+          timestamp: Number(request.headers.get("x-projektor-timestamp")),
+          deliveryId: request.headers.get("x-projektor-delivery-id") ?? "",
+          signature: request.headers.get("x-projektor-signature") ?? "",
+          rawBody,
+        }),
+        200,
+        { "x-request-id": requestId, "cache-control": "no-store" },
+      );
     }
     if (url.pathname === "/api/openapi.json" && request.method === "GET")
       return json(openApi(), 200, { "x-request-id": requestId });

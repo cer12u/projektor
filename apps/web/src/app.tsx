@@ -76,7 +76,15 @@ type Principal = {
   clientName?: string;
 };
 type Me = { principal: Principal; workspaces: Workspace[]; nextCursor: string | null };
-type View = "projects" | "issues" | "wiki" | "planning" | "activity" | "notifications" | "admin";
+type View =
+  | "projects"
+  | "issues"
+  | "wiki"
+  | "planning"
+  | "activity"
+  | "notifications"
+  | "feedback"
+  | "admin";
 type Lag = { source: string; sequence: number; consumedAt: number | null };
 type ActivityEntry = {
   source: string;
@@ -672,6 +680,299 @@ function Issues({ workspace, project }: { workspace: string; project: Project })
     </>
   );
 }
+type ExternalRefItem = {
+  id: string;
+  target: { kind: "issue" | "wiki"; id: string };
+  kind: string;
+  url: string;
+  version: number;
+};
+function ExternalRefs({
+  workspace,
+  kind,
+  targetId,
+}: {
+  workspace: string;
+  kind: "issue" | "wiki";
+  targetId: string;
+}) {
+  const refs = usePaged<ExternalRefItem>(workspace, "integrations.links", {
+    targetKind: kind,
+    targetId,
+  });
+  const op = useAction(workspace);
+  const [url, setUrl] = useState("");
+  const [refKind, setRefKind] = useState("github_issue");
+  const add = async () => {
+    const result = await op.run(workspace, "integrations.link", {
+      refId: crypto.randomUUID(),
+      targetKind: kind,
+      targetId,
+      kind: refKind,
+      url,
+    });
+    if (result) {
+      setUrl("");
+      refs.refresh();
+    }
+  };
+  return (
+    <section class="panel">
+      <h3>外部参照</h3>
+      {refs.error && <p role="alert">{refs.error}</p>}
+      <ul class="list">
+        {refs.items.map((ref) => (
+          <li key={ref.id}>
+            <a href={ref.url} target="_blank" rel="noopener noreferrer">
+              {ref.kind}: {ref.url}
+            </a>
+            <button
+              type="button"
+              class="secondary"
+              onClick={() =>
+                void op
+                  .run(workspace, "integrations.unlink", {
+                    refId: ref.id,
+                    expectedVersion: ref.version,
+                  })
+                  .then((result) => {
+                    if (result) refs.refresh();
+                  })
+              }
+            >
+              解除
+            </button>
+          </li>
+        ))}
+      </ul>
+      {refs.hasMore && (
+        <button type="button" class="secondary" onClick={refs.loadMore}>
+          次のページ
+        </button>
+      )}
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          void add();
+        }}
+      >
+        <select
+          aria-label="外部参照の種類"
+          value={refKind}
+          onChange={(event) => setRefKind(event.currentTarget.value)}
+        >
+          {[
+            "github_issue",
+            "github_pr",
+            "github_commit",
+            "gitlab_issue",
+            "gitlab_mr",
+            "gitlab_commit",
+          ].map((x) => (
+            <option value={x}>{x}</option>
+          ))}
+        </select>
+        <input
+          aria-label="外部参照 URL"
+          type="url"
+          required
+          value={url}
+          onInput={(event) => setUrl(event.currentTarget.value)}
+        />
+        <button type="submit" disabled={op.status === "pending" || op.status === "unknown"}>
+          追加
+        </button>
+      </form>
+      <Status
+        op={op}
+        onRetry={() =>
+          void op.retry().then((result) => {
+            if (result) refs.refresh();
+          })
+        }
+      />
+    </section>
+  );
+}
+function FeedbackInbox({ workspace }: { workspace: string }) {
+  const list = usePaged<{
+    id: string;
+    title: string;
+    body: string;
+    issueId: string | null;
+    version: number;
+  }>(workspace, "integrations.feedback", {});
+  const op = useAction(workspace);
+  return (
+    <section class="panel">
+      <h2>フィードバック</h2>
+      {list.error && <p role="alert">{list.error}</p>}
+      <ul class="list">
+        {list.items.map((item) => (
+          <li key={item.id}>
+            <strong>{item.title}</strong>
+            <p>{item.body}</p>
+            {item.issueId ? (
+              <small>Issue {item.issueId}</small>
+            ) : (
+              <button
+                type="button"
+                disabled={op.status === "pending" || op.status === "unknown"}
+                onClick={() =>
+                  void op
+                    .run(workspace, "integrations.convert", {
+                      feedbackId: item.id,
+                      expectedVersion: item.version,
+                    })
+                    .then((result) => {
+                      if (result) list.refresh();
+                    })
+                }
+              >
+                Issue に変換
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+      {list.hasMore && (
+        <button type="button" class="secondary" onClick={list.loadMore}>
+          次のページ
+        </button>
+      )}
+      <Status
+        op={op}
+        onRetry={() =>
+          void op.retry().then((result) => {
+            if (result) list.refresh();
+          })
+        }
+      />
+    </section>
+  );
+}
+function IntegrationsAdmin({ workspace }: { workspace: string }) {
+  const sources = usePaged<{
+    id: string;
+    projectId: string;
+    name: string;
+    webhookUrl: string | null;
+    eventTypes: string[];
+  }>(workspace, "integrations.sources", {});
+  const deliveries = usePaged<{ id: string; eventType: string; status: string; attempts: number }>(
+    workspace,
+    "integrations.deliveries",
+    {},
+  );
+  const op = useAction(workspace);
+  const [projectId, setProjectId] = useState("");
+  const [name, setName] = useState("");
+  const [sourceId, setSourceId] = useState("");
+  const [url, setUrl] = useState("");
+  const [eventTypes, setEventTypes] = useState("IssueChanged");
+  const [secret, setSecret] = useState<string | null>(null);
+  return (
+    <section class="panel">
+      <h3>外部連携</h3>
+      <p>秘密鍵は作成時だけ表示します。安全な場所に保存してください。</p>
+      {secret && <output aria-label="作成した秘密鍵">{secret}</output>}
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          void op
+            .run<{ id: string; secret: string | null }>(workspace, "integrations.source.register", {
+              sourceId: crypto.randomUUID(),
+              projectId,
+              name,
+            })
+            .then((result) => {
+              if (result) {
+                setSecret(result.secret);
+                sources.refresh();
+              }
+            });
+        }}
+      >
+        <label>
+          Project ID
+          <input required value={projectId} onInput={(e) => setProjectId(e.currentTarget.value)} />
+        </label>
+        <label>
+          名前
+          <input required value={name} onInput={(e) => setName(e.currentTarget.value)} />
+        </label>
+        <button type="submit">受信ソースを作成</button>
+      </form>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          void op
+            .run<{ id: string; secret: string | null }>(
+              workspace,
+              "integrations.webhook.register",
+              { sourceId, url, eventTypes: eventTypes.split(",").map((x) => x.trim()) },
+            )
+            .then((result) => {
+              if (result) {
+                setSecret(result.secret);
+                sources.refresh();
+              }
+            });
+        }}
+      >
+        <label>
+          Source ID
+          <input required value={sourceId} onInput={(e) => setSourceId(e.currentTarget.value)} />
+        </label>
+        <label>
+          HTTPS URL
+          <input required type="url" value={url} onInput={(e) => setUrl(e.currentTarget.value)} />
+        </label>
+        <label>
+          イベント（カンマ区切り）
+          <input value={eventTypes} onInput={(e) => setEventTypes(e.currentTarget.value)} />
+        </label>
+        <button type="submit">Webhook を設定</button>
+      </form>
+      {sources.error && <p role="alert">{sources.error}</p>}
+      <ul class="list">
+        {sources.items.map((x) => (
+          <li key={x.id}>
+            {x.name} · {x.id} · {x.webhookUrl ?? "受信のみ"}
+          </li>
+        ))}
+      </ul>
+      {sources.hasMore && (
+        <button type="button" onClick={sources.loadMore}>
+          次のページ
+        </button>
+      )}
+      <h3>配送状況</h3>
+      <ul class="list">
+        {deliveries.items.map((x) => (
+          <li key={x.id}>
+            {x.eventType} · {x.status} · {x.attempts} 回
+          </li>
+        ))}
+      </ul>
+      {deliveries.hasMore && (
+        <button type="button" onClick={deliveries.loadMore}>
+          次のページ
+        </button>
+      )}
+      <Status
+        op={op}
+        onRetry={() =>
+          void op.retry().then((result) => {
+            if (result && typeof result === "object" && "secret" in result)
+              setSecret(result.secret as string | null);
+            sources.refresh();
+          })
+        }
+      />
+    </section>
+  );
+}
 type Attachment = {
   id: string;
   assetId: string;
@@ -1031,6 +1332,7 @@ function IssueDetail({
             </button>
           </form>
           <Status op={op} onRetry={retry} />
+          <ExternalRefs workspace={workspace} kind="issue" targetId={id} />
           <Attachments
             workspace={workspace}
             targetKind="issue"
@@ -1270,6 +1572,7 @@ function WikiDetail({
               </button>
             </div>
           )}
+          <ExternalRefs workspace={workspace} kind="wiki" targetId={id} />
           <Attachments
             workspace={workspace}
             targetKind="wiki"
@@ -2005,6 +2308,7 @@ function App() {
                   "planning",
                   "activity",
                   "notifications",
+                  "feedback",
                   "admin",
                 ] as View[]
               ).map((item, i) => (
@@ -2022,6 +2326,7 @@ function App() {
                       "計画",
                       ja.activity,
                       `通知${notificationBadge.data?.unread ? ` (${notificationBadge.data.unread})` : ""}`,
+                      "フィードバック",
                       ja.admin,
                     ][i]
                   }
@@ -2072,7 +2377,13 @@ function App() {
               />
             )}
             {view === "notifications" && <Notifications key={workspace} workspace={workspace} />}
-            {view === "admin" && <Admin key={workspace} workspace={workspace} />}
+            {view === "feedback" && <FeedbackInbox key={workspace} workspace={workspace} />}
+            {view === "admin" && (
+              <>
+                <Admin key={workspace} workspace={workspace} />
+                <IntegrationsAdmin key={`${workspace}:integrations`} workspace={workspace} />
+              </>
+            )}
           </>
         )}
       </main>

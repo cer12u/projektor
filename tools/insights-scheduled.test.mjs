@@ -33,6 +33,7 @@ test("11a Worker scheduled discovers every active workspace beyond one keyset pa
       "planning",
       "assets",
       "insights",
+      "integrations",
     ]);
     const workspaces = Array.from({ length: 102 }, (_, i) => `w${String(i).padStart(3, "0")}`);
     for (const w of workspaces) {
@@ -55,6 +56,8 @@ test("11a Worker scheduled discovers every active workspace beyond one keyset pa
       R2: await mf.getR2Bucket("R2"),
       ACCESS_TEAM_DOMAIN: "https://unit.cloudflareaccess.com",
       ACCESS_AUDIENCE: "unit",
+      INTEGRATIONS_KEY: "ab".repeat(32),
+      FEEDBACK_LIMIT: { limit: async () => ({ success: true }) },
     };
     assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM insights_cursors").first()).n, 0);
     await worker.scheduled({}, env);

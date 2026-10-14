@@ -127,3 +127,58 @@ export function createRateLimiter(binding: RateLimit): RateLimiter {
     },
   });
 }
+
+/** Worker-only adapter for Integrations secrets. The key is never exposed by this port. */
+export function createSecretVault(key: string): import("./public").SecretVault {
+  if (!/^[0-9a-f]{64}$/.test(key)) throw new PlatformError("validation", "Invalid integration key");
+  const bytes = Uint8Array.from(key.match(/../g) ?? [], (x) => Number.parseInt(x, 16));
+  const encoder = new TextEncoder();
+  const b64 = (v: Uint8Array) => btoa(String.fromCharCode(...v));
+  const un64 = (v: string) => Uint8Array.from(atob(v), (x) => x.charCodeAt(0));
+  const master = crypto.subtle.importKey("raw", bytes, "HKDF", false, ["deriveKey"]);
+  const derive = async (
+    purpose: string,
+    algorithm: Parameters<SubtleCrypto["deriveKey"]>[2],
+    usages: Parameters<SubtleCrypto["deriveKey"]>[4],
+  ) =>
+    crypto.subtle.deriveKey(
+      {
+        name: "HKDF",
+        hash: "SHA-256",
+        salt: encoder.encode("projektor:integrations:v1"),
+        info: encoder.encode(purpose),
+      },
+      await master,
+      algorithm,
+      false,
+      usages,
+    );
+  const hmac = derive("inbound-hmac", { name: "HMAC", hash: "SHA-256", length: 256 }, ["sign"]);
+  const aes = derive("outbound-aes-gcm", { name: "AES-GCM", length: 256 }, ["encrypt", "decrypt"]);
+  return Object.freeze({
+    async inboundSecret(label: string): Promise<string> {
+      const signature = await crypto.subtle.sign(
+        "HMAC",
+        await hmac,
+        encoder.encode(`inbound:${label}`),
+      );
+      return Array.from(new Uint8Array(signature), (b) => b.toString(16).padStart(2, "0")).join("");
+    },
+    async seal(value: string): Promise<string> {
+      const iv = crypto.getRandomValues(new Uint8Array(12));
+      const cipher = await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv },
+        await aes,
+        encoder.encode(value),
+      );
+      return `${b64(iv)}.${b64(new Uint8Array(cipher))}`;
+    },
+    async open(ciphertext: string): Promise<string> {
+      const [iv, value] = ciphertext.split(".");
+      if (!iv || !value) throw new PlatformError("unknown", "Invalid encrypted secret");
+      return new TextDecoder().decode(
+        await crypto.subtle.decrypt({ name: "AES-GCM", iv: un64(iv) }, await aes, un64(value)),
+      );
+    },
+  });
+}

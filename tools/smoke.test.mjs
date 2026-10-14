@@ -47,11 +47,26 @@ test("07c smoke successful orchestration never logs API token", async () => {
             }));
             plugin.onLoad({ filter: /.*/, namespace: "audit" }, () => ({
               contents: `
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
           export function execFileSync(file, args) {
             if (args[0] === 'd1') return JSON.stringify([{name:'projektor-verify', uuid:'d1'}]);
             if (args[0] === 'kv') return JSON.stringify([{title:'projektor-verify', id:'kv'}]);
             if (args[0] === 'r2') return 'projektor-verify';
-            if (args[0] === 'deploy') return 'https://projektor-verify.audit.workers.dev';
+            if (args[0] === 'deploy') {
+              const config = JSON.parse(fs.readFileSync(args[args.indexOf('--config') + 1], 'utf8'));
+              const secretPath = args[args.indexOf('--secrets-file') + 1];
+              const secrets = JSON.parse(fs.readFileSync(secretPath, 'utf8'));
+              assert.equal(/^[0-9a-f]{64}$/.test(secrets.INTEGRATIONS_KEY), true, 'missing vault key');
+              assert.equal(secrets.INTEGRATIONS_KEY !== secrets.SMOKE_SECRET, true, 'keys must be independent');
+              assert.equal(fs.statSync(secretPath).mode & 0o777, 0o600);
+              assert.deepEqual(config.ratelimits, [
+                { name: 'OAUTH_REGISTER_LIMIT', namespace_id: '1001', simple: { limit: 10, period: 60 } },
+                { name: 'OAUTH_TOKEN_LIMIT', namespace_id: '1002', simple: { limit: 60, period: 60 } },
+                { name: 'FEEDBACK_LIMIT', namespace_id: '1003', simple: { limit: 60, period: 60 } },
+              ]);
+              return 'https://projektor-verify.audit.workers.dev';
+            }
             if (args[0] === 'tools/smoke-check.mjs') return 'AUDIT_SMOKE_COMPLETE\\n';
             throw new Error('Unexpected subprocess');
           }`,
@@ -98,7 +113,18 @@ test("07c smoke successful orchestration never logs API token", async () => {
   }
 });
 
-test("07c smoke Worker gates probes and executes local D1, migration and R2 checks", async () => {
+test("smoke failures omit potentially secret-bearing remote response bodies", async () => {
+  await assert.rejects(
+    checkSmoke(
+      async () => new Response(JSON.stringify({ secret: sentinel }), { status: 500 }),
+      "https://projektor-verify.audit.workers.dev",
+      sentinel,
+    ),
+    (error) => error.message === "/__smoke/migrate: HTTP 500",
+  );
+});
+
+test("smoke Worker gates probes and checks D1, migrations, R2 and signed feedback deduplication", async () => {
   const mf = new Miniflare({
     modules: true,
     scriptPath: "dist/smoke-worker.js",
@@ -106,11 +132,13 @@ test("07c smoke Worker gates probes and executes local D1, migration and R2 chec
     d1Databases: ["DB"],
     kvNamespaces: ["KV"],
     r2Buckets: ["R2"],
+    ratelimits: { FEEDBACK_LIMIT: { namespace_id: "1003", simple: { limit: 60, period: 60 } } },
     bindings: {
       SMOKE_ENABLED: "1",
       SMOKE_SECRET: sentinel,
       ACCESS_TEAM_DOMAIN: "https://unit.cloudflareaccess.com",
       ACCESS_AUDIENCE: "audit",
+      INTEGRATIONS_KEY: "ab".repeat(32),
     },
   });
   try {

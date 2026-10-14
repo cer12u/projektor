@@ -72,9 +72,18 @@ fs.writeFileSync(
     d1_databases: [{ binding: "DB", database_name: d1Name, database_id: found.d1 }],
     kv_namespaces: [{ binding: "KV", id: found.kv }],
     r2_buckets: [{ binding: "R2", bucket_name: bucketName }],
+    ratelimits: [
+      { name: "OAUTH_REGISTER_LIMIT", namespace_id: "1001", simple: { limit: 10, period: 60 } },
+      { name: "OAUTH_TOKEN_LIMIT", namespace_id: "1002", simple: { limit: 60, period: 60 } },
+      { name: "FEEDBACK_LIMIT", namespace_id: "1003", simple: { limit: 60, period: 60 } },
+    ],
   }),
 );
-fs.writeFileSync(secretsFile, JSON.stringify({ SMOKE_SECRET: secret }), { mode: 0o600 });
+fs.writeFileSync(
+  secretsFile,
+  JSON.stringify({ SMOKE_SECRET: secret, INTEGRATIONS_KEY: randomBytes(32).toString("hex") }),
+  { mode: 0o600 },
+);
 try {
   const output = run(
     "deploy",
