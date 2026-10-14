@@ -17,6 +17,7 @@
     "modules/**/*.ts",
     "platform/**/*.ts",
     "gateway/**/*.ts",
-    "tools/test-entry.ts"
+    "tools/test-entry.ts",
+    "tools/smoke-worker.ts"
   ]
 }

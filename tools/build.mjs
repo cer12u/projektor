@@ -12,9 +12,7 @@ const productionOwners = manifest(process.cwd()).owners.filter((o) => o.storage 
 const productionCatalogs = Object.fromEntries(productionOwners.map((o) => [o.id, schema[o.id]]));
 fs.rmSync("dist", { recursive: true, force: true });
 fs.mkdirSync("dist/assets", { recursive: true });
-await build({
-  entryPoints: ["apps/worker/index.ts"],
-  outfile: "dist/worker.js",
+const options = {
   bundle: true,
   format: "esm",
   platform: "browser",
@@ -34,12 +32,18 @@ await build({
       },
     },
   ],
+};
+await build({ ...options, entryPoints: ["apps/worker/index.ts"], outfile: "dist/worker.js" });
+await build({
+  ...options,
+  entryPoints: ["tools/smoke-worker.ts"],
+  outfile: "dist/smoke-worker.js",
 });
 fs.copyFileSync("apps/web/index.html", "dist/assets/index.html");
 fs.copyFileSync("LICENSE", "dist/LICENSE");
 const migrations = Object.fromEntries(productionOwners.map((o) => [o.id, schema[o.id].migrations]));
 fs.writeFileSync("dist/migrations.json", `${JSON.stringify(migrations, null, 2)}\n`);
-const files = ["worker.js", "assets/index.html", "LICENSE", "migrations.json"];
+const files = ["worker.js", "smoke-worker.js", "assets/index.html", "LICENSE", "migrations.json"];
 const artifact = {
   commit:
     process.env.CI_COMMIT_SHA ??

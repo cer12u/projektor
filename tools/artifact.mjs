@@ -15,12 +15,14 @@ assert.deepEqual(Object.keys(artifact.files).sort(), [
   "LICENSE",
   "assets/index.html",
   "migrations.json",
+  "smoke-worker.js",
   "worker.js",
 ]);
 for (const [file, checksum] of Object.entries(artifact.files))
   assert.equal(hash(fs.readFileSync(`dist/${file}`)), checksum, file);
 assert(!/fixture_[ab]|D1Database|BOOTSTRAP_SECRET/.test(fs.readFileSync("dist/worker.js", "utf8")));
 assert(!/fixture_[ab]/.test(fs.readFileSync("dist/migrations.json", "utf8")));
+assert(!/fixture_[ab]/.test(fs.readFileSync("dist/smoke-worker.js", "utf8")));
 const mf = new Miniflare({
   modules: true,
   scriptPath: "dist/worker.js",
