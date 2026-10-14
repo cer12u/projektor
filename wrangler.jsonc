@@ -19,7 +19,7 @@
       "/health"
     ]
   },
-  "triggers": { "crons": ["0 * * * *"] },
+  "triggers": { "crons": ["0 * * * *", "* * * * *"] },
   "ratelimits": [
     {
       "name": "OAUTH_REGISTER_LIMIT",

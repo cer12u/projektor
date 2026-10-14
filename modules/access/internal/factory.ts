@@ -7,6 +7,7 @@ import {
   type Row,
   type ScopedKV,
 } from "../../../platform/public";
+import type { AccessMaintenance } from "../public";
 import {
   type AccessApi,
   type AccessEvent,
@@ -23,6 +24,7 @@ import {
 import type { queries } from "../storage/queries";
 import { type AccessConfig, createAssertionVerifier, type JwksFetcher } from "./assertions";
 import { type Identity, num, str } from "./identity";
+import { createMaintenance } from "./maintenance";
 import { createOAuth, type OAuthConfig } from "./oauth";
 import {
   deny,
@@ -62,6 +64,7 @@ function result(row: Row): CommandResult {
 /** Composition only: retain operator/event capabilities outside Gateway's API reference. */
 export function createAccess(deps: Dependencies): {
   api: AccessApi;
+  maintenance: AccessMaintenance;
   operator?: OperatorCapability;
   eventReader?: EventReader;
   background: {
@@ -198,6 +201,8 @@ export function createAccess(deps: Dependencies): {
         );
       }
       if (saved) return saved;
+      if (error instanceof Error && /scope frozen/i.test(error.message))
+        throw new PlatformError("conflict", "Scope frozen");
       if (
         error instanceof Error &&
         /(?:CHECK|UNIQUE|FOREIGN KEY) constraint failed/i.test(error.message)
@@ -691,6 +696,7 @@ export function createAccess(deps: Dependencies): {
   };
   return {
     api: Object.freeze(api),
+    maintenance: createMaintenance(store),
     operator,
     eventReader,
     background: Object.freeze({

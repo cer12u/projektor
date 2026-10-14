@@ -29,3 +29,8 @@ CAS/retry/atomicity, tenant, pagination and validation regressions, including
 executed mutation probes. The Projects suite now runs the Access consumer
 contract against the real provider, and the Projects consumer contract is
 shared with Issues’ fake.
+
+## Lifecycle maintenance (13)
+
+See [Lifecycle](lifecycle.md) for owner-local atomic freeze, bounded purge, retained
+markers, project attribution, REST-only owner access and recovery limits.

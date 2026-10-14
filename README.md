@@ -59,3 +59,5 @@ and MCP must return their protocol responses. See [Gateway OAuth operations](doc
 for consent, rate limits, tests and remaining deployment acceptance.
 
 Coordination sessions, issue leases and exact-path claims: [Coordination contract](docs/architecture/coordination.md).
+
+Explicit workspace/project purge: [Lifecycle and recovery](docs/architecture/lifecycle.md).

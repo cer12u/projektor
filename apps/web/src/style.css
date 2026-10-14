@@ -223,6 +223,22 @@ select:focus-visible {
   padding: 0.75rem;
   border-radius: 0.4rem;
 }
+.danger-zone {
+  border: 1px solid #c46b58;
+  background: #fff8f6;
+}
+.danger-zone h3 {
+  color: #8b2e24;
+}
+button.danger {
+  background: #a3392d;
+  color: #fff;
+  border-color: #a3392d;
+}
+button.danger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
 @media (max-width: 720px) {
   header {
     align-items: flex-start;

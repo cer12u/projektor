@@ -44,3 +44,8 @@ The 07c audit adds adversarial browser checks in `tools/web-e2e/audit.spec.mjs`
 and expands the Markdown fixture in `core.spec.mjs`. Artifact validation rejects
 any `__test` route or local assertion issuer in every executable production
 bundle, including the verification Worker. See [test audit](test-audit.md).
+
+## Lifecycle maintenance (13)
+
+See [Lifecycle](lifecycle.md) for owner-local atomic freeze, bounded purge, retained
+markers, project attribution, REST-only owner access and recovery limits.

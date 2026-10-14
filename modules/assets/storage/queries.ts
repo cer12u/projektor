@@ -1,4 +1,6 @@
 export const queries = {
+  maintenanceUnattributed:
+    "SELECT (SELECT COUNT(*) FROM assets_receipts WHERE workspace_id=? AND project_id IS NULL)+(SELECT COUNT(*) FROM assets_events WHERE workspace_id=? AND project_id IS NULL) AS n",
   blob: "SELECT id,project_id,size,content_type,filename,sha256,version,state FROM assets_blobs WHERE workspace_id=? AND id=?",
   begin:
     "INSERT INTO assets_blobs(workspace_id,id,project_id,size,content_type,filename,sha256,version,state,created_at) VALUES(?,?,?,?,?,?,?,1,'pending',?)",
@@ -33,5 +35,47 @@ export const queries = {
   event:
     "INSERT INTO assets_events(workspace_id,sequence,event_id,aggregate_id,aggregate_version,type,occurred_at,actor_id,client_id,schema_version) VALUES(?,(SELECT COALESCE(MAX(sequence),0)+1 FROM assets_events WHERE workspace_id=?),?,?,?,?,?,?,?,2)",
   events:
-    "SELECT sequence,event_id,aggregate_id,aggregate_version,type,occurred_at,actor_id,client_id,schema_version FROM assets_events WHERE workspace_id=? AND sequence>? ORDER BY sequence LIMIT ?",
+    "SELECT sequence,event_id,aggregate_id,aggregate_version,type,occurred_at,actor_id,client_id,schema_version,project_id FROM assets_events WHERE workspace_id=? AND sequence>? ORDER BY sequence LIMIT ?",
+  maintenanceFreeze:
+    "INSERT OR IGNORE INTO assets_frozen(workspace_id,project_id,state) VALUES(?,?,'frozen')",
+  maintenanceMarker: "SELECT state FROM assets_frozen WHERE workspace_id=? AND project_id=?",
+  maintenanceBegin:
+    "UPDATE assets_frozen SET state='purging' WHERE workspace_id=? AND project_id=? AND state='frozen'",
+  maintenanceDone: "UPDATE assets_frozen SET state='purged' WHERE workspace_id=? AND project_id=?",
+  maintenanceBypass: "INSERT INTO assets_maintenance_bypass(workspace_id) VALUES(?)",
+  maintenanceUnbypass: "DELETE FROM assets_maintenance_bypass WHERE workspace_id=?",
+  maintenancePending:
+    "SELECT COUNT(*) AS n FROM assets_uploads WHERE workspace_id=? AND (?='' OR project_id=?)",
+  uploadStart:
+    "INSERT INTO assets_uploads(workspace_id,id,asset_id,project_id) SELECT ?,?,id,project_id FROM assets_blobs WHERE workspace_id=? AND id=? AND state='pending'",
+  uploadFinish: "DELETE FROM assets_uploads WHERE workspace_id=? AND id=?",
+  uploadFrozen:
+    "SELECT 1 AS frozen FROM assets_frozen WHERE workspace_id=? AND (project_id='' OR project_id=?)",
+  maintenanceBlobs:
+    "SELECT id FROM assets_blobs WHERE workspace_id=? AND (?='' OR project_id=?) ORDER BY id LIMIT 10",
+  maintenanceRetire: "UPDATE assets_blobs SET state='retired' WHERE workspace_id=? AND id=?",
+  maintenanceBlobDone:
+    "DELETE FROM assets_blobs WHERE workspace_id=? AND id=? AND NOT EXISTS(SELECT 1 FROM assets_uploads WHERE workspace_id=? AND asset_id=?) AND NOT EXISTS(SELECT 1 FROM assets_links WHERE workspace_id=? AND asset_id=?) AND NOT EXISTS(SELECT 1 FROM assets_history WHERE workspace_id=? AND asset_id=?)",
+  maintenanceBlobReady:
+    "SELECT id FROM assets_blobs WHERE workspace_id=? AND id=? AND NOT EXISTS(SELECT 1 FROM assets_uploads WHERE workspace_id=? AND asset_id=?) AND NOT EXISTS(SELECT 1 FROM assets_links WHERE workspace_id=? AND asset_id=?) AND NOT EXISTS(SELECT 1 FROM assets_history WHERE workspace_id=? AND asset_id=?)",
+  maintenanceCountLinks:
+    "SELECT COUNT(*) AS n FROM assets_links WHERE workspace_id=? AND (?='' OR asset_id IN(SELECT id FROM assets_blobs WHERE workspace_id=assets_links.workspace_id AND project_id=?))",
+  maintenanceDeleteLinks:
+    "DELETE FROM assets_links WHERE rowid IN(SELECT rowid FROM assets_links WHERE workspace_id=? AND (?='' OR asset_id IN(SELECT id FROM assets_blobs WHERE workspace_id=assets_links.workspace_id AND project_id=?)) LIMIT 50)",
+  maintenanceCountHistory:
+    "SELECT COUNT(*) AS n FROM assets_history WHERE workspace_id=? AND (?='' OR asset_id IN(SELECT id FROM assets_blobs WHERE workspace_id=assets_history.workspace_id AND project_id=?))",
+  maintenanceDeleteHistory:
+    "DELETE FROM assets_history WHERE rowid IN(SELECT rowid FROM assets_history WHERE workspace_id=? AND (?='' OR asset_id IN(SELECT id FROM assets_blobs WHERE workspace_id=assets_history.workspace_id AND project_id=?)) LIMIT 50)",
+  maintenanceCountGcJobs:
+    "SELECT COUNT(*) AS n FROM assets_gc_jobs WHERE workspace_id=? AND (?='' OR asset_id IN(SELECT id FROM assets_blobs WHERE workspace_id=assets_gc_jobs.workspace_id AND project_id=?))",
+  maintenanceCountBlobs:
+    "SELECT COUNT(*) AS n FROM assets_blobs WHERE workspace_id=? AND (?='' OR project_id=?)",
+  maintenanceCountReceipts:
+    "SELECT COUNT(*) AS n FROM assets_receipts WHERE workspace_id=? AND (?='' OR project_id=?)",
+  maintenanceDeleteReceipts:
+    "DELETE FROM assets_receipts WHERE rowid IN(SELECT rowid FROM assets_receipts WHERE workspace_id=? AND (?='' OR project_id=?) LIMIT 50)",
+  maintenanceCountEvents:
+    "SELECT COUNT(*) AS n FROM assets_events WHERE workspace_id=? AND (?='' OR project_id=?)",
+  maintenanceDeleteEvents:
+    "DELETE FROM assets_events WHERE rowid IN(SELECT rowid FROM assets_events WHERE workspace_id=? AND (?='' OR project_id=?) LIMIT 50)",
 } as const;

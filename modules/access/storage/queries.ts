@@ -88,4 +88,57 @@ export const queries = {
     "INSERT INTO access_oauth_tokens(workspace_id,token_hash,family_id,kind,scope,expires_at) VALUES(?,?,?,?,?,?)",
   oauthConsumeRefresh:
     "UPDATE access_oauth_tokens SET used=1 WHERE workspace_id=? AND token_hash=? AND kind='refresh' AND used=0 AND expires_at>?",
+  maintenanceFreeze:
+    "INSERT INTO access_frozen_scopes(workspace_id,project_id,state) VALUES(?,?,'frozen') ON CONFLICT(workspace_id,project_id) DO NOTHING",
+  maintenanceMarker: "SELECT state FROM access_frozen_scopes WHERE workspace_id=? AND project_id=?",
+  maintenanceBegin:
+    "UPDATE access_frozen_scopes SET state='purging' WHERE workspace_id=? AND project_id=? AND state='frozen'",
+  maintenanceDone:
+    "UPDATE access_frozen_scopes SET state='purged' WHERE workspace_id=? AND project_id=? AND state='purging'",
+  maintenanceBypass: "INSERT INTO access_purge_bypass(workspace_id,project_id) VALUES(?,?)",
+  maintenanceUnbypass: "DELETE FROM access_purge_bypass WHERE workspace_id=? AND project_id=?",
+  maintenanceCountOauthForms:
+    "SELECT COUNT(*) AS n FROM access_oauth_forms t WHERE t.workspace_id=? AND ?=''",
+  maintenanceDeleteOauthForms:
+    "DELETE FROM access_oauth_forms WHERE rowid IN (SELECT t.rowid FROM access_oauth_forms t WHERE t.workspace_id=? AND ?='' ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountOauthTokens:
+    "SELECT COUNT(*) AS n FROM access_oauth_tokens t WHERE t.workspace_id=? AND ?=''",
+  maintenanceDeleteOauthTokens:
+    "DELETE FROM access_oauth_tokens WHERE rowid IN (SELECT t.rowid FROM access_oauth_tokens t WHERE t.workspace_id=? AND ?='' ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountOauthCodes:
+    "SELECT COUNT(*) AS n FROM access_oauth_codes t WHERE t.workspace_id=? AND ?=''",
+  maintenanceDeleteOauthCodes:
+    "DELETE FROM access_oauth_codes WHERE rowid IN (SELECT t.rowid FROM access_oauth_codes t WHERE t.workspace_id=? AND ?='' ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountOauthFamilies:
+    "SELECT COUNT(*) AS n FROM access_oauth_families t WHERE t.workspace_id=? AND ?=''",
+  maintenanceDeleteOauthFamilies:
+    "DELETE FROM access_oauth_families WHERE rowid IN (SELECT t.rowid FROM access_oauth_families t WHERE t.workspace_id=? AND ?='' AND NOT EXISTS (SELECT 1 FROM access_oauth_tokens c WHERE c.workspace_id=t.workspace_id AND c.family_id=t.id) ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountCredentials:
+    "SELECT COUNT(*) AS n FROM access_credentials t WHERE t.workspace_id=? AND ?=''",
+  maintenanceDeleteCredentials:
+    "DELETE FROM access_credentials WHERE rowid IN (SELECT t.rowid FROM access_credentials t WHERE t.workspace_id=? AND ?='' ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountOauthWorkspaceClients:
+    "SELECT COUNT(*) AS n FROM access_oauth_workspace_clients t WHERE t.workspace_id=? AND ?=''",
+  maintenanceDeleteOauthWorkspaceClients:
+    "DELETE FROM access_oauth_workspace_clients WHERE rowid IN (SELECT t.rowid FROM access_oauth_workspace_clients t WHERE t.workspace_id=? AND ?='' AND NOT EXISTS (SELECT 1 FROM access_oauth_codes c WHERE c.workspace_id=t.workspace_id AND c.client_id=t.client_id) AND NOT EXISTS (SELECT 1 FROM access_oauth_families c WHERE c.workspace_id=t.workspace_id AND c.client_id=t.client_id) ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountMemberships:
+    "SELECT COUNT(*) AS n FROM access_memberships t WHERE t.workspace_id=? AND ?=''",
+  maintenanceDeleteMemberships:
+    "DELETE FROM access_memberships WHERE rowid IN (SELECT t.rowid FROM access_memberships t WHERE t.workspace_id=? AND ?='' AND NOT EXISTS (SELECT 1 FROM access_credentials c WHERE c.workspace_id=t.workspace_id AND c.principal_id=t.principal_id) AND NOT EXISTS (SELECT 1 FROM access_oauth_codes c WHERE c.workspace_id=t.workspace_id AND c.principal_id=t.principal_id) AND NOT EXISTS (SELECT 1 FROM access_oauth_families c WHERE c.workspace_id=t.workspace_id AND c.principal_id=t.principal_id) ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountReceipts:
+    "SELECT COUNT(*) AS n FROM access_receipts t WHERE t.workspace_id=? AND ?=''",
+  maintenanceDeleteReceipts:
+    "DELETE FROM access_receipts WHERE rowid IN (SELECT t.rowid FROM access_receipts t WHERE t.workspace_id=? AND ?='' ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountEvents:
+    "SELECT COUNT(*) AS n FROM access_events t WHERE t.workspace_id=? AND ?=''",
+  maintenanceDeleteEvents:
+    "DELETE FROM access_events WHERE rowid IN (SELECT t.rowid FROM access_events t WHERE t.workspace_id=? AND ?='' ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountGuards:
+    "SELECT COUNT(*) AS n FROM access_guards t WHERE t.workspace_id=? AND ?=''",
+  maintenanceDeleteGuards:
+    "DELETE FROM access_guards WHERE rowid IN (SELECT t.rowid FROM access_guards t WHERE t.workspace_id=? AND ?='' ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountWorkspaces:
+    "SELECT COUNT(*) AS n FROM access_workspaces t WHERE t.workspace_id=? AND ?=''",
+  maintenanceDeleteWorkspaces:
+    "DELETE FROM access_workspaces WHERE rowid IN (SELECT t.rowid FROM access_workspaces t WHERE t.workspace_id=? AND ?='' AND NOT EXISTS (SELECT 1 FROM access_memberships c WHERE c.workspace_id=t.workspace_id) AND NOT EXISTS (SELECT 1 FROM access_oauth_workspace_clients c WHERE c.workspace_id=t.workspace_id) AND NOT EXISTS (SELECT 1 FROM access_receipts c WHERE c.workspace_id=t.workspace_id) AND NOT EXISTS (SELECT 1 FROM access_events c WHERE c.workspace_id=t.workspace_id) AND NOT EXISTS (SELECT 1 FROM access_oauth_forms c WHERE c.workspace_id=t.workspace_id) ORDER BY t.rowid LIMIT 50)",
 } as const;

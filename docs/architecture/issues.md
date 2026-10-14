@@ -85,3 +85,8 @@ The independent [04a audit](test-audit.md) records every public API invariant,
 provider-fake checks and executed mutations. A Q1 admitted write can durably
 commit after revoke while its post-commit receipt recheck denies the response;
 recovery requires restored current permission.
+
+## Lifecycle maintenance (13)
+
+See [Lifecycle](lifecycle.md) for owner-local atomic freeze, bounded purge, retained
+markers, project attribution, REST-only owner access and recovery limits.

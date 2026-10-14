@@ -317,6 +317,8 @@ test("failed final event rolls back page, FTS, revision, receipt and guard for e
             "human",
             "human",
             null,
+            "w1",
+            "bad",
           ],
         },
       ]);

@@ -19,8 +19,12 @@ import type {
   ExternalTarget,
   Feedback,
   IntegrationsApi,
+  IntegrationsMaintenance,
 } from "../public";
 import type { queries } from "../storage/queries";
+import { createIntegrationsMaintenance } from "./maintenance";
+
+export { createIntegrationsMaintenance } from "./maintenance";
 
 type Name = keyof typeof queries;
 type Statement = Call<Name>;
@@ -160,6 +164,7 @@ function delivery(r: Row): Delivery {
 export function createIntegrations(d: Dependencies): {
   api: IntegrationsApi;
   background: { drain(limit?: number): Promise<number> };
+  maintenance: IntegrationsMaintenance;
 } {
   if (d.store.owner !== "integrations") fail("forbidden", "Wrong Integrations store");
   const { store, access, projects, issues, wiki, clock, ids, vault } = d;
@@ -171,9 +176,9 @@ export function createIntegrations(d: Dependencies): {
   };
   async function target(s: RequestScope, t: ExternalTarget, mode: "read" | "write") {
     id(t.id);
-    if (t.kind === "issue") await issues.authorizeIssue(s, t.id, mode);
-    else if (t.kind === "wiki") await wiki.authorizePage(s, t.id, mode);
-    else fail("validation", "Invalid target");
+    if (t.kind === "issue") return (await issues.authorizeIssue(s, t.id, mode)).projectId;
+    if (t.kind === "wiki") return (await wiki.authorizePage(s, t.id, mode)).projectId;
+    return fail("validation", "Invalid target");
   }
   async function receipt(s: RequestScope, operationId: string, input: unknown) {
     const op = id(operationId);
@@ -182,11 +187,19 @@ export function createIntegrations(d: Dependencies): {
     if (old && str(old, "fingerprint") !== fingerprint) fail("conflict", "Operation ID reused");
     return { op, fingerprint, old: old ? str(old, "result_id") : null };
   }
-  const audit = (s: RequestScope, action: string, aggregate: string): Statement[] => {
+  const audit = (
+    s: RequestScope,
+    action: string,
+    aggregate: string,
+    projectId: string,
+  ): Statement[] => {
     const at = clock.now();
     return [
-      { name: "history", values: [s.workspaceId, ids.next(), action, s.principalId, at] },
-      { name: "event", values: [s.workspaceId, ids.next(), aggregate, action, at] },
+      {
+        name: "history",
+        values: [s.workspaceId, ids.next(), action, s.principalId, at, projectId],
+      },
+      { name: "event", values: [s.workspaceId, ids.next(), aggregate, action, at, projectId] },
     ];
   };
   async function page<T>(
@@ -208,7 +221,7 @@ export function createIntegrations(d: Dependencies): {
   const api: IntegrationsApi = {
     async linkExternalRef(s, input) {
       await own(s, "write");
-      await target(s, input.target, "write");
+      const projectId = await target(s, input.target, "write");
       id(input.refId);
       if (!kinds.includes(input.kind)) fail("validation", "Invalid ref kind");
       const url = https(input.url);
@@ -218,13 +231,21 @@ export function createIntegrations(d: Dependencies): {
       await store.batch([
         {
           name: "addLink",
-          values: [s.workspaceId, input.refId, input.target.kind, input.target.id, input.kind, url],
+          values: [
+            s.workspaceId,
+            input.refId,
+            input.target.kind,
+            input.target.id,
+            input.kind,
+            url,
+            projectId,
+          ],
         },
         {
           name: "putReceipt",
-          values: [s.workspaceId, s.principalId, r.op, r.fingerprint, input.refId],
+          values: [s.workspaceId, s.principalId, r.op, r.fingerprint, input.refId, projectId],
         },
-        ...audit(s, "ExternalRefLinked", input.refId),
+        ...audit(s, "ExternalRefLinked", input.refId, projectId),
       ]);
       return link(
         (await one("link", [s.workspaceId, input.refId])) ?? fail("unknown", "Missing link"),
@@ -255,9 +276,16 @@ export function createIntegrations(d: Dependencies): {
           { name: "clearGuard", values: [s.workspaceId, guard] },
           {
             name: "putReceipt",
-            values: [s.workspaceId, s.principalId, r.op, r.fingerprint, input.refId],
+            values: [
+              s.workspaceId,
+              s.principalId,
+              r.op,
+              r.fingerprint,
+              input.refId,
+              str(current, "project_id"),
+            ],
           },
-          ...audit(s, "ExternalRefUnlinked", input.refId),
+          ...audit(s, "ExternalRefUnlinked", input.refId, str(current, "project_id")),
         ]);
       } catch (error) {
         const latest = await one("link", [s.workspaceId, input.refId]);
@@ -298,9 +326,16 @@ export function createIntegrations(d: Dependencies): {
         },
         {
           name: "putReceipt",
-          values: [s.workspaceId, s.principalId, r.op, r.fingerprint, input.sourceId],
+          values: [
+            s.workspaceId,
+            s.principalId,
+            r.op,
+            r.fingerprint,
+            input.sourceId,
+            input.projectId,
+          ],
         },
-        ...audit(s, "SourceRegistered", input.sourceId),
+        ...audit(s, "SourceRegistered", input.sourceId, input.projectId),
       ]);
       return { id: input.sourceId, secret };
     },
@@ -339,9 +374,16 @@ export function createIntegrations(d: Dependencies): {
         { name: "clearGuard", values: [s.workspaceId, guard] },
         {
           name: "putReceipt",
-          values: [s.workspaceId, s.principalId, r.op, r.fingerprint, input.sourceId],
+          values: [
+            s.workspaceId,
+            s.principalId,
+            r.op,
+            r.fingerprint,
+            input.sourceId,
+            str(source, "project_id"),
+          ],
         },
-        ...audit(s, "WebhookRegistered", input.sourceId),
+        ...audit(s, "WebhookRegistered", input.sourceId, str(source, "project_id")),
       ]);
       return { id: input.sourceId, secret };
     },
@@ -438,9 +480,9 @@ export function createIntegrations(d: Dependencies): {
           { name: "clearGuard", values: [s.workspaceId, guard] },
           {
             name: "putReceipt",
-            values: [s.workspaceId, s.principalId, r.op, r.fingerprint, issueId],
+            values: [s.workspaceId, s.principalId, r.op, r.fingerprint, issueId, f.projectId],
           },
-          ...audit(s, "FeedbackConverted", f.id),
+          ...audit(s, "FeedbackConverted", f.id, f.projectId),
         ]);
       } catch (error) {
         const now = await one("feedback", [s.workspaceId, f.id]);
@@ -504,6 +546,7 @@ export function createIntegrations(d: Dependencies): {
             input.externalId,
             input.eventType,
             input.body,
+            str(source, "project_id"),
             clock.now(),
           ],
         },
@@ -538,6 +581,7 @@ export function createIntegrations(d: Dependencies): {
   };
   return {
     api,
+    maintenance: createIntegrationsMaintenance(store),
     background: {
       async drain(n = 20) {
         const rows = (await store.run("due", [clock.now(), Math.min(Math.max(n, 1), 50)])).rows;
@@ -546,6 +590,11 @@ export function createIntegrations(d: Dependencies): {
           const ws = str(row, "workspace_id"),
             did = str(row, "id"),
             attempts = num(row, "attempts");
+          if (
+            (await one("maintenanceMarker", [ws, ""])) ||
+            (await one("maintenanceMarker", [ws, str(row, "project_id")]))
+          )
+            continue;
           const url = outboundUrl(str(row, "webhook_url"));
           const secret = await vault.open(str(row, "webhook_cipher"));
           const body = str(row, "body");

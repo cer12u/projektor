@@ -22,6 +22,7 @@ export type ProjectEventType = "ProjectChanged" | "ProjectArchived" | "ProjectGr
 export interface ProjectEvent {
   readonly eventId: string;
   readonly source: "projects";
+  readonly projectId: string | null;
   readonly schemaVersion: 1 | 2;
   readonly workspaceId: string;
   readonly aggregateId: string;
@@ -104,4 +105,23 @@ export interface ProjectsApi {
     cursor: number,
     limit: number,
   ): Promise<readonly ProjectEvent[]>;
+}
+
+/** Composition-only maintenance capability. */
+export interface ProjectsMaintenance {
+  freezeScope(scope: { readonly workspaceId: string; readonly projectId?: string }): Promise<{
+    readonly state: "frozen" | "purging" | "purged";
+    readonly remaining: number;
+    readonly pending: number;
+  }>;
+  purgeScope(scope: { readonly workspaceId: string; readonly projectId?: string }): Promise<{
+    readonly state: "frozen" | "purging" | "purged";
+    readonly remaining: number;
+    readonly pending: number;
+  } | null>;
+  purgeStatus(scope: { readonly workspaceId: string; readonly projectId?: string }): Promise<{
+    readonly state: "frozen" | "purging" | "purged";
+    readonly remaining: number;
+    readonly pending: number;
+  } | null>;
 }

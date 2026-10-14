@@ -606,4 +606,12 @@ test("11a Planning event attribution and legacy null", async () => {
   const old = (await f.api.readEvents(f.eventReader, "w1", 1, 100))[0];
   assert.equal(old.schemaVersion, 1);
   assert.equal(old.payload.clientId, null);
+  assert.equal(old.projectId, "p1");
+  await f.db
+    .prepare(
+      "INSERT INTO planning_events(workspace_id,sequence,event_id,aggregate_id,aggregate_version,type,actor_id,occurred_at) VALUES('w1',3,'orphan','missing',1,'SprintChanged','agent',1)",
+    )
+    .run();
+  const orphan = (await f.api.readEvents(f.eventReader, "w1", 2, 100))[0];
+  assert.equal(orphan.projectId, null);
 });

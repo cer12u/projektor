@@ -21,3 +21,8 @@ incompatible and require new sources (new IDs) and webhook registration; there i
 fallback. This change precedes production activation, changes no stored rows, and
 does not claim an automated data migration. See [the audit](test-audit.md#integrations-independent-test-audit--12a)
 for executed probes and remaining limits.
+
+## Lifecycle maintenance (13)
+
+See [Lifecycle](lifecycle.md) for owner-local atomic freeze, bounded purge, retained
+markers, project attribution, REST-only owner access and recovery limits.

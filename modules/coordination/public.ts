@@ -206,3 +206,22 @@ export interface CoordinationApi {
     limit: number,
   ): Promise<readonly CoordinationEvent[]>;
 }
+
+/** Composition-only maintenance capability. */
+export interface CoordinationMaintenance {
+  freezeScope(scope: { readonly workspaceId: string; readonly projectId?: string }): Promise<{
+    readonly state: "frozen" | "purging" | "purged";
+    readonly remaining: number;
+    readonly pending: number;
+  }>;
+  purgeScope(scope: { readonly workspaceId: string; readonly projectId?: string }): Promise<{
+    readonly state: "frozen" | "purging" | "purged";
+    readonly remaining: number;
+    readonly pending: number;
+  } | null>;
+  purgeStatus(scope: { readonly workspaceId: string; readonly projectId?: string }): Promise<{
+    readonly state: "frozen" | "purging" | "purged";
+    readonly remaining: number;
+    readonly pending: number;
+  } | null>;
+}

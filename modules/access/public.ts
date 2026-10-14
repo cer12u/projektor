@@ -354,3 +354,22 @@ export interface OAuthApi {
     input: VersionedOperation & { readonly clientId: string },
   ): Promise<CommandResult>;
 }
+
+/** Composition-only maintenance capability. */
+export interface AccessMaintenance {
+  freezeScope(scope: { readonly workspaceId: string; readonly projectId?: string }): Promise<{
+    readonly state: "frozen" | "purging" | "purged";
+    readonly remaining: number;
+    readonly pending: number;
+  }>;
+  purgeScope(scope: { readonly workspaceId: string; readonly projectId?: string }): Promise<{
+    readonly state: "frozen" | "purging" | "purged";
+    readonly remaining: number;
+    readonly pending: number;
+  } | null>;
+  purgeStatus(scope: { readonly workspaceId: string; readonly projectId?: string }): Promise<{
+    readonly state: "frozen" | "purging" | "purged";
+    readonly remaining: number;
+    readonly pending: number;
+  } | null>;
+}

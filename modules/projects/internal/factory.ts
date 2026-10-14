@@ -16,8 +16,10 @@ import type {
   ProjectResult,
   ProjectRole,
   ProjectsApi,
+  ProjectsMaintenance,
 } from "../public";
 import type { queries } from "../storage/queries";
+import { createMaintenance } from "./maintenance";
 
 type Name = keyof typeof queries;
 type Statement = Call<Name>;
@@ -82,6 +84,7 @@ async function digest(value: string): Promise<string> {
 }
 export function createProjects(deps: Dependencies): {
   api: ProjectsApi;
+  maintenance: ProjectsMaintenance;
   eventReader?: ProjectEventReader;
 } {
   const { store, access, clock, ids } = deps;
@@ -160,7 +163,7 @@ export function createProjects(deps: Dependencies): {
         ...calls,
         {
           name: "receipt",
-          values: [w, actor(scope), operationId, fingerprint, output.id, output.version],
+          values: [w, actor(scope), operationId, fingerprint, output.id, output.version, output.id],
         },
         {
           name: "event",
@@ -174,6 +177,7 @@ export function createProjects(deps: Dependencies): {
             clock.now(),
             actor(scope),
             scope.clientId ?? null,
+            output.id,
           ],
         },
       ]);
@@ -189,6 +193,8 @@ export function createProjects(deps: Dependencies): {
           "Operation outcome unknown; retry the same operation ID",
         );
       }
+      if (error instanceof Error && /scope frozen/i.test(error.message))
+        throw new PlatformError("conflict", "Scope frozen");
       if (
         error instanceof Error &&
         /(?:CHECK|UNIQUE|FOREIGN KEY) constraint failed/i.test(error.message)
@@ -403,6 +409,7 @@ export function createProjects(deps: Dependencies): {
           source: "projects",
           schemaVersion: num(row, "schema_version") as 1 | 2,
           workspaceId,
+          projectId: row.project_id === null ? null : str(row, "project_id"),
           aggregateId: str(row, "aggregate_id"),
           aggregateVersion: num(row, "aggregate_version"),
           type: str(row, "type") as ProjectEventType,
@@ -416,5 +423,5 @@ export function createProjects(deps: Dependencies): {
       );
     },
   };
-  return { api: Object.freeze(api), eventReader };
+  return { api: Object.freeze(api), eventReader, maintenance: createMaintenance(store) };
 }

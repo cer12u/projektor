@@ -11,3 +11,8 @@ Projects, Coordination, Planning and Assets now emit schemaVersion 2 events with
 `consumeEvents` is a composition-only factory capability, absent from `InsightsApi` and the object passed to Gateway. Workspace enumeration is similarly absent from `AccessApi`. Gateway cannot import either factory. There is no HTTP/MCP consumer or discovery endpoint, even for workspace owners. `drainKnownWorkspaces` was removed: it could miss unread workspaces and repeatedly select only the first page.
 
 The 7/30-day metrics include both endpoints of `[now - days * 86400, now]`, excluding future timestamps. `markRead` retries reauthorize their target before returning the saved receipt. Reads remain bounded catch-ups rather than guaranteed zero-lag views; scheduled ticks page all active workspaces but consume only 100 events per source per tick, so a sustained higher arrival rate accumulates lag. Discovery is keyset traversal, not an atomic workspace snapshot; a workspace created behind the cursor is found next tick. Tests cover local Miniflare D1 and headless browser behavior; deployed cron execution and production scale remain unverified.
+
+## Lifecycle maintenance (13)
+
+See [Lifecycle](lifecycle.md) for owner-local atomic freeze, bounded purge, retained
+markers, project attribution, REST-only owner access and recovery limits.

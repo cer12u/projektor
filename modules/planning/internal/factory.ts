@@ -13,6 +13,9 @@ import type {
   PlanningApi,
   PlanningEvent,
   PlanningEventReader,
+  PlanningMaintenance,
+  PlanningMaintenanceScope,
+  PlanningPurgeStatus,
   PlanningResult,
   Sprint,
 } from "../public";
@@ -61,6 +64,7 @@ async function fingerprint(action: string, values: unknown[]): Promise<string> {
 export function createPlanning(d: Dependencies): {
   api: PlanningApi;
   eventReader?: PlanningEventReader;
+  maintenance: PlanningMaintenance;
 } {
   if (d.store.owner !== "planning") fail("forbidden", "Wrong Planning store");
   const { store, access, issues, projects, clock, ids } = d;
@@ -125,13 +129,14 @@ export function createPlanning(d: Dependencies): {
             ws(s),
             ws(s),
             ids.next(),
-            sprintId,
             next,
             type,
             issueId,
             actor(s),
             at,
             s.clientId ?? null,
+            ws(s),
+            sprintId,
           ],
         },
       ]);
@@ -286,6 +291,7 @@ export function createPlanning(d: Dependencies): {
         source: "planning" as const,
         schemaVersion: num(r, "schema_version") as 1 | 2,
         workspaceId,
+        projectId: r.project_id === null ? null : str(r, "project_id"),
         aggregateId: str(r, "aggregate_id"),
         aggregateVersion: num(r, "aggregate_version"),
         type: str(r, "type") as PlanningEvent["type"],
@@ -300,5 +306,51 @@ export function createPlanning(d: Dependencies): {
       }));
     },
   };
-  return { api, eventReader };
+  function key(scope: PlanningMaintenanceScope): [string, string] {
+    return [id(scope.workspaceId), scope.projectId === undefined ? "" : id(scope.projectId)];
+  }
+  async function status(scope: PlanningMaintenanceScope): Promise<PlanningPurgeStatus | null> {
+    const [workspaceId, projectId] = key(scope);
+    const marker = await one("maintenanceMarker", [workspaceId, projectId]);
+    if (!marker) return null;
+    const remaining = num(
+      (await one("maintenanceCount", [workspaceId, projectId])) ?? fail("unknown", "Missing count"),
+      "n",
+    );
+    const pending = projectId
+      ? num(
+          (await one("maintenanceUnknown", [workspaceId, workspaceId, workspaceId])) ??
+            fail("unknown", "Missing pending count"),
+          "n",
+        )
+      : 0;
+    return {
+      state:
+        marker.state === "purging" ? (remaining + pending === 0 ? "purged" : "purging") : "frozen",
+      remaining,
+      pending,
+    };
+  }
+  const maintenance: PlanningMaintenance = {
+    async freezeScope(scope) {
+      const [workspaceId, projectId] = key(scope);
+      await store.run("maintenanceFreeze", [workspaceId, projectId]);
+      return (await status(scope)) ?? fail("unknown", "Missing marker");
+    },
+    async purgeScope(scope) {
+      const [workspaceId, projectId] = key(scope);
+      if (!(await status(scope))) fail("conflict", "Scope is not frozen");
+      await store.batch([
+        { name: "maintenancePurging", values: [workspaceId, projectId] },
+        { name: "purgeItems", values: [workspaceId, projectId, workspaceId, projectId] },
+        { name: "purgeHistory", values: [workspaceId, projectId, projectId] },
+        { name: "purgeReceipts", values: [workspaceId, projectId, projectId] },
+        { name: "purgeEvents", values: [workspaceId, projectId, projectId] },
+        { name: "purgeSprints", values: [workspaceId, projectId, projectId] },
+      ]);
+      return (await status(scope)) ?? fail("unknown", "Missing marker");
+    },
+    purgeStatus: status,
+  };
+  return { api, eventReader, maintenance };
 }

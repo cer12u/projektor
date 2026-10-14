@@ -33,11 +33,52 @@ export const queries = {
   getHistory:
     "SELECT version,action,actor_id,actor_kind,occurred_at,detail,client_id FROM issues_history WHERE workspace_id=? AND issue_id=? ORDER BY version",
   receipt:
-    "INSERT INTO issues_receipts(workspace_id,principal_id,operation_id,fingerprint,result_id,result_number,result_version) SELECT ?,?,?,?,id,number,version FROM issues_issues WHERE workspace_id=? AND id=?",
+    "INSERT INTO issues_receipts(workspace_id,principal_id,operation_id,fingerprint,result_id,result_number,result_version,project_id) SELECT ?,?,?,?,id,number,version,project_id FROM issues_issues WHERE workspace_id=? AND id=?",
   readReceipt:
     "SELECT fingerprint,result_id,result_number,result_version FROM issues_receipts WHERE workspace_id=? AND principal_id=? AND operation_id=?",
   event:
-    "INSERT INTO issues_events(workspace_id,sequence,event_id,aggregate_id,aggregate_version,type,occurred_at,actor_id,actor_kind,client_id) VALUES(?,(SELECT COALESCE(MAX(sequence),0)+1 FROM issues_events WHERE workspace_id=?),?,?,?,?,?,?,?,?)",
+    "INSERT INTO issues_events(workspace_id,sequence,event_id,aggregate_id,aggregate_version,type,occurred_at,actor_id,actor_kind,client_id,project_id) VALUES(?,(SELECT COALESCE(MAX(sequence),0)+1 FROM issues_events WHERE workspace_id=?),?,?,?,?,?,?,?,?,(SELECT project_id FROM issues_issues WHERE workspace_id=? AND id=?))",
   events:
-    "SELECT sequence,event_id,aggregate_id,aggregate_version,type,occurred_at,actor_id,actor_kind,client_id FROM issues_events WHERE workspace_id=? AND sequence>? ORDER BY sequence LIMIT ?",
+    "SELECT sequence,event_id,aggregate_id,aggregate_version,type,occurred_at,actor_id,actor_kind,client_id,project_id FROM issues_events WHERE workspace_id=? AND sequence>? ORDER BY sequence LIMIT ?",
+  maintenanceFreeze:
+    "INSERT INTO issues_frozen_scopes(workspace_id,project_id,state) VALUES(?,?,'frozen') ON CONFLICT(workspace_id,project_id) DO NOTHING",
+  maintenanceMarker: "SELECT state FROM issues_frozen_scopes WHERE workspace_id=? AND project_id=?",
+  maintenanceBegin:
+    "UPDATE issues_frozen_scopes SET state='purging' WHERE workspace_id=? AND project_id=? AND state='frozen'",
+  maintenanceDone:
+    "UPDATE issues_frozen_scopes SET state='purged' WHERE workspace_id=? AND project_id=? AND state='purging'",
+  maintenanceBypass: "INSERT INTO issues_purge_bypass(workspace_id,project_id) VALUES(?,?)",
+  maintenanceUnbypass: "DELETE FROM issues_purge_bypass WHERE workspace_id=? AND project_id=?",
+  maintenanceCountSearch:
+    "SELECT COUNT(*) AS n FROM issues_search t WHERE t.workspace_id=? AND (?='' OR t.project_id=?)",
+  maintenanceDeleteSearch:
+    "DELETE FROM issues_search WHERE rowid IN (SELECT t.rowid FROM issues_search t WHERE t.workspace_id=? AND (?='' OR t.project_id=?) ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountComments:
+    "SELECT COUNT(*) AS n FROM issues_comments t WHERE t.workspace_id=? AND (?='' OR (SELECT project_id FROM issues_issues WHERE workspace_id=t.workspace_id AND id=t.issue_id)=?)",
+  maintenanceDeleteComments:
+    "DELETE FROM issues_comments WHERE rowid IN (SELECT t.rowid FROM issues_comments t WHERE t.workspace_id=? AND (?='' OR (SELECT project_id FROM issues_issues WHERE workspace_id=t.workspace_id AND id=t.issue_id)=?) ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountHistory:
+    "SELECT COUNT(*) AS n FROM issues_history t WHERE t.workspace_id=? AND (?='' OR (SELECT project_id FROM issues_issues WHERE workspace_id=t.workspace_id AND id=t.issue_id)=?)",
+  maintenanceDeleteHistory:
+    "DELETE FROM issues_history WHERE rowid IN (SELECT t.rowid FROM issues_history t WHERE t.workspace_id=? AND (?='' OR (SELECT project_id FROM issues_issues WHERE workspace_id=t.workspace_id AND id=t.issue_id)=?) ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountReceipts:
+    "SELECT COUNT(*) AS n FROM issues_receipts t WHERE t.workspace_id=? AND (?='' OR t.project_id=?)",
+  maintenanceDeleteReceipts:
+    "DELETE FROM issues_receipts WHERE rowid IN (SELECT t.rowid FROM issues_receipts t WHERE t.workspace_id=? AND (?='' OR t.project_id=?) ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountEvents:
+    "SELECT COUNT(*) AS n FROM issues_events t WHERE t.workspace_id=? AND (?='' OR t.project_id=?)",
+  maintenanceDeleteEvents:
+    "DELETE FROM issues_events WHERE rowid IN (SELECT t.rowid FROM issues_events t WHERE t.workspace_id=? AND (?='' OR t.project_id=?) ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountGuards:
+    "SELECT COUNT(*) AS n FROM issues_guards t WHERE t.workspace_id=? AND ?=''",
+  maintenanceDeleteGuards:
+    "DELETE FROM issues_guards WHERE rowid IN (SELECT t.rowid FROM issues_guards t WHERE t.workspace_id=? AND ?='' ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountIssues:
+    "SELECT COUNT(*) AS n FROM issues_issues t WHERE t.workspace_id=? AND (?='' OR t.project_id=?)",
+  maintenanceDeleteIssues:
+    "DELETE FROM issues_issues WHERE rowid IN (SELECT t.rowid FROM issues_issues t WHERE t.workspace_id=? AND (?='' OR t.project_id=?) AND NOT EXISTS (SELECT 1 FROM issues_comments c WHERE c.workspace_id=t.workspace_id AND c.issue_id=t.id) AND NOT EXISTS (SELECT 1 FROM issues_history c WHERE c.workspace_id=t.workspace_id AND c.issue_id=t.id) AND NOT EXISTS (SELECT 1 FROM issues_receipts c WHERE c.workspace_id=t.workspace_id AND c.result_id=t.id) AND NOT EXISTS (SELECT 1 FROM issues_events c WHERE c.workspace_id=t.workspace_id AND c.aggregate_id=t.id) ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountCounters:
+    "SELECT COUNT(*) AS n FROM issues_counters t WHERE t.workspace_id=? AND (?='' OR t.project_id=?)",
+  maintenanceDeleteCounters:
+    "DELETE FROM issues_counters WHERE rowid IN (SELECT t.rowid FROM issues_counters t WHERE t.workspace_id=? AND (?='' OR t.project_id=?) ORDER BY t.rowid LIMIT 50)",
 } as const;

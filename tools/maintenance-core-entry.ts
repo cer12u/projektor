@@ -1,0 +1,13 @@
+export { createAccess } from "../modules/access/internal/factory";
+export { createMaintenance as accessMaintenance } from "../modules/access/internal/maintenance";
+export { createCoordination } from "../modules/coordination/internal/factory";
+export { createMaintenance as coordinationMaintenance } from "../modules/coordination/internal/maintenance";
+export { createIssues } from "../modules/issues/internal/factory";
+export { createMaintenance as issuesMaintenance } from "../modules/issues/internal/maintenance";
+export { createProjects } from "../modules/projects/internal/factory";
+export { createMaintenance as projectsMaintenance } from "../modules/projects/internal/maintenance";
+export { fakeAccess } from "../modules/projects/tests/access-fake";
+export { createWiki } from "../modules/wiki/internal/factory";
+export { createMaintenance as wikiMaintenance } from "../modules/wiki/internal/maintenance";
+export { createModuleStore, createScopedKV } from "../platform/adapters";
+export { migrate } from "../platform/migrate";

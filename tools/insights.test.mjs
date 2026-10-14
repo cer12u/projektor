@@ -466,6 +466,7 @@ test("11a attribution for every owner, legacy null and forced claim issue target
     "bob",
     null,
     100,
+    null, // Historical projection predates durable project attribution.
   ]);
   await assert.doesNotReject(() => f.api.getActivity(s), "legacy forced claims remain readable");
   assert(
