@@ -23,6 +23,20 @@ import {
 import { randomIds, systemClock } from "../../platform/primitives";
 import { PlatformError, type SecretVault } from "../../platform/public";
 
+// Retain the deployed namespaces and their data without restoring the retired
+// implementation. These classes have no application bindings or storage access.
+export class WorkspaceHub {
+  async fetch(): Promise<Response> {
+    return new Response("Legacy realtime service is retired", { status: 503 });
+  }
+}
+
+export class RateLimiter {
+  async fetch(): Promise<Response> {
+    return new Response("Legacy rate limiter is retired", { status: 503 });
+  }
+}
+
 export interface Env {
   readonly DB: D1Database;
   readonly R2: R2Bucket;
