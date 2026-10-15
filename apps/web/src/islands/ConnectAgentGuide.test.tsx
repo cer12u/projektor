@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/preact";
 import { describe, expect, it, vi } from "vitest";
 import ConnectAgentGuide from "./ConnectAgentGuide";
 
-function stubFetch(mcpUrl = "https://projektor.example.workers.dev/mcp/w1") {
+function stubFetch(mcpUrl = "https://projektor.example.com/mcp/w1") {
 	vi.stubGlobal(
 		"fetch",
 		vi.fn().mockResolvedValue({ ok: true, json: () => Promise.resolve({ mcpUrl }) })
@@ -23,9 +23,9 @@ describe("ConnectAgentGuide", () => {
 	});
 
 	it("shows the workspace's MCP URL once it loads, with a copy button", async () => {
-		stubFetch("https://projektor.example.workers.dev/mcp/w1");
+		stubFetch("https://projektor.example.com/mcp/w1");
 		render(<ConnectAgentGuide workspaceSlug="my-ws" />);
-		expect(await screen.findByText("https://projektor.example.workers.dev/mcp/w1")).toBeTruthy();
+		expect(await screen.findByText("https://projektor.example.com/mcp/w1")).toBeTruthy();
 		expect(screen.getByRole("button", { name: /Copy/i })).toBeTruthy();
 	});
 

@@ -269,6 +269,15 @@ export function createAccess(deps: Dependencies): {
   });
   async function current(p: Identity, cursor = "", limit = 50) {
     await live(p);
+    if (p.kind === "human" && p.email) {
+      await store.run("refreshProfile", [
+        p.email,
+        p.displayName ?? p.subject,
+        p.id,
+        p.email,
+        p.displayName ?? p.subject,
+      ]);
+    }
     if (cursor) identifier(cursor);
     valid(Number.isSafeInteger(limit) && limit >= 1 && limit <= 100);
     const rows = (
@@ -285,7 +294,8 @@ export function createAccess(deps: Dependencies): {
       principal: {
         id: p.id,
         kind: p.clientId ? ("oauth" as const) : p.kind,
-        displayName: p.subject,
+        displayName: p.displayName ?? p.subject,
+        email: p.email ?? null,
         ...(client ? { clientName: str(client, "name") } : {}),
       },
       workspaces: rows.slice(0, limit).map((r) => ({
@@ -386,7 +396,8 @@ export function createAccess(deps: Dependencies): {
       const items = rows.slice(0, limit).map((r) => ({
         principalId: str(r, "principal_id"),
         kind: r.kind === "machine" ? ("machine" as const) : ("human" as const),
-        displayName: str(r, "subject"),
+        displayName: r.display_name === null ? str(r, "subject") : str(r, "display_name"),
+        email: r.email === null ? null : str(r, "email"),
         role: role(r.role),
         version: num(r, "version"),
       }));

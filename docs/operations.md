@@ -79,3 +79,24 @@ People sign in through Cloudflare Access. Agents use machine bearer tokens or MC
    - The cookie never authenticates MCP, and never overrides a bearer token.
 
 Any person whom the Access policy admits can create a workspace and becomes its owner, so keep the Allow policy narrow.
+
+# Restored UI routing and migration
+
+The Worker sends `/api/*`, `/auth/*`, `/mcp/*`, `/oauth/*`,
+`/.well-known/*`, `/integrations/*`, and `/health` to Gateway. Other paths use
+the Astro files in `dist/assets`, with the original project, issue, share,
+feedback, and wiki deep-link fallbacks. The artifact records checksums for all
+files below `dist/assets`.
+
+Optional Worker vars are `ADMIN_EMAILS` (comma-separated, case-insensitive),
+`DEFAULT_WORKSPACE_SLUG` (defaults to `projektor`) and
+`DEFAULT_WORKSPACE_NAME` (defaults to `Projektor`). Only a verified human whose
+email is listed may create the default workspace, once, on `/auth/me` when
+they have no membership. Other users are never auto-joined.
+
+For this MR, apply the additive Access `0005_profile.sql` and Projects
+`0004_ui_fields.sql` migrations to the approved production D1 before code
+deployment. Verify the ledger and database backup, then set
+`CF_APPROVED_SCHEMA_SHA256` to the SHA-256 of the new `dist/migrations.json`
+as described in [GitHub deployment](github-cloudflare.md). Deploy code after
+the schema hash is approved.

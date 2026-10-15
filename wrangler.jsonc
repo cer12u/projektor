@@ -16,6 +16,7 @@
       "/.well-known/*",
       "/oauth/*",
       "/integrations/*",
+      "/auth/*",
       "/health"
     ]
   },

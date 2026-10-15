@@ -7,9 +7,11 @@ import { extname, join, normalize } from 'node:path';
 import { brotliCompressSync, gzipSync } from 'node:zlib';
 import { chromium, devices } from '@playwright/test';
 
-const ORIGIN = 'https://projektor.tajdickson.workers.dev';
+const ORIGIN = process.env.PROJEKTOR_PERF_ORIGIN;
+if (!ORIGIN) throw new Error('Set PROJEKTOR_PERF_ORIGIN');
 const TOKEN = process.env.PROJEKTOR_API_TOKEN;
-const SLUG = 'projektor';
+const SLUG = process.env.PROJEKTOR_PERF_WORKSPACE_SLUG;
+if (!TOKEN || !SLUG) throw new Error('Set token and workspace slug');
 const DIST = new URL('../../dist/', import.meta.url).pathname.replace(/^\//, '');
 const PORT = 4399;
 
@@ -89,7 +91,7 @@ await new Promise((r) => server.listen(PORT, r));
 const TARGETS = (
   process.argv.slice(2).length
     ? process.argv.slice(2)
-    : ['', 'issues/view?id=49053198-9ea1-4f14-a3bf-0d1ce9766aa0', 'projects/PROJ/issues/431/x']
+    : ['', ...(process.env.PROJEKTOR_PERF_ISSUE_ID ? [`issues/view?id=${encodeURIComponent(process.env.PROJEKTOR_PERF_ISSUE_ID)}`] : [])]
 ).map((t) => '/' + t.replace(/^\/+/, ''));
 
 const PROFILES = {

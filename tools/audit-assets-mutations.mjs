@@ -302,19 +302,6 @@ add(
   "gateway-oauth",
 );
 
-add(
-  "web-retry-new-id",
-  [
-    patch(
-      "apps/web/src/app.tsx",
-      "operationId: current.completeId,",
-      "operationId: crypto.randomUUID(),",
-    ),
-  ],
-  "09a attachment",
-  "browser",
-);
-
 const original = process.argv.includes("--original");
 const ids = process.argv.slice(2).filter((x) => x !== "--original");
 const selected = cases.filter((c) => !ids.length || ids.includes(c.id));

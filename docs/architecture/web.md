@@ -1,4 +1,18 @@
-# Step 07 Web
+# Restored Web UI (C1)
+
+`apps/web` now builds the original Astro/Preact interface into `dist/assets`.
+The Worker routes authenticated API requests through Gateway's UI adapter and
+serves static assets with deep-link fallbacks. `tools/web-dev.mjs` signs a test
+Access assertion for a single local workspace; the browser fixture uses its
+`CF_Authorization` cookie. `pnpm test:web:unit` runs the imported Vitest suite
+in UTC, and `pnpm test:web` runs the headless C1 project-flow test. Web TypeScript
+is checked with its own TypeScript 6 compiler; Astro build compiles `.astro`
+files. Browser source may import only within `apps/web` and npm packages.
+
+## Historical Step 07 Web
+
+The rest of this document records the retired modular Web implementation and
+its former tests. They are not C1 operating instructions.
 
 The browser uses one Preact root and an explicit view state. The wire client reads
 Gateway’s public `/api/openapi.json` for operation paths and methods. It sends

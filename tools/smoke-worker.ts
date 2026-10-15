@@ -39,6 +39,7 @@ async function bootstrap(env: Env, value: unknown): Promise<string> {
     new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret))),
     (byte) => byte.toString(16).padStart(2, "0"),
   ).join("");
+  const now = Math.floor(Date.now() / 1000);
   await db.batch([
     db
       .prepare("INSERT INTO access_workspaces(workspace_id,name,version) VALUES(?,?,1)")
@@ -55,12 +56,12 @@ async function bootstrap(env: Env, value: unknown): Promise<string> {
       .prepare(
         "INSERT INTO access_credentials(workspace_id,id,principal_id,token_hash,scope,expires_at,version) VALUES(?,'smoke',?,?,'write',?,1)",
       )
-      .bind(workspaceId, principalId, tokenHash, Math.floor(Date.now() / 1000) + 3600),
+      .bind(workspaceId, principalId, tokenHash, now + 3600),
     db
       .prepare(
-        "INSERT INTO projects_projects(workspace_id,id,project_key,name,version) VALUES(?,'smoke','SMOKE','Smoke',1)",
+        "INSERT INTO projects_projects(workspace_id,id,project_key,name,version,description,slug,created_at,updated_at) VALUES(?,'smoke','SMOKE','Smoke',1,'','smoke',?,?)",
       )
-      .bind(workspaceId),
+      .bind(workspaceId, now, now),
     db
       .prepare(
         "INSERT INTO projects_grants(workspace_id,project_id,principal_id,role,active) VALUES(?,'smoke',?,'editor',1)",

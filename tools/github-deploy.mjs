@@ -30,8 +30,30 @@ assert.deepEqual(
     "worker",
     "oauthEnabled",
     "integrationsEnabled",
-  ].sort(),
+  ]
+    .concat(
+      ["adminEmails", "defaultWorkspaceSlug", "defaultWorkspaceName"].filter((key) =>
+        Object.hasOwn(installation, key),
+      ),
+    )
+    .sort(),
 );
+if (installation.adminEmails !== undefined)
+  assert(
+    Array.isArray(installation.adminEmails) &&
+      installation.adminEmails.every((value) => typeof value === "string" && value.trim()),
+  );
+if (installation.defaultWorkspaceSlug !== undefined)
+  assert.match(
+    installation.defaultWorkspaceSlug,
+    /^[a-zA-Z0-9_-]{1,128}$/,
+    "Invalid defaultWorkspaceSlug",
+  );
+if (installation.defaultWorkspaceName !== undefined)
+  assert(
+    typeof installation.defaultWorkspaceName === "string" &&
+      installation.defaultWorkspaceName.trim(),
+  );
 assert.equal(typeof installation.oauthEnabled, "boolean");
 assert.equal(typeof installation.integrationsEnabled, "boolean");
 assert.match(installation.worker, /^[a-z0-9-]{1,63}$/);
@@ -91,6 +113,15 @@ const config = {
   vars: {
     ACCESS_TEAM_DOMAIN: installation.accessTeamDomain,
     ACCESS_AUDIENCE: installation.accessAudience,
+    ...(installation.adminEmails?.length
+      ? { ADMIN_EMAILS: installation.adminEmails.join(",") }
+      : {}),
+    ...(installation.defaultWorkspaceSlug
+      ? { DEFAULT_WORKSPACE_SLUG: installation.defaultWorkspaceSlug }
+      : {}),
+    ...(installation.defaultWorkspaceName
+      ? { DEFAULT_WORKSPACE_NAME: installation.defaultWorkspaceName }
+      : {}),
     ...(installation.oauthEnabled
       ? { OAUTH_ISSUER: origin.origin, OAUTH_RESOURCE: `${origin.origin}/mcp` }
       : {}),

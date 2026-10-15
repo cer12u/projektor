@@ -1,6 +1,8 @@
 import type { Row } from "../../../platform/public";
 import type { Permission, PrincipalSummary } from "../public";
 export interface Identity extends PrincipalSummary {
+  readonly email?: string;
+  readonly displayName?: string;
   readonly expiresAt: number;
   readonly workspaceId?: string;
   readonly credentialId?: string;

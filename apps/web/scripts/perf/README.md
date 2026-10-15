@@ -12,8 +12,8 @@ page.
 ```sh
 pnpm --filter @projektor/web build
 cd apps/web
-PROJEKTOR_API_TOKEN=<token> node scripts/perf/measure-load.mjs
-PROJEKTOR_API_TOKEN=<token> node scripts/perf/check-interactive.mjs
+PROJEKTOR_PERF_ORIGIN=<https-origin> PROJEKTOR_PERF_WORKSPACE_SLUG=<slug> PROJEKTOR_API_TOKEN=<token> node scripts/perf/measure-load.mjs
+PROJEKTOR_PERF_ORIGIN=<https-origin> PROJEKTOR_PERF_WORKSPACE_SLUG=<slug> PROJEKTOR_PERF_ISSUE_ID=<issue-id> PROJEKTOR_API_TOKEN=<token> node scripts/perf/check-interactive.mjs
 ```
 
 The token is an app bearer token. `/api` and `/mcp` are Cloudflare Access bypass apps, so
@@ -25,6 +25,7 @@ Chromium via Playwright on two profiles: Pixel 5 with Lighthouse mobile throttli
 (1.6 Mbps down, 750 Kbps up, 150 ms RTT, 4× CPU) and unthrottled desktop. Median of 3
 runs per page. Reports FCP, LCP, DCL, JS transfer, when the last JS and last API request
 finished, long-task time, and time until real content replaces the loading placeholder.
+The default target is `/`; setting `PROJEKTOR_PERF_ISSUE_ID` also adds that issue.
 Pass paths as arguments to override the defaults — without a leading slash, which Git
 Bash mangles.
 

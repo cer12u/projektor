@@ -103,6 +103,23 @@ test("a schema-changing build stops before any Cloudflare operation", () => {
   }
 });
 
+test("optional default workspace settings reject an invalid slug", () => {
+  const f = configurationFixture(false);
+  try {
+    const config = JSON.parse(f.settings.CF_DEPLOY_CONFIG);
+    config.adminEmails = ["owner@example.test"];
+    config.defaultWorkspaceSlug = "bad/slug";
+    config.defaultWorkspaceName = "Example";
+    rejected(
+      { ...f.settings, CF_DEPLOY_CONFIG: JSON.stringify(config) },
+      /defaultWorkspaceSlug/,
+      f.cwd,
+    );
+  } finally {
+    fs.rmSync(f.cwd, { recursive: true, force: true });
+  }
+});
+
 test("route management cannot enter the Worker-only deployment", () => {
   const f = configurationFixture(true);
   try {

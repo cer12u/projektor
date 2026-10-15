@@ -54,6 +54,14 @@ function name(value: unknown): string {
   if (typeof value !== "string" || !value.trim() || value.length > 512) invalid();
   return value.trim();
 }
+function description(value: unknown): string {
+  if (typeof value !== "string" || value.length > 10000) invalid();
+  return value;
+}
+function slug(value: unknown): string {
+  if (typeof value !== "string" || !/^[a-z0-9][a-z0-9-]{0,127}$/.test(value)) invalid();
+  return value;
+}
 function version(value: unknown): number {
   if (
     !Number.isSafeInteger(value) ||
@@ -114,6 +122,10 @@ export function createProjects(deps: Dependencies): {
       id: str(p, "id"),
       key: str(p, "project_key"),
       name: str(p, "name"),
+      description: str(p, "description"),
+      slug: str(p, "slug"),
+      createdAt: num(p, "created_at"),
+      updatedAt: num(p, "updated_at"),
       version: num(p, "version"),
       archived: p.archived === 1,
       role: projectRole,
@@ -227,10 +239,14 @@ export function createProjects(deps: Dependencies): {
       const projectId = id(input.projectId);
       const projectKey = key(input.key);
       const projectName = name(input.name);
+      const projectDescription = description(input.description ?? "");
+      const projectSlug = slug(input.slug ?? projectKey.toLowerCase());
       const fp = await fingerprint("createProject", input.operationId, [
         projectId,
         projectKey,
         projectName,
+        projectDescription,
+        projectSlug,
       ]);
       const saved = await replay(s, input.operationId, fp);
       if (saved) return saved;
@@ -240,7 +256,19 @@ export function createProjects(deps: Dependencies): {
         fp,
         { id: projectId, version: 1 },
         "ProjectChanged",
-        guarded(s, { name: "create", values: [workspace(s), projectId, projectKey, projectName] }),
+        guarded(s, {
+          name: "create",
+          values: [
+            workspace(s),
+            projectId,
+            projectKey,
+            projectName,
+            projectDescription,
+            projectSlug,
+            clock.now(),
+            clock.now(),
+          ],
+        }),
       );
     },
     async renameProject(scope, input) {
@@ -266,7 +294,62 @@ export function createProjects(deps: Dependencies): {
         "ProjectChanged",
         guarded(scope, {
           name: "rename",
-          values: [projectKey ?? current.key, projectName, workspace(scope), projectId, expected],
+          values: [
+            projectKey ?? current.key,
+            projectName,
+            clock.now(),
+            workspace(scope),
+            projectId,
+            expected,
+          ],
+        }),
+      );
+    },
+    async updateProject(scope, input) {
+      inputObject(input);
+      const projectId = id(input.projectId);
+      const expected = version(input.expectedVersion);
+      const current = await authorizeProject(scope, projectId, "manage");
+      const nextName = input.name === undefined ? current.name : name(input.name);
+      const nextKey = input.key === undefined ? current.key : key(input.key);
+      const nextDescription =
+        input.description === undefined ? current.description : description(input.description);
+      const nextSlug = input.slug === undefined ? current.slug : slug(input.slug);
+      if (
+        input.name === undefined &&
+        input.key === undefined &&
+        input.description === undefined &&
+        input.slug === undefined
+      )
+        invalid();
+      const fp = await fingerprint("updateProject", input.operationId, [
+        projectId,
+        expected,
+        input.name ?? null,
+        input.key ?? null,
+        input.description ?? null,
+        input.slug ?? null,
+      ]);
+      const saved = await replay(scope, input.operationId, fp);
+      if (saved) return saved;
+      return commit(
+        scope,
+        input.operationId,
+        fp,
+        { id: projectId, version: expected + 1 },
+        "ProjectChanged",
+        guarded(scope, {
+          name: "updateProject",
+          values: [
+            nextKey,
+            nextName,
+            nextDescription,
+            nextSlug,
+            clock.now(),
+            workspace(scope),
+            projectId,
+            expected,
+          ],
         }),
       );
     },
@@ -346,6 +429,12 @@ export function createProjects(deps: Dependencies): {
       );
     },
     getProject: (scope, projectId) => authorizeProject(scope, projectId),
+    async getProjectBySlug(scope, projectSlug) {
+      const live = await access.authorize(scope, "read");
+      const row = await one("projectBySlug", [workspace(live), slug(projectSlug)]);
+      if (!row) missing();
+      return authorizeProject(live, str(row, "id"));
+    },
     getProjectIncludingArchived: (scope, projectId) =>
       authorizeProject(scope, projectId, "read", true),
     async listVisibleProjects(scope, cursor = "", limit = 50) {
@@ -368,6 +457,10 @@ export function createProjects(deps: Dependencies): {
           id: str(row, "id"),
           key: str(row, "project_key"),
           name: str(row, "name"),
+          description: str(row, "description"),
+          slug: str(row, "slug"),
+          createdAt: num(row, "created_at"),
+          updatedAt: num(row, "updated_at"),
           version: num(row, "version"),
           archived: false,
           role: privileged(live) ? "manager" : role(row.grant_role),

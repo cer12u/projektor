@@ -4,6 +4,7 @@
     "includes": [
       "**",
       "!!platform/generated",
+      "!!apps/web",
       "!!pnpm-lock.yaml",
       "!!docs",
       "!!.tmp",

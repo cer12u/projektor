@@ -1907,3 +1907,52 @@ test("11a background discovery pages active workspaces without membership or fir
   for (const limit of [0, 101, 1.5])
     await assert.rejects(f.background.listActiveWorkspaceIds(undefined, limit), code("validation"));
 });
+
+test("verified email refreshes the profile cache and member display names", async () => {
+  const f = await fixture();
+  const { principal, scope } = await f.owner("w1", "profile");
+  const first = await f.api.me(principal);
+  assert.equal(first.principal.email, "profile@example.test");
+  assert.equal(first.principal.displayName, "profile");
+  let member = (await f.api.listMembers(scope)).items[0];
+  assert.equal(member.email, "profile@example.test");
+  assert.equal(member.displayName, "profile");
+  const changed = await f.api.authenticate({
+    kind: "human",
+    assertion: await f.sign("profile", { email: "renamed@example.test" }),
+  });
+  await f.api.me(changed);
+  member = (await f.api.listMembers(scope)).items[0];
+  assert.equal(member.email, "renamed@example.test");
+  assert.equal(member.displayName, "renamed");
+  const w2 = await f.owner("w2", "second");
+  await f.api.me(w2.principal);
+  assert.equal((await f.api.listMembers(w2.scope)).items[0].email, "second@example.test");
+  assert.equal((await f.api.listMembers(scope)).items.length, 1);
+});
+
+test("profile migration leaves existing global principals nullable", async () => {
+  const db = await mf.getD1Database(`DB${index++}`);
+  const apply = async (file) => {
+    const sql = fs.readFileSync(`modules/access/storage/migrations/${file}`, "utf8");
+    for (const statement of sql.split(/;\s*\n/))
+      if (statement.trim()) await db.prepare(statement).run();
+  };
+  for (const file of [
+    "0001_access.sql",
+    "0002_oauth.sql",
+    "0003_oauth_forms.sql",
+    "0004_maintenance.sql",
+  ])
+    await apply(file);
+  await db
+    .prepare(
+      "INSERT INTO access_principals(id,kind,issuer,subject) VALUES('old','human','issuer','subject')",
+    )
+    .run();
+  await apply("0005_profile.sql");
+  assert.deepEqual(
+    await db.prepare("SELECT email,display_name FROM access_principals WHERE id='old'").first(),
+    { email: null, display_name: null },
+  );
+});

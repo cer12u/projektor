@@ -6,6 +6,10 @@ export interface Project {
   readonly id: string;
   readonly key: string;
   readonly name: string;
+  readonly description: string;
+  readonly slug: string;
+  readonly createdAt: number;
+  readonly updatedAt: number;
   readonly version: number;
   readonly archived: boolean;
   readonly role: ProjectRole;
@@ -44,6 +48,8 @@ export interface ProjectsApi {
       readonly projectId: string;
       readonly key: string;
       readonly name: string;
+      readonly description?: string;
+      readonly slug?: string;
     },
   ): Promise<ProjectResult>;
   renameProject(
@@ -54,6 +60,18 @@ export interface ProjectsApi {
       readonly expectedVersion: number;
       readonly key?: string;
       readonly name: string;
+    },
+  ): Promise<ProjectResult>;
+  updateProject(
+    scope: RequestScope,
+    input: {
+      readonly operationId: string;
+      readonly projectId: string;
+      readonly expectedVersion: number;
+      readonly name?: string;
+      readonly key?: string;
+      readonly description?: string;
+      readonly slug?: string;
     },
   ): Promise<ProjectResult>;
   grantProjectRole(
@@ -84,6 +102,7 @@ export interface ProjectsApi {
     },
   ): Promise<ProjectResult>;
   getProject(scope: RequestScope, projectId: string): Promise<Project>;
+  getProjectBySlug(scope: RequestScope, slug: string): Promise<Project>;
   /** Authorized historical read for dependent owners; archived projects remain read-only. */
   getProjectIncludingArchived(scope: RequestScope, projectId: string): Promise<Project>;
   listVisibleProjects(scope: RequestScope, cursor?: string, limit?: number): Promise<ProjectPage>;

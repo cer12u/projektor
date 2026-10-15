@@ -58,6 +58,15 @@ The build injects only production catalogs into the Worker bundle after the
 source catalog hash and SQL checks pass. The artifact check rejects fixture
 names and verifies the production migration package.
 
+## UI API
+
+`gateway/ui/` translates the restored UI's `/auth/*` and `/api/*` requests to
+public module APIs. `/api/me`, `/api/openapi.json`, and `/api/w/*` keep their
+existing handlers. The UI API has no storage access. It resolves a workspace
+from `X-Workspace-Slug`, a matching first Host label, or the caller's sole
+workspace, then performs Access membership admission. Writes use fresh
+operation IDs and the current row version; CAS conflicts return HTTP 409.
+Unimplemented UI paths return HTTP 501 with `{"error":"Not implemented"}`.
 
 ## Step 06b OAuth HTTP
 

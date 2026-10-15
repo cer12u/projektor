@@ -15,6 +15,11 @@ Human assertions use Web Crypto RS256 verification and exact issuer/audience,
 expiry, issued-at and optional not-before checks. Require application type,
 subject and email; service-token claims are rejected. The identity key hashes
 `[human, issuer, subject]`, never email. Authentication creates no durable rows.
+`me()` refreshes the verified email and the email-local-part display name in the
+global principal row only when either value differs. This conditional profile
+cache update is the single receipt-less write: it mirrors identity claims and
+does not change business state. Membership listings use the stored name, or the
+subject when no profile has been cached.
 Membership commands explicitly register identity records. Public signing keys are
 cached for 300 seconds only inside the verifier that fetched them from the
 configured HTTPS origin. KV is never read as a signing-key source: the 05a audit

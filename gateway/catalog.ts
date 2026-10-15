@@ -12,6 +12,9 @@ import { PlatformError } from "../platform/public";
 
 export interface Services {
   readonly access: AccessApi;
+  readonly bootstrapDefaultWorkspace?: (
+    principal: import("../modules/access/public").AuthenticatedPrincipal,
+  ) => Promise<void>;
   readonly oauthHttp?: (request: Request) => Promise<Response>;
   readonly oauthOrigin?: string;
   readonly projects: ProjectsApi;
@@ -247,7 +250,14 @@ export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
     s.planning.readOperation(c, str(a, "operationId")),
   ),
   "projects.create": op(
-    { ...operationId, projectId: "string", key: "string", name: "string" },
+    {
+      ...operationId,
+      projectId: "string",
+      key: "string",
+      name: "string",
+      description: "optionalString",
+      slug: "optionalString",
+    },
     true,
     (s, c, a) =>
       s.projects.createProject(c, {
@@ -255,6 +265,8 @@ export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
         projectId: str(a, "projectId"),
         key: str(a, "key"),
         name: str(a, "name"),
+        description: optStr(a, "description"),
+        slug: optStr(a, "slug"),
       }),
   ),
   "projects.rename": op(
@@ -267,6 +279,27 @@ export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
         projectId: str(a, "projectId"),
         key: optStr(a, "key"),
         name: str(a, "name"),
+      }),
+  ),
+  "projects.update": op(
+    {
+      ...version,
+      projectId: "string",
+      key: "optionalString",
+      name: "optionalString",
+      description: "optionalString",
+      slug: "optionalString",
+    },
+    true,
+    (s, c, a) =>
+      s.projects.updateProject(c, {
+        operationId: str(a, "operationId"),
+        projectId: str(a, "projectId"),
+        expectedVersion: num(a, "expectedVersion"),
+        key: optStr(a, "key"),
+        name: optStr(a, "name"),
+        description: optStr(a, "description"),
+        slug: optStr(a, "slug"),
       }),
   ),
   "projects.grant": op(
@@ -301,6 +334,9 @@ export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
   ),
   "projects.get": op({ projectId: "string" }, false, (s, c, a) =>
     s.projects.getProject(c, str(a, "projectId")),
+  ),
+  "projects.getBySlug": op({ slug: "string" }, false, (s, c, a) =>
+    s.projects.getProjectBySlug(c, str(a, "slug")),
   ),
   "projects.list": op({ cursor: "optionalString", limit: "optionalNumber" }, false, (s, c, a) =>
     s.projects.listVisibleProjects(c, optStr(a, "cursor"), optNum(a, "limit")),

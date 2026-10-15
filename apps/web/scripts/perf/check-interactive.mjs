@@ -5,8 +5,12 @@ import { readFile, stat } from 'node:fs/promises';
 import { extname, join, normalize } from 'node:path';
 import { chromium, devices } from '@playwright/test';
 
-const ORIGIN = 'https://projektor.tajdickson.workers.dev';
+const ORIGIN = process.env.PROJEKTOR_PERF_ORIGIN;
+if (!ORIGIN) throw new Error('Set PROJEKTOR_PERF_ORIGIN');
 const TOKEN = process.env.PROJEKTOR_API_TOKEN;
+const SLUG = process.env.PROJEKTOR_PERF_WORKSPACE_SLUG;
+const ISSUE_ID = process.env.PROJEKTOR_PERF_ISSUE_ID;
+if (!TOKEN || !SLUG || !ISSUE_ID) throw new Error('Set token, workspace slug, and issue ID');
 const DIST = new URL('../../dist/', import.meta.url).pathname.replace(/^\//, '');
 const PORT = 4400;
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json', '.woff2': 'font/woff2' };
@@ -16,7 +20,7 @@ const server = createServer(async (req, res) => {
   if (/^\/(api|auth|mcp)/.test(url.pathname)) {
     const up = await fetch(ORIGIN + req.url, {
       method: req.method,
-      headers: { Authorization: `Bearer ${TOKEN}`, 'X-Workspace-Slug': 'projektor', ...(req.headers['content-type'] ? { 'content-type': req.headers['content-type'] } : {}) },
+      headers: { Authorization: `Bearer ${TOKEN}`, 'X-Workspace-Slug': SLUG, ...(req.headers['content-type'] ? { 'content-type': req.headers['content-type'] } : {}) },
       body: ['GET', 'HEAD'].includes(req.method) ? undefined : await new Promise((r) => { const c = []; req.on('data', (d) => c.push(d)); req.on('end', () => r(Buffer.concat(c))); }),
       redirect: 'manual',
     });
@@ -35,7 +39,7 @@ const server = createServer(async (req, res) => {
 });
 await new Promise((r) => server.listen(PORT, r));
 
-const ISSUE = '/issues/view?id=49053198-9ea1-4f14-a3bf-0d1ce9766aa0';
+const ISSUE = `/issues/view?id=${encodeURIComponent(ISSUE_ID)}`;
 const results = [];
 const check = (profile, name, pass, detail = '') => {
   results.push({ profile, name, pass, detail });

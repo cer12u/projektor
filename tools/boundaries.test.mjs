@@ -33,6 +33,27 @@ const ddl = (root, sql, object) => {
     );
 };
 const cases = [
+  [
+    "Web cannot import Gateway implementation",
+    "import",
+    (r) => write(r, "apps/web/src/forbidden.ts", 'import "../../../gateway/public";'),
+  ],
+  [
+    "Web cannot import module implementation",
+    "import",
+    (r) => write(r, "apps/web/src/forbidden.ts", 'import "../../../modules/projects/public";'),
+  ],
+  [
+    "Web cannot import Platform",
+    "import",
+    (r) => write(r, "apps/web/src/forbidden.ts", 'import "../../../platform/public";'),
+  ],
+  [
+    "Module SQL-looking string remains forbidden",
+    "sql-static",
+    (r) =>
+      write(r, `${a}/internal/bad.ts`, 'export const statement = "SELECT * FROM fixture_a_items";'),
+  ],
   ...[
     "access",
     "projects",
@@ -537,6 +558,19 @@ test("healthy source fixture passes all checkers", () => {
   const root = fixture();
   try {
     assert.deepEqual(run(root, true), { status: 0, errors: [] });
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+test("Web source may contain any and SQL-looking text", () => {
+  const root = fixture();
+  try {
+    write(
+      root,
+      "apps/web/src/boundary-allowed.ts",
+      'export const text = "SELECT * FROM projects"; export const value = {} as any;',
+    );
+    assert.deepEqual(run(root, false), { status: 0, errors: [] });
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

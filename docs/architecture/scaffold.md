@@ -7,6 +7,10 @@ migration artifact. No existing Cloudflare resource is accessed.
 
 ## Catalog and capability flow
 
+Web source is checked as a browser-only root: an import that resolves outside
+`apps/web/` fails. npm packages are allowed. The existing server-side rules for
+all other owner kinds are unchanged.
+
 The owner registry declares roots, public entries, composition-only factories,
 allowed dependencies/packages, tables/schema objects and KV/R2 prefixes. The
 TypeScript compiler resolves aliases, package exports, type imports and barrels.
