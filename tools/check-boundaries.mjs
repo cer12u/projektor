@@ -7,6 +7,7 @@ import { collect, generated, manifest, sqlCheck } from "./catalogs.mjs";
 const sourcePattern = /\.(?:[cm]?[jt]sx?)$/;
 const excluded = new Set([
   "node_modules",
+  ".astro",
   ".git",
   "dist",
   ".tmp",
@@ -90,6 +91,7 @@ export function check(root = process.cwd(), onlyRule, { freshness = true } = {})
   cycle(dag, report, "owner (including type-only/event dependencies)");
   for (const file of sources(root, "", /\.sql$/)) {
     const matches = ownerOf(file);
+    if (matches.length === 1 && matches[0].kind === "web") continue;
     if (matches.length !== 1 || path.posix.dirname(file) !== matches[0].storage?.migrations)
       report("sql-static", `SQL outside owner migrations: ${file}`);
   }
@@ -103,6 +105,7 @@ export function check(root = process.cwd(), onlyRule, { freshness = true } = {})
     const owner = matches[0];
     if (
       owner.kind !== "tooling" &&
+      owner.kind !== "web" &&
       file !== "apps/worker/index.ts" &&
       file !== "tools/check-boundaries.mjs" &&
       /\bINTEGRATIONS_KEY\b/.test(fs.readFileSync(path.join(root, file), "utf8"))
@@ -135,11 +138,12 @@ export function check(root = process.cwd(), onlyRule, { freshness = true } = {})
         (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
           node.expression.getText(source) === "require")
       ) {
-        if (node.arguments.length !== 1 || !ts.isStringLiteralLike(node.arguments[0]))
+        if (node.arguments.length !== 1 || !ts.isStringLiteralLike(node.arguments[0])) {
+          if (owner.kind === "web") return;
           report("import", `${file}: non-literal import/require`);
-        else imports.push(node.arguments[0]);
+        } else imports.push(node.arguments[0]);
       }
-      if (owner.kind !== "tooling") {
+      if (owner.kind !== "tooling" && owner.kind !== "web") {
         if (
           node.kind === ts.SyntaxKind.AnyKeyword ||
           (ts.isAsExpression(node) &&
@@ -197,6 +201,17 @@ export function check(root = process.cwd(), onlyRule, { freshness = true } = {})
         options,
         ts.sys,
       ).resolvedModule;
+      if (owner.kind === "web") {
+        if (resolution && !resolution.resolvedFileName.includes("/node_modules/")) {
+          const target = path.relative(root, resolution.resolvedFileName).replaceAll(path.sep, "/");
+          if (!target.startsWith(`${owner.root}/`))
+            report("import", `${file}: Web import outside web root: ${target}`);
+          else edges.push(target);
+        } else if (name.startsWith(".") || name.startsWith("/")) {
+          report("import", `${file}: unresolved Web import ${name}`);
+        }
+        continue;
+      }
       if (!resolution || resolution.resolvedFileName.includes("/node_modules/")) {
         if (
           !owner.external.some((allowed) =>
@@ -228,7 +243,7 @@ export function check(root = process.cwd(), onlyRule, { freshness = true } = {})
       if (owner.kind === "web" && target !== "gateway/wire.ts")
         report("import", `${file}: Web may import only Gateway wire contract`);
     }
-    fileGraph.set(file, edges);
+    fileGraph.set(file, owner.kind === "web" ? [] : edges);
   }
   cycle(fileGraph, report, "source");
 

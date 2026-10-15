@@ -196,13 +196,6 @@ add(
 );
 
 add(
-  "web-client-attribution",
-  [patch("apps/web/src/app.tsx", '{item.clientId ? ` · ${item.clientId} 経由` : ""}', '{""}')],
-  "11a feed shows",
-  "browser",
-);
-
-add(
   "legacy-forced-claim",
   [
     f(

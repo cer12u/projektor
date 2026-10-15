@@ -50,7 +50,7 @@ const mf = new Miniflare({
     OAUTH_TOKEN_LIMIT: { namespace_id: "2002", simple: { limit: 60, period: 60 } },
     FEEDBACK_LIMIT: { namespace_id: "2003", simple: { limit: 60, period: 60 } },
   },
-  assets: { directory: "dist/assets", routerConfig: { has_user_worker: true } },
+  assets: { directory: "dist/assets", binding: "ASSETS", routerConfig: { has_user_worker: true } },
   d1Databases: ["DB"],
   kvNamespaces: ["KV"],
   r2Buckets: ["R2"],
@@ -96,7 +96,7 @@ const human = await access.authenticate({ kind: "human", assertion });
 const tokens = {};
 const machines = {};
 const oauthClients = {};
-for (const workspaceId of ["web1", "web2"]) {
+for (const workspaceId of ["web1"]) {
   await access.createWorkspace(human, {
     workspaceId,
     name: workspaceId,
@@ -160,17 +160,14 @@ for (const workspaceId of ["web1", "web2"]) {
     token: oauthToken.access_token,
   };
 }
-for (let index = 0; index < 101; index++) {
-  const workspaceId = `zz-web-${String(index).padStart(3, "0")}`;
-  await access.createWorkspace(human, {
-    workspaceId,
-    name: workspaceId,
-    operationId: `workspace-${workspaceId}`,
-  });
-}
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? "/", `http://127.0.0.1:${port}`);
+    if (url.pathname === "/__test/assertion") {
+      res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store" });
+      res.end(JSON.stringify({ assertion }));
+      return;
+    }
     if (url.pathname === "/__test/token") {
       const token = tokens[url.searchParams.get("w")];
       res.writeHead(token ? 200 : 404, {
@@ -194,7 +191,6 @@ const server = createServer(async (req, res) => {
     const headers = new Headers();
     for (const [key, value] of Object.entries(req.headers))
       if (value && key !== "host") headers.set(key, Array.isArray(value) ? value.join(",") : value);
-    if (url.pathname.startsWith("/api/")) headers.set("cf-access-jwt-assertion", assertion);
     const workerUrl = url.pathname.startsWith("/mcp/")
       ? new URL(url.pathname + url.search, oauthIssuer).toString()
       : url.toString();

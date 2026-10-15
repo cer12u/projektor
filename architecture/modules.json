@@ -27,8 +27,29 @@
       "root": "apps/web",
       "public": null,
       "kind": "web",
-      "dependencies": ["gateway"],
-      "external": ["preact", "preact/*", "marked", "dompurify"]
+      "dependencies": [],
+      "external": [
+        "@astrojs/preact",
+        "@codemirror/commands",
+        "@codemirror/lang-markdown",
+        "@codemirror/state",
+        "@codemirror/view",
+        "@playwright/test",
+        "@preact/signals",
+        "@tailwindcss/typography",
+        "@tailwindcss/vite",
+        "@testing-library/preact",
+        "@vite-pwa/astro",
+        "astro",
+        "dompurify",
+        "marked",
+        "mermaid",
+        "preact",
+        "tailwindcss",
+        "uplot",
+        "vite-plugin-pwa",
+        "vitest"
+      ]
     },
     {
       "id": "gateway",
@@ -199,6 +220,7 @@
         ],
         "objects": [
           "projects_key_unique",
+          "projects_slug_unique",
           "projects_freeze_grants_insert",
           "projects_freeze_grants_update",
           "projects_freeze_grants_delete",

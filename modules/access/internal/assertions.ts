@@ -8,6 +8,8 @@ export interface HumanIdentity {
   readonly issuer: string;
   readonly subject: string;
   readonly expiresAt: number;
+  readonly email: string;
+  readonly displayName: string;
 }
 export type JwksFetcher = (url: string) => Promise<unknown>;
 function object(value: unknown): Record<string, unknown> {
@@ -148,7 +150,13 @@ export function createAssertionVerifier(
         ))
       )
         deny();
-      return { issuer, subject: claims.sub, expiresAt: claims.exp };
+      return {
+        issuer,
+        subject: claims.sub,
+        expiresAt: claims.exp,
+        email: claims.email,
+        displayName: claims.email.split("@")[0],
+      };
     } catch {
       return deny();
     }

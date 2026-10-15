@@ -51,6 +51,9 @@ modules:
     paths: [reports/]
     expire_in: 7 days
 # Browser fixture is local Miniflare with a test-only assertion injector; no CI credentials.
+web:
+  stage: test
+  script: ["pnpm test:web:unit"]
 browser:
   stage: test
   image: $CI_BROWSER_IMAGE

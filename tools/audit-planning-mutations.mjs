@@ -254,25 +254,6 @@ add(
   "gateway",
 );
 
-add(
-  "web-next-page",
-  [patch("apps/web/src/app.tsx", 'setCursor(detail.data?.nextCursor ?? "")', 'setCursor("")')],
-  "10a sprint paging",
-  "browser",
-);
-add(
-  "web-closed-controls",
-  [
-    patch(
-      "apps/web/src/app.tsx",
-      "current && !current.closed && !current.archived && (",
-      "current && !current.archived && (",
-    ),
-  ],
-  "sprint view schedules",
-  "browser",
-);
-
 if (process.argv.includes("--check")) {
   for (const c of cases) {
     const texts = new Map();

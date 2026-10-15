@@ -1,3 +1,9 @@
+# Historical audit evidence
+
+The former `tools/web-e2e/*.spec.mjs` browser suites and `tools/web-unit.test.mjs`
+were retired during C1 UI restoration. References below describe the former
+modular UI and are not instructions for the restored Astro interface.
+
 # Projects and Issues independent test audit — 04a
 
 Audited the merged implementation at `2bd393d` against public contracts, the

@@ -876,3 +876,97 @@ test("11a Projects event attribution and legacy null", async () => {
   assert.equal(old.schemaVersion, 1);
   assert.equal(old.payload.clientId, null);
 });
+
+test("UI project fields, slug lookup and update command are tenant-local, retriable and frozen", async () => {
+  const f = await fixture();
+  const w2 = f.access.issue(actor("owner", "w2", "owner"));
+  f.state.now = 1000;
+  const created = await f.api.createProject(f.owner, {
+    ...create("p1", "ONE"),
+    description: "first",
+    slug: "shared",
+  });
+  assert.deepEqual(created, { id: "p1", version: 1 });
+  assert.equal((await f.api.getProjectBySlug(f.owner, "shared")).description, "first");
+  assert.equal((await f.api.getProject(f.owner, "p1")).createdAt, 1000);
+  await f.api.createProject(w2, { ...create("p2", "TWO"), slug: "shared" });
+  assert.equal((await f.api.getProjectBySlug(w2, "shared")).id, "p2");
+  await assert.rejects(f.api.getProjectBySlug(f.owner, "missing"), code("not_found"));
+  await assert.rejects(f.api.getProjectBySlug(w2, "one"), code("not_found"));
+  f.state.now = 1010;
+  const input = {
+    projectId: "p1",
+    expectedVersion: 1,
+    operationId: "ui-update",
+    name: "Changed",
+    key: "NEW",
+    description: "second",
+    slug: "new-slug",
+  };
+  assert.deepEqual(await f.api.updateProject(f.owner, input), { id: "p1", version: 2 });
+  assert.deepEqual(await f.api.updateProject(f.owner, input), { id: "p1", version: 2 });
+  const updated = await f.api.getProjectBySlug(f.owner, "new-slug");
+  assert.equal(updated.updatedAt, 1010);
+  assert.equal(updated.createdAt, 1000);
+  assert.equal(updated.description, "second");
+  assert.equal(updated.key, "NEW");
+  await assert.rejects(f.api.getProjectBySlug(f.owner, "shared"), code("not_found"));
+  await assert.rejects(
+    f.api.updateProject(f.owner, { ...input, description: "changed" }),
+    code("conflict"),
+  );
+  await assert.rejects(
+    f.api.updateProject(f.owner, { ...input, operationId: "stale" }),
+    code("conflict"),
+  );
+  assert.equal(await f.api.readOperation(f.owner, "stale"), null);
+  assert.equal((await f.api.getProjectBySlug(w2, "shared")).id, "p2");
+  await f.maintenance.freezeScope({ workspaceId: "w1", projectId: "p1" });
+  await assert.rejects(
+    f.api.updateProject(f.owner, { ...input, expectedVersion: 2, operationId: "frozen" }),
+    code("conflict"),
+  );
+  assert.equal(await f.api.readOperation(f.owner, "frozen"), null);
+  f.state.now = 1020;
+  const renamed = await f.api.renameProject(w2, {
+    projectId: "p2",
+    expectedVersion: 1,
+    operationId: "rename-w2",
+    name: "Other",
+  });
+  assert.equal(renamed.version, 2);
+  assert.equal((await f.api.getProject(w2, "p2")).updatedAt, 1020);
+});
+
+test("UI migration backfills pre-existing project slug and event timestamps", async () => {
+  const db = await mf.getD1Database(`PROJECTS${counter++}`);
+  const apply = async (file) => {
+    const sql = fs.readFileSync(`modules/projects/storage/migrations/${file}`, "utf8");
+    for (const statement of sql.split(/;\s*\n/))
+      if (statement.trim()) await db.prepare(statement).run();
+  };
+  for (const file of ["0001_projects.sql", "0002_event_attribution.sql", "0003_maintenance.sql"])
+    await apply(file);
+  await db
+    .prepare(
+      "INSERT INTO projects_projects(workspace_id,id,project_key,name,version) VALUES('w1','old','LEGACY','Old',1)",
+    )
+    .run();
+  await db
+    .prepare(
+      "INSERT INTO projects_events(workspace_id,sequence,event_id,aggregate_id,aggregate_version,type,occurred_at,actor_id) VALUES('w1',1,'e1','old',1,'ProjectChanged',100,'actor')",
+    )
+    .run();
+  await db
+    .prepare(
+      "INSERT INTO projects_events(workspace_id,sequence,event_id,aggregate_id,aggregate_version,type,occurred_at,actor_id) VALUES('w1',2,'e2','old',2,'ProjectChanged',200,'actor')",
+    )
+    .run();
+  await apply("0004_ui_fields.sql");
+  const row = await db
+    .prepare(
+      "SELECT description,slug,created_at,updated_at FROM projects_projects WHERE workspace_id='w1' AND id='old'",
+    )
+    .first();
+  assert.deepEqual(row, { description: "", slug: "legacy", created_at: 100, updated_at: 200 });
+});

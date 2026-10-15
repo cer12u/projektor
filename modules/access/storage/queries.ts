@@ -8,7 +8,10 @@ export const queries = {
   oauthConsumeForm:
     "DELETE FROM access_oauth_forms WHERE workspace_id=? AND token_hash=? AND principal_id=? AND expires_at>?",
 
-  principal: "SELECT id, kind, issuer, subject FROM access_principals WHERE id=?",
+  principal:
+    "SELECT id, kind, issuer, subject, email, display_name FROM access_principals WHERE id=?",
+  refreshProfile:
+    "UPDATE access_principals SET email=?, display_name=? WHERE id=? AND (email IS NOT ? OR display_name IS NOT ?)",
   putPrincipal:
     "INSERT INTO access_principals(id,kind,issuer,subject) VALUES(?,?,?,?) ON CONFLICT(id) DO NOTHING",
   workspace:
@@ -24,7 +27,7 @@ export const queries = {
   discoverWorkspaces:
     "SELECT w.workspace_id,w.name,w.version,m.role FROM access_workspaces w JOIN access_memberships m ON m.workspace_id=w.workspace_id WHERE m.principal_id=? AND m.active=1 AND w.archived=0 AND (? IS NULL OR w.workspace_id=?) AND w.workspace_id>? ORDER BY w.workspace_id LIMIT ?",
   listMembers:
-    "SELECT m.principal_id,m.role,m.version,p.kind,p.subject FROM access_memberships m JOIN access_principals p ON p.id=m.principal_id WHERE m.workspace_id=? AND m.active=1 AND m.principal_id>? ORDER BY m.principal_id LIMIT ?",
+    "SELECT m.principal_id,m.role,m.version,p.kind,p.subject,p.email,p.display_name FROM access_memberships m JOIN access_principals p ON p.id=m.principal_id WHERE m.workspace_id=? AND m.active=1 AND m.principal_id>? ORDER BY m.principal_id LIMIT ?",
   addMember:
     "INSERT INTO access_memberships(workspace_id,principal_id,role,active,version) SELECT ?,?,?,1,1 WHERE ?=0 ON CONFLICT(workspace_id,principal_id) DO NOTHING",
   restoreMember:

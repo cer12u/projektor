@@ -1,0 +1,185 @@
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
+import { apiFetch } from "../../utils/api-client";
+import type { Issue } from "../board-utils";
+import { buildFilterQueryParams, type FilterQueryFilters } from "../IssueList-helpers";
+import type { ProjectMeta } from "./types";
+import type { ViewMode } from "./types-view";
+
+type FilterInputs = FilterQueryFilters;
+
+// PROJ-862: board/backlog page through at most this many 100-issue pages (5,000 issues).
+const BOARD_MAX_PAGES = 50;
+
+/** Owns the paginated issue set: fetching, "Load more", and loading/error state (PROJ-201/211). */
+export function useIssueFetching(
+	workspaceSlug: string | undefined,
+	view: ViewMode,
+	filters: FilterInputs,
+	projects: ProjectMeta[],
+	taskTypes: Array<{ id: string; key: string; name: string }>,
+	lookupsReady = true
+) {
+	const [issues, setIssues] = useState<Issue[]>([]);
+	const [loading, setLoading] = useState(true);
+	const hasLoadedOnce = useRef(false);
+	// Guards against out-of-order responses when filters change rapidly: only the
+	// response from the most recently issued fetchIssues call is applied.
+	const fetchSeq = useRef(0);
+	const [error, setError] = useState<string | null>(null);
+	// Pagination (PROJ-201/303): list view loads 30 at a time and appends automatically
+	// as the user scrolls near the bottom (see useInfiniteScroll / ListSection).
+	const [nextCursor, setNextCursor] = useState<string | number | null>(null);
+	const [loadingMore, setLoadingMore] = useState(false);
+	// Real total matching the current filters (server-computed), not just how many
+	// have been loaded so far — PROJ-303: the header count must never look capped.
+	const [total, setTotal] = useState(0);
+
+	// Build the filter query params shared by the initial fetch and "Load more"
+	// (everything except limit/cursor, which the callers set). Keyed on the
+	// *serialized* params, not input identities: the filter arrays and lookup
+	// lists get fresh identities on mount/arrival without changing the resulting
+	// query, and each identity change used to refire the issues fetch — 4
+	// byte-identical GETs per page load.
+	const filterQs = buildFilterQueryParams(filters, projects, taskTypes).toString();
+	const buildFilterParams = useCallback(() => new URLSearchParams(filterQs), [filterQs]);
+
+	// List view paginates 30 at a time (PROJ-201). Board/backlog operate on the
+	// whole working set, so they request a larger page.
+	const pageSize = view === "list" ? 30 : 100;
+	const requestKey = `${workspaceSlug ?? ""}\0${filterQs}\0${view}`;
+	const [loadedKey, setLoadedKey] = useState<string | null>(null);
+	// Retained callbacks must not borrow a newer scope's sequence number.
+	const activeRequest = useRef({ key: requestKey, ready: lookupsReady });
+	activeRequest.current = { key: requestKey, ready: lookupsReady };
+	const isActiveRequest = useCallback(
+		() => activeRequest.current.key === requestKey && activeRequest.current.ready,
+		[requestKey]
+	);
+
+	const fetchIssues = useCallback(async () => {
+		if (!isActiveRequest()) return;
+		const seq = ++fetchSeq.current;
+		setLoading(true);
+		setLoadingMore(false);
+		setNextCursor(null);
+		setError(null);
+		try {
+			const qs = buildFilterParams();
+			qs.set("limit", String(pageSize));
+			const data = await apiFetch<{
+				items: Issue[];
+				nextCursor: string | number | null;
+				total: number | null;
+			}>(`/api/issues?${qs.toString()}`, {
+				workspaceSlug,
+			});
+			if (seq !== fetchSeq.current || !isActiveRequest()) return; // superseded by a newer request
+			setLoadedKey(requestKey);
+			setIssues(data.items);
+			setNextCursor(data.nextCursor ?? null);
+			setTotal(data.total ?? data.items.length);
+			hasLoadedOnce.current = true;
+			// PROJ-862: board and backlog show the whole working set — keep paging
+			// (the API caps a page at 100) instead of silently stopping at 100.
+			if (view !== "list" && data.nextCursor != null) {
+				setLoading(false);
+				await loadRemainingPages(qs, data.nextCursor, seq);
+			}
+		} catch (e) {
+			if (seq !== fetchSeq.current || !isActiveRequest()) return;
+			setError(String(e));
+		} finally {
+			if (seq === fetchSeq.current && isActiveRequest()) setLoading(false);
+		}
+	}, [workspaceSlug, buildFilterParams, pageSize, view, requestKey, isActiveRequest]);
+
+	async function loadRemainingPages(base: URLSearchParams, first: string | number, seq: number) {
+		setLoadingMore(true);
+		let cursor: string | number | null = first;
+		try {
+			for (let page = 0; cursor != null && page < BOARD_MAX_PAGES; page++) {
+				const qs = new URLSearchParams(base);
+				qs.set("cursor", String(cursor));
+				const data: { items: Issue[]; nextCursor: string | number | null } = await apiFetch(
+					`/api/issues?${qs.toString()}`,
+					{ workspaceSlug }
+				);
+				if (seq !== fetchSeq.current || !isActiveRequest()) return;
+				setIssues((prev) => [...prev, ...data.items]);
+				cursor = data.nextCursor ?? null;
+				setNextCursor(cursor);
+			}
+		} finally {
+			if (seq === fetchSeq.current && isActiveRequest()) setLoadingMore(false);
+		}
+	}
+
+	const loadMore = useCallback(async () => {
+		if (
+			!isActiveRequest() ||
+			nextCursor == null ||
+			loadingMore ||
+			loading ||
+			!lookupsReady ||
+			loadedKey !== requestKey
+		)
+			return;
+		const seq = fetchSeq.current;
+		setLoadingMore(true);
+		setError(null);
+		try {
+			const qs = buildFilterParams();
+			qs.set("limit", String(pageSize));
+			qs.set("cursor", String(nextCursor));
+			const data = await apiFetch<{
+				items: Issue[];
+				nextCursor: string | number | null;
+				total: number | null;
+			}>(`/api/issues?${qs.toString()}`, {
+				workspaceSlug,
+			});
+			if (seq !== fetchSeq.current || !isActiveRequest()) return;
+			setIssues((prev) => [...prev, ...data.items]);
+			setNextCursor(data.nextCursor ?? null);
+			// PROJ-857: later pages return total: null — keep the first page's count.
+			setTotal((prev) => data.total ?? prev);
+		} catch (e) {
+			if (seq === fetchSeq.current && isActiveRequest()) setError(String(e));
+		} finally {
+			if (seq === fetchSeq.current && isActiveRequest()) setLoadingMore(false);
+		}
+	}, [
+		workspaceSlug,
+		buildFilterParams,
+		pageSize,
+		nextCursor,
+		loadingMore,
+		loading,
+		lookupsReady,
+		loadedKey,
+		requestKey,
+		isActiveRequest,
+	]);
+
+	useEffect(() => {
+		if (!lookupsReady) return;
+		fetchIssues();
+		return () => {
+			fetchSeq.current++;
+		};
+	}, [fetchIssues, lookupsReady]);
+
+	const currentResult = lookupsReady && loadedKey === requestKey;
+	return {
+		issues: currentResult ? issues : [],
+		setIssues,
+		loading: loading || !currentResult,
+		hasLoadedOnce,
+		error,
+		nextCursor: currentResult ? nextCursor : null,
+		loadingMore,
+		total: currentResult ? total : 0,
+		fetchIssues,
+		loadMore,
+	};
+}

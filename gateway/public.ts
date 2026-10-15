@@ -5,6 +5,7 @@ import {
 } from "../modules/access/public";
 import { PlatformError } from "../platform/public";
 import { catalog, inputFor, restOnly, type Services } from "./catalog";
+import { handleUi } from "./ui/index";
 import { openApi, tools } from "./wire";
 
 export { createOAuthHttp } from "./oauth";
@@ -235,6 +236,11 @@ export async function handleHttp(request: Request, services: Services): Promise<
       );
     }
     if (url.pathname.startsWith("/mcp/")) return handleMcp(request, services, requestId);
+    if (
+      url.pathname.startsWith("/auth/") ||
+      (url.pathname.startsWith("/api/") && !url.pathname.startsWith("/api/w/"))
+    )
+      return handleUi(request, services, principal, requestId);
     const match = url.pathname.match(/^\/api\/w\/([^/]+)\/([^/]+)\/([^/]+)(?:\/([^/]+))?$/);
     if (!match) throw new PlatformError("not_found", "Unknown route");
     ownOrigin(request);

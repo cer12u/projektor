@@ -51,6 +51,9 @@ export interface Env {
   readonly OAUTH_TOKEN_LIMIT?: RateLimit;
   readonly INTEGRATIONS_KEY?: string;
   readonly FEEDBACK_LIMIT: RateLimit;
+  readonly ADMIN_EMAILS?: string;
+  readonly DEFAULT_WORKSPACE_SLUG?: string;
+  readonly DEFAULT_WORKSPACE_NAME?: string;
 }
 function integrationVault(key: string | undefined): SecretVault | undefined {
   try {
@@ -77,6 +80,16 @@ const unavailableIntegrations: IntegrationsApi = {
   getDeliveryStatus: integrationsUnavailable,
 };
 function compose(env: Env) {
+  const adminEmails = new Set(
+    (env.ADMIN_EMAILS ?? "")
+      .split(",")
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const defaultWorkspaceSlug = env.DEFAULT_WORKSPACE_SLUG ?? "projektor";
+  const defaultWorkspaceName = env.DEFAULT_WORKSPACE_NAME ?? "Projektor";
+  if (!/^[a-zA-Z0-9_-]{1,128}$/.test(defaultWorkspaceSlug))
+    throw new Error("Invalid default workspace slug");
   const configured = !!(env.OAUTH_ISSUER || env.OAUTH_RESOURCE || env.OAUTH_FORM_SECRET);
   if (
     configured &&
@@ -92,6 +105,7 @@ function compose(env: Env) {
     kv: createScopedKV(env.KV, "access"),
     clock: systemClock,
     ids: randomIds,
+    enableBootstrap: adminEmails.size > 0,
     config: { teamDomain: env.ACCESS_TEAM_DOMAIN, audience: env.ACCESS_AUDIENCE },
     ...(env.OAUTH_ISSUER && env.OAUTH_RESOURCE
       ? { oauth: { issuer: env.OAUTH_ISSUER, resource: env.OAUTH_RESOURCE } }
@@ -251,6 +265,31 @@ function compose(env: Env) {
     gateway: {
       lifecycle: lifecycleModule.api,
       access,
+      ...(accessModule.operator
+        ? {
+            bootstrapDefaultWorkspace: async (
+              principal: import("../../modules/access/public").AuthenticatedPrincipal,
+            ) => {
+              const me = await access.me(principal, undefined, 1);
+              if (
+                me.principal.kind !== "human" ||
+                !me.principal.email ||
+                !adminEmails.has(me.principal.email.toLowerCase()) ||
+                me.workspaces.length
+              )
+                return;
+              try {
+                await access.bootstrap(accessModule.operator!, principal, {
+                  operationId: crypto.randomUUID(),
+                  workspaceId: defaultWorkspaceSlug,
+                  name: defaultWorkspaceName,
+                });
+              } catch (error) {
+                if (!(error instanceof PlatformError && error.code === "conflict")) throw error;
+              }
+            },
+          }
+        : {}),
       projects,
       issues,
       wiki,
@@ -282,7 +321,15 @@ let services: ReturnType<typeof compose> | undefined;
 export default {
   fetch(request: Request, env: Env): Promise<Response> {
     services ??= compose(env);
-    return handleHttp(request, services.gateway);
+    const path = new URL(request.url).pathname;
+    if (
+      ["/api/", "/mcp/", "/oauth/", "/.well-known/", "/integrations/", "/auth/"].some((prefix) =>
+        path.startsWith(prefix),
+      ) ||
+      path === "/health"
+    )
+      return handleHttp(request, services.gateway);
+    return env.ASSETS.fetch(new Request(new URL(spaFallbackPath(path), request.url)));
   },
   async scheduled(event: ScheduledEvent, env: Env): Promise<void> {
     services ??= compose(env);
@@ -293,3 +340,12 @@ export default {
     await consumeActiveWorkspaces(services.background.access, services.background.insights);
   },
 };
+
+export function spaFallbackPath(path: string): string {
+  if (/^\/projects\/[^/]+\/issues\/\d+\//.test(path)) return "/issues/view/index.html";
+  if (/^\/projects\/view\/[^/]+/.test(path)) return "/projects/view/index.html";
+  if (/^\/share\//.test(path)) return "/share/view/index.html";
+  if (/^\/feedback\/[^/]+/.test(path)) return "/feedback/view/index.html";
+  if (/^\/wiki\/[^/]+\/?$/.test(path)) return "/wiki/view/index.html";
+  return "/index.html";
+}

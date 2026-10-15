@@ -58,12 +58,14 @@ export interface CurrentPrincipal {
   readonly id: string;
   readonly kind: "human" | "machine" | "oauth";
   readonly displayName: string;
+  readonly email: string | null;
   readonly clientName?: string;
 }
 export interface MemberItem {
   readonly principalId: string;
   readonly kind: "human" | "machine";
   readonly displayName: string;
+  readonly email: string | null;
   readonly role: Role;
   readonly version: number;
 }

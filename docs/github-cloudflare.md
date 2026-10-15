@@ -25,7 +25,7 @@ Production environment variables:
 - CLOUDFLARE_ACCOUNT_ID: approved account.
 - CF_PRESERVED_D1_IDS: every preserved database ID, comma separated.
 - CF_APPROVED_SCHEMA_SHA256: fingerprint approved after new DB ledger verification.
-- CF_DEPLOY_CONFIG: JSON with exactly worker, d1Id, d1Name, kvId, r2Name, origin (HTTPS, trailing slash), accessTeamDomain, accessAudience, rateIds (three distinct decimal strings), oauthEnabled and integrationsEnabled (booleans).
+- CF_DEPLOY_CONFIG: JSON with worker, d1Id, d1Name, kvId, r2Name, origin (HTTPS, trailing slash), accessTeamDomain, accessAudience, rateIds (three distinct decimal strings), oauthEnabled and integrationsEnabled (booleans). Optional fields: `adminEmails` (string array), `defaultWorkspaceSlug` (workspace ID pattern), `defaultWorkspaceName` (nonempty string). Present optional fields become Worker vars `ADMIN_EMAILS`, `DEFAULT_WORKSPACE_SLUG`, and `DEFAULT_WORKSPACE_NAME`; empty admin lists do not enable bootstrap.
 
 Run node tools/github-deploy.mjs --check with the approved configuration before enabling the job. It validates commit/checksums, approved schema hash, preserved-DB refusal, feature secret names, protected HTTP boundary and local dry-run. Binding existence is independently verified during initial setup; upload validates the referenced resources. It does not create/migrate/delete resources or save secrets.
 

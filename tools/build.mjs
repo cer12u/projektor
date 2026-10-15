@@ -52,15 +52,8 @@ await build({
   entryPoints: ["tools/migrate-worker.ts"],
   outfile: "dist/migrate-worker.js",
 });
-await build({
-  ...options,
-  entryPoints: ["apps/web/src/app.tsx"],
-  outfile: "dist/assets/app.js",
-  jsx: "automatic",
-  jsxImportSource: "preact",
-});
-fs.copyFileSync("apps/web/src/style.css", "dist/assets/style.css");
-fs.copyFileSync("apps/web/index.html", "dist/assets/index.html");
+execFileSync("pnpm", ["--filter", "@projektor/web", "build"], { stdio: "inherit" });
+fs.cpSync("apps/web/dist", "dist/assets", { recursive: true });
 fs.copyFileSync("LICENSE", "dist/LICENSE");
 const migrations = Object.fromEntries(productionOwners.map((o) => [o.id, schema[o.id].migrations]));
 fs.writeFileSync("dist/migrations.json", `${JSON.stringify(migrations, null, 2)}\n`);
@@ -68,11 +61,18 @@ const files = [
   "worker.js",
   "smoke-worker.js",
   "migrate-worker.js",
-  "assets/index.html",
-  "assets/app.js",
-  "assets/style.css",
   "LICENSE",
   "migrations.json",
+  ...fs
+    .readdirSync("dist/assets", { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) =>
+      `assets/${entry.parentPath.slice("dist/assets".length + 1)}/${entry.name}`.replace(
+        "assets//",
+        "assets/",
+      ),
+    )
+    .sort(),
 ];
 const artifact = {
   commit:

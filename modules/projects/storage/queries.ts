@@ -1,14 +1,17 @@
 export const queries = {
   project:
-    "SELECT id, project_key, name, version, archived FROM projects_projects WHERE workspace_id=? AND id=?",
+    "SELECT id, project_key, name, description, slug, created_at, updated_at, version, archived FROM projects_projects WHERE workspace_id=? AND id=?",
+  projectBySlug: "SELECT id FROM projects_projects WHERE workspace_id=? AND slug=?",
   grant:
     "SELECT role, active FROM projects_grants WHERE workspace_id=? AND project_id=? AND principal_id=?",
   visible:
-    "SELECT p.id, p.project_key, p.name, p.version, p.archived, g.role AS grant_role FROM projects_projects p LEFT JOIN projects_grants g ON g.workspace_id=p.workspace_id AND g.project_id=p.id AND g.principal_id=? AND g.active=1 WHERE p.workspace_id=? AND p.archived=0 AND p.id>? AND (?=1 OR g.principal_id IS NOT NULL) ORDER BY p.id LIMIT ?",
+    "SELECT p.id, p.project_key, p.name, p.description, p.slug, p.created_at, p.updated_at, p.version, p.archived, g.role AS grant_role FROM projects_projects p LEFT JOIN projects_grants g ON g.workspace_id=p.workspace_id AND g.project_id=p.id AND g.principal_id=? AND g.active=1 WHERE p.workspace_id=? AND p.archived=0 AND p.id>? AND (?=1 OR g.principal_id IS NOT NULL) ORDER BY p.id LIMIT ?",
   create:
-    "INSERT INTO projects_projects(workspace_id,id,project_key,name,version) VALUES(?,?,?,?,1)",
+    "INSERT INTO projects_projects(workspace_id,id,project_key,name,description,slug,created_at,updated_at,version) VALUES(?,?,?,?,?,?,?,?,1)",
   rename:
-    "UPDATE projects_projects SET project_key=?,name=?,version=version+1 WHERE workspace_id=? AND id=? AND version=? AND archived=0",
+    "UPDATE projects_projects SET project_key=?,name=?,updated_at=?,version=version+1 WHERE workspace_id=? AND id=? AND version=? AND archived=0",
+  updateProject:
+    "UPDATE projects_projects SET project_key=?,name=?,description=?,slug=?,updated_at=?,version=version+1 WHERE workspace_id=? AND id=? AND version=? AND archived=0",
   bump: "UPDATE projects_projects SET version=version+1 WHERE workspace_id=? AND id=? AND version=? AND archived=0",
   archive:
     "UPDATE projects_projects SET archived=1,version=version+1 WHERE workspace_id=? AND id=? AND version=? AND archived=0",

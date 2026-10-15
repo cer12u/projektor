@@ -22,5 +22,5 @@
     "tools/test-entry.ts",
     "tools/smoke-worker.ts"
   ],
-  "exclude": ["apps/web/src"]
+  "exclude": ["apps/web"]
 }
