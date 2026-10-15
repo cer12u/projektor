@@ -1,0 +1,24 @@
+name: Check Cloudflare credential (read only)
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.22.1
+      - name: Verify stored credential with GET requests only
+        run: node tools/cloudflare-credential-check.mjs
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+          CF_DEPLOY_CONFIG: ${{ vars.CF_DEPLOY_CONFIG }}
+          CF_PRESERVED_D1_IDS: ${{ vars.CF_PRESERVED_D1_IDS }}
+          CF_APPROVED_SCHEMA_SHA256: ${{ vars.CF_APPROVED_SCHEMA_SHA256 }}
