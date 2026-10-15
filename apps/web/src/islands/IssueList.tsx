@@ -1,0 +1,108 @@
+import { useEffect, useState } from "preact/hooks";
+import { useAccessGate } from "../utils/access-gate";
+import AccessPending from "./AccessPending";
+import { sortIssues } from "./board-utils";
+import { deriveProjectDescription } from "./issue-list/derive";
+import IssueListLayout from "./issue-list/IssueListLayout";
+import type { ViewMode } from "./issue-list/types-view";
+import { useCreateIssueModal } from "./issue-list/useCreateIssueModal";
+import { useIssueFilters } from "./issue-list/useIssueFilters";
+import { useIssueListData } from "./issue-list/useIssueListData";
+import { useIssueSearch } from "./issue-list/useIssueSearch";
+import { useSavedViews } from "./issue-list/useSavedViews";
+
+function readStoredView(): ViewMode {
+	try {
+		const stored = localStorage.getItem("issues-view");
+		if (stored === "list" || stored === "board" || stored === "backlog") return stored;
+	} catch {
+		// storage unavailable — default below
+	}
+	return "list";
+}
+
+interface Props {
+	workspaceSlug?: string;
+}
+
+export default function IssueList({ workspaceSlug }: Props) {
+	// safe-ls: cosmetic view preference (list/board/backlog). No API dependency — a stale
+	// or missing value falls back to the "list" default. PROJ-862: read synchronously so
+	// the first request uses the right page size for the stored view.
+	const [view, setView] = useState<ViewMode>(readStoredView);
+
+	// safe-ls: cosmetic view preference — no API dependency (see getItem above).
+	useEffect(() => {
+		localStorage.setItem("issues-view", view);
+	}, [view]);
+
+	const gate = useAccessGate(workspaceSlug);
+	const filters = useIssueFilters(workspaceSlug);
+	const search = useIssueSearch(workspaceSlug);
+	const data = useIssueListData(
+		workspaceSlug,
+		view,
+		{
+			filterStatuses: filters.filterStatuses,
+			filterPriorities: filters.filterPriorities,
+			filterProject: filters.filterProject,
+			filterType: filters.filterType,
+			filterEpicId: filters.filterEpicId,
+			filterSprintId: filters.filterSprintId,
+			hideEpics: filters.hideEpics,
+			filterDateField: filters.filterDateField,
+			filterDateFrom: filters.filterDateFrom,
+			filterDateTo: filters.filterDateTo,
+		},
+		filters.projectScopeReady
+	);
+	const saved = useSavedViews(filters.filterProject, filters.filtersBundle, filters.applyFilters);
+	const createModal = useCreateIssueModal({
+		workspaceSlug,
+		filterProject: filters.filterProject,
+		projects: data.projects,
+		statuses: data.statuses,
+		taskTypes: data.taskTypes,
+		setIssues: data.setIssues,
+	});
+
+	// Filtering happens server-side (PROJ-211): `issues` is already the filtered,
+	// paginated result set, so the client only sorts the loaded rows. (Sorting is
+	// still page-local — tracked separately as a follow-up.)
+	const filtered = sortIssues(data.issues, filters.sortBy, filters.sortDir);
+
+	if (gate.pending) return <AccessPending />;
+	if (filters.projectScopeError) {
+		return (
+			<p role="alert" class="text-danger-text">
+				{filters.projectScopeError}
+			</p>
+		);
+	}
+	if (data.error) {
+		return (
+			<p role="alert" class="text-danger-text">
+				Failed to load issues: {data.error}
+			</p>
+		);
+	}
+
+	if (!filters.projectScopeReady || (data.loading && !data.hasLoadedOnce.current)) {
+		return <p aria-live="polite">Loading issues…</p>;
+	}
+
+	return (
+		<IssueListLayout
+			workspaceSlug={workspaceSlug}
+			view={view}
+			setView={setView}
+			filtered={filtered}
+			projectDescription={deriveProjectDescription(data.projects, filters.filterProject)}
+			filters={filters}
+			search={search}
+			data={data}
+			saved={saved}
+			createModal={createModal}
+		/>
+	);
+}

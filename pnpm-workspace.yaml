@@ -1,4 +1,6 @@
-packages: []
+packages:
+  - apps/web
 onlyBuiltDependencies:
   - esbuild
   - workerd
+  - sharp
