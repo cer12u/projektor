@@ -1,27 +1,27 @@
 export const queries = {
   issue:
-    "SELECT id,project_id,number,title,description,priority,state,assignee_id,version,archived FROM issues_issues WHERE workspace_id=? AND id=?",
+    "SELECT id,project_id,number,title,description,priority_level,state,status,status_id,type_id,parent_id,labels,created_by_id,created_by_kind,created_at,updated_at,completed_at,assignee_id,version,archived FROM issues_issues WHERE workspace_id=? AND id=?",
   byNumber:
-    "SELECT id,project_id,number,title,description,priority,state,assignee_id,version,archived FROM issues_issues WHERE workspace_id=? AND project_id=? AND number=?",
-  list: "SELECT id,project_id,number,title,description,priority,state,assignee_id,version,archived FROM issues_issues WHERE workspace_id=? AND project_id=? AND archived=0 AND number<? AND (? IS NULL OR state=?) AND (? IS NULL OR priority=?) AND (?=0 OR (?=1 AND assignee_id IS NULL) OR (?=2 AND assignee_id=?)) ORDER BY number DESC LIMIT ?",
+    "SELECT id,project_id,number,title,description,priority_level,state,status,status_id,type_id,parent_id,labels,created_by_id,created_by_kind,created_at,updated_at,completed_at,assignee_id,version,archived FROM issues_issues WHERE workspace_id=? AND project_id=? AND number=?",
+  list: "SELECT id,project_id,number,title,description,priority_level,state,status,status_id,type_id,parent_id,labels,created_by_id,created_by_kind,created_at,updated_at,completed_at,assignee_id,version,archived FROM issues_issues WHERE workspace_id=? AND project_id=? AND archived=0 AND number<? AND (? IS NULL OR state=?) AND (? IS NULL OR priority_level=?) AND (?=0 OR (?=1 AND assignee_id IS NULL) OR (?=2 AND assignee_id=?)) ORDER BY number DESC LIMIT ?",
   search:
-    "SELECT i.id,i.project_id,i.number,i.title,i.description,i.priority,i.state,i.assignee_id,i.version,i.archived FROM issues_search s JOIN issues_issues i ON i.rowid=s.rowid WHERE issues_search MATCH ? AND s.workspace_id=? AND s.project_id=? AND s.archived='0' AND i.workspace_id=? AND i.project_id=? AND i.archived=0 ORDER BY bm25(issues_search),i.number DESC LIMIT ?",
+    "SELECT i.id,i.project_id,i.number,i.title,i.description,i.priority_level,i.state,i.status,i.status_id,i.type_id,i.parent_id,i.labels,i.created_by_id,i.created_by_kind,i.created_at,i.updated_at,i.completed_at,i.assignee_id,i.version,i.archived FROM issues_search s JOIN issues_issues i ON i.rowid=s.rowid WHERE issues_search MATCH ? AND s.workspace_id=? AND s.project_id=? AND s.archived='0' AND i.workspace_id=? AND i.project_id=? AND i.archived=0 ORDER BY bm25(issues_search),i.number DESC LIMIT ?",
   searchShort:
-    "WITH terms(pattern) AS (VALUES (?),(?),(?),(?),(?),(?),(?),(?),(?),(?),(?),(?)) SELECT i.id,i.project_id,i.number,i.title,i.description,i.priority,i.state,i.assignee_id,i.version,i.archived FROM issues_issues i WHERE i.workspace_id=? AND i.project_id=? AND i.archived=0 AND NOT EXISTS (SELECT 1 FROM terms WHERE pattern IS NOT NULL AND NOT (i.title LIKE pattern ESCAPE '\\' OR i.description LIKE pattern ESCAPE '\\')) ORDER BY i.number DESC LIMIT ?",
+    "WITH terms(pattern) AS (VALUES (?),(?),(?),(?),(?),(?),(?),(?),(?),(?),(?),(?)) SELECT i.id,i.project_id,i.number,i.title,i.description,i.priority_level,i.state,i.status,i.status_id,i.type_id,i.parent_id,i.labels,i.created_by_id,i.created_by_kind,i.created_at,i.updated_at,i.completed_at,i.assignee_id,i.version,i.archived FROM issues_issues i WHERE i.workspace_id=? AND i.project_id=? AND i.archived=0 AND NOT EXISTS (SELECT 1 FROM terms WHERE pattern IS NOT NULL AND NOT (i.title LIKE pattern ESCAPE '\\' OR i.description LIKE pattern ESCAPE '\\')) ORDER BY i.number DESC LIMIT ?",
   allocate:
     "INSERT INTO issues_counters(workspace_id,project_id,next_number) VALUES(?,?,1) ON CONFLICT(workspace_id,project_id) DO UPDATE SET next_number=next_number+1",
   create:
-    "INSERT INTO issues_issues(workspace_id,id,project_id,number,title,description,priority,state,version) SELECT ?,?,?,next_number,?,?,?,'todo',1 FROM issues_counters WHERE workspace_id=? AND project_id=?",
-  edit: "UPDATE issues_issues SET title=?,description=?,priority=?,version=version+1 WHERE workspace_id=? AND id=? AND version=? AND archived=0",
+    "INSERT INTO issues_issues(workspace_id,id,project_id,number,title,description,priority,priority_level,state,status,status_id,type_id,parent_id,labels,created_by_id,created_by_kind,created_at,updated_at,version) SELECT ?,?,?,next_number,?,?,?,?,?,?,?,?,?,?,?,?,?,?,1 FROM issues_counters WHERE workspace_id=? AND project_id=?",
+  edit: "UPDATE issues_issues SET title=?,description=?,priority=?,priority_level=?,updated_at=?,version=version+1 WHERE workspace_id=? AND id=? AND version=? AND archived=0",
   transition:
-    "UPDATE issues_issues SET state=?,version=version+1 WHERE workspace_id=? AND id=? AND version=? AND archived=0",
+    "UPDATE issues_issues SET state=?,status=?,status_id=?,completed_at=?,updated_at=?,version=version+1 WHERE workspace_id=? AND id=? AND version=? AND archived=0",
   assign:
-    "UPDATE issues_issues SET assignee_id=?,version=version+1 WHERE workspace_id=? AND id=? AND version=? AND archived=0",
-  bump: "UPDATE issues_issues SET version=version+1 WHERE workspace_id=? AND id=? AND version=? AND archived=0",
+    "UPDATE issues_issues SET assignee_id=?,updated_at=?,version=version+1 WHERE workspace_id=? AND id=? AND version=? AND archived=0",
+  bump: "UPDATE issues_issues SET updated_at=?,version=version+1 WHERE workspace_id=? AND id=? AND version=? AND archived=0",
   archive:
-    "UPDATE issues_issues SET archived=1,version=version+1 WHERE workspace_id=? AND id=? AND version=? AND archived=0",
+    "UPDATE issues_issues SET archived=1,updated_at=?,version=version+1 WHERE workspace_id=? AND id=? AND version=? AND archived=0",
   comment:
-    "INSERT INTO issues_comments(workspace_id,id,issue_id,body,actor_id,actor_kind,created_at,client_id) VALUES(?,?,?,?,?,?,?,?)",
+    "INSERT INTO issues_comments(workspace_id,id,issue_id,body,actor_id,actor_kind,created_at,updated_at,client_id) VALUES(?,?,?,?,?,?,?,?,?)",
   guard: "INSERT INTO issues_guards(workspace_id,id,changed) VALUES(?,?,changes())",
   clearGuard: "DELETE FROM issues_guards WHERE workspace_id=? AND id=?",
   deleteSearch:
@@ -81,4 +81,92 @@ export const queries = {
     "SELECT COUNT(*) AS n FROM issues_counters t WHERE t.workspace_id=? AND (?='' OR t.project_id=?)",
   maintenanceDeleteCounters:
     "DELETE FROM issues_counters WHERE rowid IN (SELECT t.rowid FROM issues_counters t WHERE t.workspace_id=? AND (?='' OR t.project_id=?) ORDER BY t.rowid LIMIT 50)",
+  statusRows:
+    "SELECT id,key,name,category,color,position,is_default,is_review_step,version FROM issues_task_statuses WHERE workspace_id=? ORDER BY position,name",
+  typeRows:
+    "SELECT id,key,name,color,icon,position,is_default,version FROM issues_task_types WHERE workspace_id=? ORDER BY position,name",
+  statusById:
+    "SELECT id,key,name,category,color,position,is_default,is_review_step,version FROM issues_task_statuses WHERE workspace_id=? AND id=?",
+  typeById:
+    "SELECT id,key,name,color,icon,position,is_default,version FROM issues_task_types WHERE workspace_id=? AND id=?",
+  seedStatuses:
+    "INSERT OR IGNORE INTO issues_task_statuses(workspace_id,id,key,name,category,color,position,is_default,is_review_step,version) VALUES (?,'status_backlog','backlog','Backlog','todo',NULL,1,1,0,1),(?,'status_todo','todo','Todo','todo',NULL,2,0,0,1),(?,'status_in_progress','in_progress','In Progress','in_progress',NULL,3,0,0,1),(?,'status_in_review','in_review','In Review','in_progress',NULL,4,0,1,1),(?,'status_done','done','Done','done',NULL,5,0,0,1),(?,'status_cancelled','cancelled','Cancelled','cancelled',NULL,6,0,0,1)",
+  seedTypes:
+    "INSERT OR IGNORE INTO issues_task_types(workspace_id,id,key,name,color,icon,position,is_default,version) VALUES (?,'type_epic','epic','Epic',NULL,NULL,1,0,1),(?,'type_story','story','Story',NULL,NULL,2,0,1),(?,'type_task','task','Task',NULL,NULL,3,1,1),(?,'type_bug','bug','Bug',NULL,NULL,4,0,1)",
+  createStatus:
+    "INSERT INTO issues_task_statuses(workspace_id,id,key,name,category,color,position,is_default,is_review_step,version) VALUES (?,?,?,?,?,?,?,?,?,1)",
+  updateStatus:
+    "UPDATE issues_task_statuses SET name=?,category=?,color=?,position=?,is_default=?,is_review_step=?,version=version+1 WHERE workspace_id=? AND id=? AND version=?",
+  deleteStatus:
+    "DELETE FROM issues_task_statuses WHERE workspace_id=? AND id=? AND version=? AND is_default=0 AND NOT EXISTS (SELECT 1 FROM issues_issues WHERE workspace_id=? AND status_id=?)",
+  statusInUse: "SELECT id FROM issues_issues WHERE workspace_id=? AND status_id=? LIMIT 1",
+  clearDefaultStatus:
+    "UPDATE issues_task_statuses SET is_default=0 WHERE workspace_id=? AND is_default=1 AND id<>?",
+  createType:
+    "INSERT INTO issues_task_types(workspace_id,id,key,name,color,icon,position,is_default,version) VALUES (?,?,?,?,?,?,?, ?,1)",
+  updateType:
+    "UPDATE issues_task_types SET name=?,color=?,icon=?,position=?,is_default=?,version=version+1 WHERE workspace_id=? AND id=? AND version=?",
+  deleteType:
+    "DELETE FROM issues_task_types WHERE workspace_id=? AND id=? AND version=? AND NOT EXISTS (SELECT 1 FROM issues_issues WHERE workspace_id=? AND type_id=?)",
+  typeInUse: "SELECT id FROM issues_issues WHERE workspace_id=? AND type_id=? LIMIT 1",
+  clearDefaultType:
+    "UPDATE issues_task_types SET is_default=0 WHERE workspace_id=? AND is_default=1 AND id<>?",
+  definitionReceipt:
+    "INSERT INTO issues_definition_receipts(workspace_id,principal_id,operation_id,fingerprint,definition_kind,result_id,result_version,result_json) VALUES (?,?,?,?,?,?,?,?)",
+  readDefinitionReceipt:
+    "SELECT fingerprint,definition_kind,result_id,result_version,result_json FROM issues_definition_receipts WHERE workspace_id=? AND principal_id=? AND operation_id=?",
+  definitionHistory:
+    "INSERT INTO issues_definition_history(workspace_id,definition_kind,definition_id,version,action,actor_id,actor_kind,occurred_at,detail) VALUES (?,?,?,?,?,?,?,?,?)",
+  definitionEvent:
+    "INSERT INTO issues_events(workspace_id,sequence,event_id,aggregate_id,aggregate_version,type,occurred_at,actor_id,actor_kind,client_id,project_id) VALUES ( ?,(SELECT COALESCE(MAX(sequence),0)+1 FROM issues_events WHERE workspace_id=?),?,?,?,?,?,?,?,?,NULL)",
+  issuesByStatus:
+    "SELECT id,version,state,completed_at FROM issues_issues WHERE workspace_id=? AND status_id=?",
+  syncStatusCategory:
+    "UPDATE issues_issues SET state=?,completed_at=?,updated_at=?,version=version+1 WHERE workspace_id=? AND id=? AND version=?",
+  listComments:
+    "SELECT id,body,actor_id,actor_kind,client_id,created_at,updated_at FROM issues_comments WHERE workspace_id=? AND issue_id=? ORDER BY created_at,id",
+  getComment:
+    "SELECT id,actor_id FROM issues_comments WHERE workspace_id=? AND issue_id=? AND id=?",
+  editComment:
+    "UPDATE issues_comments SET body=?,updated_at=? WHERE workspace_id=? AND issue_id=? AND id=?",
+  deleteComment: "DELETE FROM issues_comments WHERE workspace_id=? AND issue_id=? AND id=?",
+  createLink:
+    "INSERT INTO issues_links(workspace_id,id,source_issue_id,target_issue_id,type,created_by_id,created_at) VALUES (?,?,?,?,?,?,?)",
+  getLink:
+    "SELECT id,source_issue_id,target_issue_id,type FROM issues_links WHERE workspace_id=? AND id=?",
+  findLink:
+    "SELECT id FROM issues_links WHERE workspace_id=? AND source_issue_id=? AND target_issue_id=? AND type=?",
+  deleteLink: "DELETE FROM issues_links WHERE workspace_id=? AND id=? AND source_issue_id=?",
+  listLinks:
+    "SELECT l.id,l.type,l.source_issue_id,l.target_issue_id,i.id AS other_id,i.project_id AS other_project_id,i.number AS other_number,i.title AS other_title,i.status AS other_status,i.state AS other_state FROM issues_links l JOIN issues_issues i ON i.workspace_id=l.workspace_id AND i.id=CASE WHEN l.source_issue_id=? THEN l.target_issue_id ELSE l.source_issue_id END WHERE l.workspace_id=? AND (l.source_issue_id=? OR l.target_issue_id=?) ORDER BY l.created_at,l.id",
+  getByIds:
+    "SELECT id,project_id,number,title,description,priority_level,state,status,status_id,type_id,parent_id,labels,created_by_id,created_by_kind,created_at,updated_at,completed_at,assignee_id,version,archived FROM issues_issues WHERE workspace_id=? AND id IN (WITH RECURSIVE seq(n,js) AS (SELECT 0,? UNION ALL SELECT n+1,js FROM seq WHERE n+1<json_array_length(js)) SELECT json_extract(js,'$['||n||']') FROM seq WHERE n<json_array_length(js))",
+  childCounts:
+    "SELECT parent_id,state,COUNT(*) AS n FROM issues_issues WHERE workspace_id=? AND parent_id IN (WITH RECURSIVE seq(n,js) AS (SELECT 0,? UNION ALL SELECT n+1,js FROM seq WHERE n+1<json_array_length(js)) SELECT json_extract(js,'$['||n||']') FROM seq WHERE n<json_array_length(js)) AND archived=0 GROUP BY parent_id,state",
+  parentChain:
+    "WITH RECURSIVE chain(id,parent_id,project_id,depth) AS (SELECT id,parent_id,project_id,0 FROM issues_issues WHERE workspace_id=? AND id=? UNION ALL SELECT i.id,i.parent_id,i.project_id,c.depth+1 FROM issues_issues i JOIN chain c ON i.workspace_id=? AND i.id=c.parent_id WHERE c.depth<5) SELECT id,project_id,depth FROM chain ORDER BY depth",
+  queryIssues:
+    "SELECT id,project_id,number,title,description,priority_level,state,status,status_id,type_id,parent_id,labels,created_by_id,created_by_kind,created_at,updated_at,completed_at,assignee_id,version,archived FROM issues_issues WHERE workspace_id=? AND project_id IN (WITH RECURSIVE seq(n,js) AS (SELECT 0,? UNION ALL SELECT n+1,js FROM seq WHERE n+1<json_array_length(js)) SELECT json_extract(js,'$['||n||']') FROM seq WHERE n<json_array_length(js)) AND (? IS NULL OR project_id=?) AND (? IS NULL OR status_id IN (WITH RECURSIVE seq(n,js) AS (SELECT 0,? UNION ALL SELECT n+1,js FROM seq WHERE n+1<json_array_length(js)) SELECT json_extract(js,'$['||n||']') FROM seq WHERE n<json_array_length(js))) AND (? IS NULL OR state=?) AND (? IS NULL OR priority_level IN (WITH RECURSIVE seq(n,js) AS (SELECT 0,? UNION ALL SELECT n+1,js FROM seq WHERE n+1<json_array_length(js)) SELECT json_extract(js,'$['||n||']') FROM seq WHERE n<json_array_length(js))) AND (?=0 OR (?=1 AND assignee_id IS NULL) OR (?=2 AND assignee_id=?)) AND (? IS NULL OR parent_id=?) AND (?=0 OR parent_id IS NULL) AND (? IS NULL OR type_id=?) AND (? IS NULL OR type_id IS NULL OR type_id NOT IN (WITH RECURSIVE seq(n,js) AS (SELECT 0,? UNION ALL SELECT n+1,js FROM seq WHERE n+1<json_array_length(js)) SELECT json_extract(js,'$['||n||']') FROM seq WHERE n<json_array_length(js))) AND (? IS NULL OR (CASE WHEN ?='all' THEN NOT EXISTS (WITH RECURSIVE seq(n) AS (SELECT 0 UNION ALL SELECT n+1 FROM seq WHERE n<99) SELECT 1 FROM seq f WHERE f.n<json_array_length(?) AND NOT EXISTS (SELECT 1 FROM seq l WHERE l.n<json_array_length(issues_issues.labels) AND json_extract(issues_issues.labels,'$['||l.n||']')=json_extract(?,'$['||f.n||']'))) ELSE EXISTS (WITH RECURSIVE seq(n) AS (SELECT 0 UNION ALL SELECT n+1 FROM seq WHERE n<99) SELECT 1 FROM seq f JOIN seq l ON json_extract(issues_issues.labels,'$['||l.n||']')=json_extract(?,'$['||f.n||']') WHERE f.n<json_array_length(?) AND l.n<json_array_length(issues_issues.labels)) END)) AND (? IS NULL OR completed_at>=?) AND (? IS NULL OR completed_at<=?) AND (? IS NULL OR updated_at>=?) AND (? IS NULL OR updated_at<=?) AND (? IS NULL OR id IN (WITH RECURSIVE seq(n,js) AS (SELECT 0,? UNION ALL SELECT n+1,js FROM seq WHERE n+1<json_array_length(js)) SELECT json_extract(js,'$['||n||']') FROM seq WHERE n<json_array_length(js))) AND (?=1 OR archived=0) AND (? IS NULL OR created_at<? OR (created_at=? AND id<?)) ORDER BY created_at DESC,id DESC LIMIT ?",
+  updateIssue:
+    "UPDATE issues_issues SET title=?,description=?,priority_level=?,priority=?,status=?,status_id=?,state=?,type_id=?,parent_id=?,labels=?,assignee_id=?,completed_at=?,updated_at=?,version=version+1 WHERE workspace_id=? AND id=? AND version=? AND archived=0",
+  maintenanceCountLinks:
+    "SELECT COUNT(*) AS n FROM issues_links t WHERE t.workspace_id=? AND (?='' OR EXISTS(SELECT 1 FROM issues_issues i WHERE i.workspace_id=t.workspace_id AND i.id=t.source_issue_id AND i.project_id=?) OR EXISTS(SELECT 1 FROM issues_issues i WHERE i.workspace_id=t.workspace_id AND i.id=t.target_issue_id AND i.project_id=?))",
+  maintenanceDeleteLinks:
+    "DELETE FROM issues_links WHERE rowid IN (SELECT t.rowid FROM issues_links t WHERE t.workspace_id=? AND (?='' OR EXISTS(SELECT 1 FROM issues_issues i WHERE i.workspace_id=t.workspace_id AND i.id=t.source_issue_id AND i.project_id=?) OR EXISTS(SELECT 1 FROM issues_issues i WHERE i.workspace_id=t.workspace_id AND i.id=t.target_issue_id AND i.project_id=?)) ORDER BY t.rowid LIMIT 50)",
+  maintenanceCountStatuses:
+    "SELECT COUNT(*) AS n FROM issues_task_statuses WHERE workspace_id=? AND ?=''",
+  maintenanceDeleteStatuses:
+    "DELETE FROM issues_task_statuses WHERE rowid IN (SELECT rowid FROM issues_task_statuses WHERE workspace_id=? AND ?='' ORDER BY rowid LIMIT 50)",
+  maintenanceCountTypes:
+    "SELECT COUNT(*) AS n FROM issues_task_types WHERE workspace_id=? AND ?=''",
+  maintenanceDeleteTypes:
+    "DELETE FROM issues_task_types WHERE rowid IN (SELECT rowid FROM issues_task_types WHERE workspace_id=? AND ?='' ORDER BY rowid LIMIT 50)",
+  maintenanceCountDefinitionHistory:
+    "SELECT COUNT(*) AS n FROM issues_definition_history WHERE workspace_id=? AND ?=''",
+  maintenanceDeleteDefinitionHistory:
+    "DELETE FROM issues_definition_history WHERE rowid IN (SELECT rowid FROM issues_definition_history WHERE workspace_id=? AND ?='' ORDER BY rowid LIMIT 50)",
+  maintenanceCountDefinitionReceipts:
+    "SELECT COUNT(*) AS n FROM issues_definition_receipts WHERE workspace_id=? AND ?=''",
+  maintenanceDeleteDefinitionReceipts:
+    "DELETE FROM issues_definition_receipts WHERE rowid IN (SELECT rowid FROM issues_definition_receipts WHERE workspace_id=? AND ?='' ORDER BY rowid LIMIT 50)",
 } as const;

@@ -51,7 +51,23 @@ export function createMaintenance(store: ModuleStore<"issues", Name>): IssuesMai
       (await store.run("maintenanceCountCounters", [workspaceId, projectId, projectId])).rows[0]
         ?.n ?? 0,
     );
-    const remaining = search + comments + history + receipts + events + guards + issues + counters;
+    const additional = await Promise.all([
+      store.run("maintenanceCountLinks", [workspaceId, projectId, projectId, projectId]),
+      store.run("maintenanceCountStatuses", [workspaceId, projectId]),
+      store.run("maintenanceCountTypes", [workspaceId, projectId]),
+      store.run("maintenanceCountDefinitionHistory", [workspaceId, projectId]),
+      store.run("maintenanceCountDefinitionReceipts", [workspaceId, projectId]),
+    ]);
+    const remaining =
+      search +
+      comments +
+      history +
+      receipts +
+      events +
+      guards +
+      issues +
+      counters +
+      additional.reduce((sum, result) => sum + Number(result.rows[0]?.n ?? 0), 0);
     const state = marker.state;
     if (state !== "frozen" && state !== "purging" && state !== "purged")
       throw new PlatformError("unknown", "Invalid maintenance state");
@@ -77,6 +93,7 @@ export function createMaintenance(store: ModuleStore<"issues", Name>): IssuesMai
       await store.batch([
         { name: "maintenanceBypass", values: [workspaceId, projectId] },
         { name: "maintenanceDeleteSearch", values: [workspaceId, projectId, projectId] },
+        { name: "maintenanceDeleteLinks", values: [workspaceId, projectId, projectId, projectId] },
         { name: "maintenanceDeleteComments", values: [workspaceId, projectId, projectId] },
         { name: "maintenanceDeleteHistory", values: [workspaceId, projectId, projectId] },
         { name: "maintenanceDeleteReceipts", values: [workspaceId, projectId, projectId] },
@@ -84,6 +101,10 @@ export function createMaintenance(store: ModuleStore<"issues", Name>): IssuesMai
         { name: "maintenanceDeleteGuards", values: [workspaceId, projectId] },
         { name: "maintenanceDeleteIssues", values: [workspaceId, projectId, projectId] },
         { name: "maintenanceDeleteCounters", values: [workspaceId, projectId, projectId] },
+        { name: "maintenanceDeleteStatuses", values: [workspaceId, projectId] },
+        { name: "maintenanceDeleteTypes", values: [workspaceId, projectId] },
+        { name: "maintenanceDeleteDefinitionHistory", values: [workspaceId, projectId] },
+        { name: "maintenanceDeleteDefinitionReceipts", values: [workspaceId, projectId] },
         { name: "maintenanceUnbypass", values: [workspaceId, projectId] },
       ]);
       const next = await status(scope);

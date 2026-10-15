@@ -1,7 +1,7 @@
 import type { RequestScope } from "../access/public";
 
 export type IssueState = "todo" | "in_progress" | "done" | "cancelled";
-export type IssuePriority = "low" | "medium" | "high" | "urgent";
+export type IssuePriority = "none" | "low" | "medium" | "high" | "urgent";
 export interface Issue {
   readonly id: string;
   readonly projectId: string;
@@ -10,6 +10,17 @@ export interface Issue {
   readonly title: string;
   readonly description: string;
   readonly state: IssueState;
+  readonly status: string;
+  readonly statusId: string;
+  readonly statusCategory: IssueState;
+  readonly typeId: string | null;
+  readonly labels: readonly string[];
+  readonly parentId: string | null;
+  readonly createdById: string;
+  readonly createdByKind: "human" | "machine";
+  readonly createdAt: number;
+  readonly updatedAt: number;
+  readonly completedAt: number | null;
   readonly priority: IssuePriority;
   readonly assigneeId: string | null;
   readonly version: number;
@@ -23,6 +34,81 @@ export interface IssueResult {
 export interface IssuePage {
   readonly issues: readonly Issue[];
   readonly nextCursor: string | null;
+}
+export interface TaskStatus {
+  readonly id: string;
+  readonly key: string;
+  readonly name: string;
+  readonly category: IssueState;
+  readonly color: string | null;
+  readonly position: number;
+  readonly isDefault: boolean;
+  readonly isReviewStep: boolean;
+  readonly version: number;
+}
+export interface TaskType {
+  readonly id: string;
+  readonly key: string;
+  readonly name: string;
+  readonly color: string | null;
+  readonly icon: string | null;
+  readonly position: number;
+  readonly isDefault: boolean;
+  readonly version: number;
+}
+export interface IssueComment {
+  readonly id: string;
+  readonly body: string;
+  readonly authorId: string;
+  readonly authorKind: "human" | "machine";
+  readonly clientId: string | null;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+}
+export interface IssueLink {
+  readonly id: string;
+  readonly type:
+    | "blocks"
+    | "blocked_by"
+    | "relates_to"
+    | "duplicates"
+    | "follows_from"
+    | "followed_by";
+  readonly direction: "outbound" | "inbound";
+  readonly otherIssue: {
+    readonly id: string;
+    readonly reference: string;
+    readonly title: string;
+    readonly status: string;
+    readonly statusCategory: IssueState;
+  };
+}
+export interface ChildRollup {
+  readonly total: number;
+  readonly byStatus: { readonly [status: string]: number };
+  readonly done: number;
+  readonly remaining: number;
+}
+export interface IssueFilters {
+  readonly projectId?: string;
+  readonly statusIds?: readonly string[];
+  readonly category?: IssueState;
+  readonly priorities?: readonly IssuePriority[];
+  readonly assigneeId?: string | null;
+  readonly parentId?: string;
+  readonly noParent?: boolean;
+  readonly typeId?: string;
+  readonly excludeTypeIds?: readonly string[];
+  readonly labels?: readonly string[];
+  readonly labelsMode?: "all" | "any";
+  readonly completedAfter?: number;
+  readonly completedBefore?: number;
+  readonly updatedAfter?: number;
+  readonly updatedBefore?: number;
+  readonly issueIds?: readonly string[];
+  readonly includeArchived?: boolean;
+  readonly cursor?: string;
+  readonly limit?: number;
 }
 export interface IssueHistory {
   readonly version: number;
@@ -41,7 +127,12 @@ export interface IssueEvent {
   readonly workspaceId: string;
   readonly aggregateId: string;
   readonly aggregateVersion: number;
-  readonly type: "IssueCreated" | "IssueChanged" | "IssueArchived";
+  readonly type:
+    | "IssueCreated"
+    | "IssueChanged"
+    | "IssueArchived"
+    | "TaskStatusChanged"
+    | "TaskTypeChanged";
   readonly occurredAt: number;
   readonly payload: {
     readonly actorId: string;
@@ -64,6 +155,10 @@ export interface IssuesApi {
       readonly title: string;
       readonly description: string;
       readonly priority: IssuePriority;
+      readonly statusId?: string;
+      readonly typeId?: string | null;
+      readonly labels?: readonly string[];
+      readonly parentId?: string | null;
     },
   ): Promise<IssueResult>;
   editIssue(
@@ -75,6 +170,22 @@ export interface IssuesApi {
       readonly title: string;
       readonly description: string;
       readonly priority: IssuePriority;
+    },
+  ): Promise<IssueResult>;
+  updateIssue(
+    scope: RequestScope,
+    input: {
+      readonly operationId: string;
+      readonly issueId: string;
+      readonly expectedVersion: number;
+      readonly title?: string;
+      readonly description?: string;
+      readonly priority?: IssuePriority;
+      readonly statusId?: string;
+      readonly typeId?: string | null;
+      readonly labels?: readonly string[];
+      readonly parentId?: string | null;
+      readonly assigneeId?: string | null;
     },
   ): Promise<IssueResult>;
   transitionIssue(
@@ -133,6 +244,117 @@ export interface IssuesApi {
       readonly limit?: number;
     },
   ): Promise<IssuePage>;
+  queryIssues(scope: RequestScope, filters: IssueFilters): Promise<IssuePage>;
+  getIssuesByIds(scope: RequestScope, ids: readonly string[]): Promise<readonly Issue[]>;
+  childRollups(
+    scope: RequestScope,
+    parentIds: readonly string[],
+  ): Promise<{ readonly [parentId: string]: ChildRollup }>;
+  listTaskStatuses(scope: RequestScope): Promise<readonly TaskStatus[]>;
+  listTaskTypes(scope: RequestScope): Promise<readonly TaskType[]>;
+  createTaskStatus(
+    scope: RequestScope,
+    input: {
+      readonly operationId: string;
+      readonly id: string;
+      readonly key: string;
+      readonly name: string;
+      readonly category: IssueState;
+      readonly color?: string | null;
+      readonly position?: number;
+      readonly isDefault?: boolean;
+      readonly isReviewStep?: boolean;
+    },
+  ): Promise<TaskStatus>;
+  updateTaskStatus(
+    scope: RequestScope,
+    input: {
+      readonly operationId: string;
+      readonly id: string;
+      readonly expectedVersion: number;
+      readonly name?: string;
+      readonly category?: IssueState;
+      readonly color?: string | null;
+      readonly position?: number;
+      readonly isDefault?: boolean;
+      readonly isReviewStep?: boolean;
+    },
+  ): Promise<TaskStatus>;
+  deleteTaskStatus(
+    scope: RequestScope,
+    input: { readonly operationId: string; readonly id: string; readonly expectedVersion: number },
+  ): Promise<{ readonly id: string; readonly version: number }>;
+  createTaskType(
+    scope: RequestScope,
+    input: {
+      readonly operationId: string;
+      readonly id: string;
+      readonly key: string;
+      readonly name: string;
+      readonly color?: string | null;
+      readonly icon?: string | null;
+      readonly position?: number;
+      readonly isDefault?: boolean;
+    },
+  ): Promise<TaskType>;
+  updateTaskType(
+    scope: RequestScope,
+    input: {
+      readonly operationId: string;
+      readonly id: string;
+      readonly expectedVersion: number;
+      readonly name?: string;
+      readonly color?: string | null;
+      readonly icon?: string | null;
+      readonly position?: number;
+      readonly isDefault?: boolean;
+    },
+  ): Promise<TaskType>;
+  deleteTaskType(
+    scope: RequestScope,
+    input: { readonly operationId: string; readonly id: string; readonly expectedVersion: number },
+  ): Promise<{ readonly id: string; readonly version: number }>;
+  listComments(scope: RequestScope, issueId: string): Promise<readonly IssueComment[]>;
+  editComment(
+    scope: RequestScope,
+    input: {
+      readonly operationId: string;
+      readonly issueId: string;
+      readonly expectedVersion: number;
+      readonly commentId: string;
+      readonly body: string;
+    },
+  ): Promise<IssueResult>;
+  deleteComment(
+    scope: RequestScope,
+    input: {
+      readonly operationId: string;
+      readonly issueId: string;
+      readonly expectedVersion: number;
+      readonly commentId: string;
+    },
+  ): Promise<IssueResult>;
+  createIssueLink(
+    scope: RequestScope,
+    input: {
+      readonly operationId: string;
+      readonly linkId: string;
+      readonly sourceIssueId: string;
+      readonly targetIssueId: string;
+      readonly type: IssueLink["type"];
+      readonly expectedVersion: number;
+    },
+  ): Promise<IssueResult>;
+  deleteIssueLink(
+    scope: RequestScope,
+    input: {
+      readonly operationId: string;
+      readonly linkId: string;
+      readonly sourceIssueId: string;
+      readonly expectedVersion: number;
+    },
+  ): Promise<IssueResult>;
+  listIssueLinks(scope: RequestScope, issueId: string): Promise<readonly IssueLink[]>;
   searchIssues(
     scope: RequestScope,
     input: { readonly projectId: string; readonly text: string; readonly limit?: number },

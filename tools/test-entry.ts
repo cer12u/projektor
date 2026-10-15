@@ -19,6 +19,7 @@ export {
   createScopedBucket,
   createScopedKV,
 } from "../platform/adapters";
+export { catalogs } from "../platform/generated/catalogs";
 export { migrate } from "../platform/migrate";
 export { randomIds, systemClock } from "../platform/primitives";
 export { PlatformError } from "../platform/public";
