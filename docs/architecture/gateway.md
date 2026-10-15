@@ -195,3 +195,14 @@ request there carries the Access `CF_Authorization` cookie instead of the inject
 human authentication. The cookie is ambient: it applies only to REST, only when no
 header or `Authorization` is present, and a cookie-authenticated non-GET request must
 carry this origin in `Origin`. MCP never accepts it.
+
+## Original issues UI API (C3)
+
+`gateway/ui/` translates the original issue, comment, link, status, type and
+search routes to Issues public APIs. It resolves `KEY-N` references through
+visible Projects, loads member display data through Access, and maps the
+original snake-case response fields. Writes generate a fresh operation ID;
+updates read the current version and pass it as the Issues CAS precondition.
+A stale version returns HTTP 409 `{"error":"Conflict"}`. List totals are
+reported on the first page only. Sprint and custom-field inputs stay deferred
+with HTTP 501 until their owning steps provide data.

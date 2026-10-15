@@ -159,6 +159,7 @@ export interface IssuesApi {
       readonly typeId?: string | null;
       readonly labels?: readonly string[];
       readonly parentId?: string | null;
+      readonly assigneeId?: string | null;
     },
   ): Promise<IssueResult>;
   editIssue(
@@ -245,6 +246,11 @@ export interface IssuesApi {
     },
   ): Promise<IssuePage>;
   queryIssues(scope: RequestScope, filters: IssueFilters): Promise<IssuePage>;
+  countIssues(scope: RequestScope, filters: IssueFilters): Promise<number>;
+  countIssuesByProject(
+    scope: RequestScope,
+    projectIds: readonly string[],
+  ): Promise<readonly { projectId: string; open: number; backlog: number }[]>;
   getIssuesByIds(scope: RequestScope, ids: readonly string[]): Promise<readonly Issue[]>;
   childRollups(
     scope: RequestScope,
@@ -357,7 +363,13 @@ export interface IssuesApi {
   listIssueLinks(scope: RequestScope, issueId: string): Promise<readonly IssueLink[]>;
   searchIssues(
     scope: RequestScope,
-    input: { readonly projectId: string; readonly text: string; readonly limit?: number },
+    input: {
+      readonly projectId: string;
+      readonly text: string;
+      readonly limit?: number;
+      readonly labels?: readonly string[];
+      readonly labelsMode?: "all" | "any";
+    },
   ): Promise<readonly Issue[]>;
   getHistory(scope: RequestScope, issueId: string): Promise<readonly IssueHistory[]>;
   authorizeIssue(

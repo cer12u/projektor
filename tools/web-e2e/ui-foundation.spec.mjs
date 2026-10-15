@@ -22,6 +22,6 @@ test("original project UI loads, creates a project, and opens its slug route", a
   await expect(card).toBeVisible();
   await expect(card).toHaveAttribute("href", "/projects/view/foundation");
   await card.click();
-  await expect(page).toHaveURL(/\/projects\/view\/foundation$/);
+  await expect(page).toHaveURL(/\/projects\/view\/foundation\?projectId=[0-9a-f-]{36}$/);
   await expect(page.getByRole("heading", { level: 1, name: "Foundation Project" })).toBeVisible();
 });
