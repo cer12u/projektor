@@ -935,6 +935,9 @@ export function createIssues(deps: Dependencies): {
         input.parentId === undefined || input.parentId === null ? null : id(input.parentId);
       if (parentId) await validateParent(scope, parentId, null);
       const labels = validateLabels(input.labels ?? []);
+      const assigneeId =
+        input.assigneeId === undefined || input.assigneeId === null ? null : id(input.assigneeId);
+      if (assigneeId) await projects.authorizeProjectPrincipal(scope, projectId, assigneeId);
       const fp = await fingerprint("create", input.operationId, [
         projectId,
         issueId,
@@ -945,6 +948,7 @@ export function createIssues(deps: Dependencies): {
         typeId,
         parentId,
         labels,
+        assigneeId,
       ]);
       const saved = await replay(scope, input.operationId, fp);
       if (saved) return saved;
@@ -956,7 +960,16 @@ export function createIssues(deps: Dependencies): {
         issueId,
         1,
         "create",
-        JSON.stringify({ title, description, priority: level, statusId, typeId, parentId, labels }),
+        JSON.stringify({
+          title,
+          description,
+          priority: level,
+          statusId,
+          typeId,
+          parentId,
+          labels,
+          assigneeId,
+        }),
         [
           { name: "allocate", values: [w(scope), projectId] },
           ...guarded(scope, {
@@ -979,6 +992,7 @@ export function createIssues(deps: Dependencies): {
               kind(scope),
               createdAt,
               createdAt,
+              assigneeId,
               w(scope),
               projectId,
             ],
@@ -1668,6 +1682,111 @@ export function createIssues(deps: Dependencies): {
             : null,
       };
     },
+    async countIssues(scope, filters) {
+      object(filters);
+      const limit = filters.limit ?? 30;
+      if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
+        fail("validation", "Invalid limit");
+      const array = (values: readonly string[] | undefined, max = 100): string | null => {
+        if (values === undefined) return null;
+        if (!Array.isArray(values) || values.length > max)
+          fail("validation", "Invalid filter list");
+        return JSON.stringify(values.map(id));
+      };
+      let visible: string[] = [];
+      if (filters.projectId !== undefined) {
+        visible = [id(filters.projectId)];
+        await projects.authorizeProject(scope, visible[0]);
+      } else {
+        let cursor = "";
+        do {
+          const page = await projects.listVisibleProjects(scope, cursor, 100);
+          visible.push(...page.projects.map((p) => p.id));
+          cursor = page.nextCursor ?? "";
+        } while (cursor);
+      }
+      const statusIds = array(filters.statusIds),
+        priorities =
+          filters.priorities === undefined
+            ? null
+            : JSON.stringify(filters.priorities.map(priority));
+      const exclusions = array(filters.excludeTypeIds),
+        labels =
+          filters.labels === undefined ? null : JSON.stringify(validateLabels(filters.labels));
+      const issueIds = array(filters.issueIds);
+      const category = filters.category === undefined ? null : state(filters.category);
+      const assigneeMode =
+        filters.assigneeId === undefined ? 0 : filters.assigneeId === null ? 1 : 2;
+      const assigneeId = typeof filters.assigneeId === "string" ? id(filters.assigneeId) : null;
+      const parentId = filters.parentId === undefined ? null : id(filters.parentId);
+      const typeId = filters.typeId === undefined ? null : id(filters.typeId);
+      const range = (value: number | undefined): number | null => {
+        if (value === undefined) return null;
+        if (!Number.isSafeInteger(value) || value < 0) fail("validation", "Invalid timestamp");
+        return value;
+      };
+      const completedAfter = range(filters.completedAfter),
+        completedBefore = range(filters.completedBefore),
+        updatedAfter = range(filters.updatedAfter),
+        updatedBefore = range(filters.updatedBefore);
+      const projectId = filters.projectId ?? null;
+      const rows = (
+        await store.run("countIssues", [
+          w(scope),
+          JSON.stringify(visible),
+          projectId,
+          projectId,
+          statusIds,
+          statusIds,
+          category,
+          category,
+          priorities,
+          priorities,
+          assigneeMode,
+          assigneeMode,
+          assigneeMode,
+          assigneeId,
+          parentId,
+          parentId,
+          filters.noParent === true ? 1 : 0,
+          typeId,
+          typeId,
+          exclusions,
+          exclusions,
+          labels,
+          filters.labelsMode ?? "all",
+          labels,
+          labels,
+          labels,
+          labels,
+          completedAfter,
+          completedAfter,
+          completedBefore,
+          completedBefore,
+          updatedAfter,
+          updatedAfter,
+          updatedBefore,
+          updatedBefore,
+          issueIds,
+          issueIds,
+          filters.includeArchived === true ? 1 : 0,
+        ])
+      ).rows;
+      return number(rows[0], "n");
+    },
+    async countIssuesByProject(scope, projectIds) {
+      if (!Array.isArray(projectIds) || projectIds.length > 100)
+        fail("validation", "Invalid project IDs");
+      const checked = projectIds.map(id);
+      for (const projectId of checked) await projects.authorizeProject(scope, projectId);
+      const rows = (await store.run("countIssuesByProject", [w(scope), JSON.stringify(checked)]))
+        .rows;
+      return rows.map((row) => ({
+        projectId: string(row, "project_id"),
+        open: number(row, "open_count"),
+        backlog: number(row, "backlog_count"),
+      }));
+    },
     async getIssuesByIds(scope, ids) {
       if (!Array.isArray(ids) || ids.length > 100) fail("validation", "Invalid IDs");
       const checked = ids.map(id);
@@ -1714,6 +1833,15 @@ export function createIssues(deps: Dependencies): {
       const limit = input.limit ?? 20;
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
         fail("validation", "Invalid limit");
+      const labels =
+        input.labels === undefined ? null : JSON.stringify(validateLabels(input.labels));
+      if (
+        input.labelsMode !== undefined &&
+        input.labelsMode !== "all" &&
+        input.labelsMode !== "any"
+      )
+        fail("validation", "Invalid labels mode");
+      const labelParams = [labels, input.labelsMode ?? "all", labels, labels, labels, labels];
       return (
         await (terms.some((term) => Array.from(term).length < 3)
           ? store.run("searchShort", [
@@ -1722,6 +1850,7 @@ export function createIssues(deps: Dependencies): {
               ),
               w(scope),
               projectId,
+              ...labelParams,
               limit,
             ])
           : store.run("search", [
@@ -1730,6 +1859,7 @@ export function createIssues(deps: Dependencies): {
               projectId,
               w(scope),
               projectId,
+              ...labelParams,
               limit,
             ]))
       ).rows.map((row) => fromRow(row, project.key));

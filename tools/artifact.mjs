@@ -71,7 +71,9 @@ try {
   const response = await mf.dispatchFetch("http://localhost/health");
   assert.equal(response.status, 200);
   assert.deepEqual(await response.json(), { phase: "gateway", deployable: false });
-  const deferred = await mf.dispatchFetch("http://localhost/api/issues");
+  const issues = await mf.dispatchFetch("http://localhost/api/issues");
+  assert.equal(issues.status, 403);
+  const deferred = await mf.dispatchFetch("http://localhost/auth/refresh");
   assert.equal(deferred.status, 501);
   assert.deepEqual(await deferred.json(), { error: "Not implemented" });
   const page = await mf.dispatchFetch("http://localhost/");

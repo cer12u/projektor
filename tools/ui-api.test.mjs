@@ -278,9 +278,10 @@ test("foundation endpoints, commands, conflict, and deferred routes", async () =
     501,
   );
   assert.deepEqual((await request("/api/issues", { workspace: "w1" })).body, {
-    error: "Not implemented",
+    items: [],
+    nextCursor: null,
+    total: 0,
   });
-  assert.equal((await request("/api/issues", { workspace: "w1" })).status, 501);
   assert.equal(
     (
       await request("/api/projects", {
@@ -351,4 +352,322 @@ test("admin bootstrap is once only and does not join other users", async () => {
   } finally {
     await bootstrapMf.dispose();
   }
+});
+
+// Ported assertions: d39852ce:apps/api/src/test/issues.test.ts,
+// issues-pagination.test.ts, issues-labels.test.ts, comments.test.ts,
+// issue-links.test.ts, task-statuses.test.ts and task-types.test.ts.
+test("issue UI API contracts, refs, filters, comments, links and workspace isolation", async () => {
+  const project = await request("/api/projects", {
+    method: "POST",
+    workspace: "w1",
+    body: { name: "Issues Project", key: "ISS" },
+  });
+  assert.equal(project.status, 201);
+  const projectId = project.body.id;
+  const create = (title, extra = {}) =>
+    request("/api/issues", {
+      method: "POST",
+      workspace: "w1",
+      body: { projectId, title, ...extra },
+    });
+  const first = await create("First issue", { priority: "high", labels: ["bug", "urgent"] });
+  const second = await create("Second issue", { priority: "low" });
+  assert.equal(first.status, 201);
+  assert.deepEqual(Object.keys(first.body).sort(), ["id", "number"]);
+  assert.equal(second.status, 201);
+  const ref = `ISS-${first.body.number}`;
+  const byId = await request(`/api/issues/${first.body.id}`, { workspace: "w1" });
+  const byRef = await request(`/api/issues/${ref}`, { workspace: "w1" });
+  assert.equal(byId.status, 200);
+  assert.deepEqual(byRef.body, byId.body);
+  assert.equal(byId.body.body, "");
+  assert.equal(byId.body.author_kind, "human");
+  assert.deepEqual(JSON.parse(byId.body.labels), ["bug", "urgent"]);
+  assert.equal(byId.body.url, `/projects/ISS/issues/${first.body.number}/first-issue`);
+  assert.deepEqual(
+    Object.keys(byId.body).sort(),
+    Object.keys({
+      id: "",
+      workspace_id: "",
+      project_id: "",
+      number: 0,
+      title: "",
+      status: "",
+      status_id: "",
+      status_key: "",
+      status_name: "",
+      status_category: "",
+      priority: "",
+      assignee_id: null,
+      assignee_name: null,
+      labels: "[]",
+      parent_id: null,
+      type_id: null,
+      type_key: null,
+      type_name: null,
+      sprint_id: null,
+      created_by_id: "",
+      author_kind: "",
+      created_at: 0,
+      updated_at: 0,
+      completed_at: null,
+      needs_audit: false,
+      project_key: "",
+      project_name: "",
+      customFields: [],
+      url: "",
+      body: "",
+      rollup: {},
+      links: [],
+      ready_at: null,
+      claimed_at: null,
+      done_at: null,
+      in_review_at: null,
+      review_bounce_count: 0,
+      dor_ready: false,
+      dor_missing: [],
+      resolution_history: [],
+      resolution_history_has_more: false,
+      last_completed_at: null,
+      completed_at_source: null,
+    }).sort(),
+  );
+  const list = await request("/api/issues?limit=1", { workspace: "w1" });
+  assert.equal(list.status, 200);
+  assert.equal(list.body.items.length, 1);
+  assert.equal(list.body.total, 2);
+  assert.ok(list.body.nextCursor);
+  assert.equal(Object.hasOwn(list.body.items[0], "body"), false);
+  const page2 = await request(
+    `/api/issues?limit=1&cursor=${encodeURIComponent(list.body.nextCursor)}`,
+    { workspace: "w1" },
+  );
+  assert.equal(page2.body.total, null);
+  assert.equal(page2.body.items.length, 1);
+  const filtered = await request(
+    "/api/issues?priorities=high&labels=bug,urgent&labelsMode=all&includeBody=1&includeRollups=1",
+    { workspace: "w1" },
+  );
+  assert.equal(filtered.body.total, 1);
+  assert.equal(filtered.body.items[0].body, "");
+  assert.equal(filtered.body.items[0].rollup.total, 0);
+  assert.equal((await request("/api/issues?assignee=me", { workspace: "w1" })).body.total, 0);
+  for (const param of ["sprintId=x", "cfKey=a", "needsAudit=true"]) {
+    assert.equal((await request(`/api/issues?${param}`, { workspace: "w1" })).status, 501);
+  }
+  const actorId = (await request("/auth/me")).body.user.id;
+  const patched = await request(`/api/issues/${ref}`, {
+    method: "PATCH",
+    workspace: "w1",
+    body: {
+      title: "Changed issue",
+      statusId: "status_in_progress",
+      priority: "urgent",
+      labels: ["fixed"],
+      assigneeId: actorId,
+    },
+  });
+  assert.equal(patched.status, 200);
+  const changed = await request(`/api/issues/${first.body.id}`, { workspace: "w1" });
+  assert.equal(changed.body.title, "Changed issue");
+  assert.equal(changed.body.status_category, "in_progress");
+  assert.equal(changed.body.assignee_id, actorId);
+  assert.equal((await request("/api/issues?assignee=me", { workspace: "w1" })).body.total, 1);
+  assert.equal(
+    (await request("/api/issues?statusIds=status_in_progress", { workspace: "w1" })).body.total,
+    1,
+  );
+  assert.equal(
+    (await request("/api/issues?category=in_progress", { workspace: "w1" })).body.total,
+    1,
+  );
+  assert.equal(
+    (await request("/api/issues?status=in_progress", { workspace: "w1" })).body.total,
+    1,
+  );
+  assert.equal((await request("/api/issues?priorities=urgent", { workspace: "w1" })).body.total, 1);
+  assert.equal((await request("/api/issues?completedAfter=1", { workspace: "w1" })).body.total, 0);
+  assert.equal((await request("/api/issues?updatedBefore=1", { workspace: "w1" })).body.total, 0);
+  assert.equal((await request("/api/issues?updatedAfter=1", { workspace: "w1" })).body.total, 2);
+  const child = await request(`/api/issues/${second.body.id}`, {
+    method: "PATCH",
+    workspace: "w1",
+    body: { parentId: first.body.id, typeId: "type_bug" },
+  });
+  assert.equal(child.status, 200);
+  assert.equal((await request(`/api/issues?parentId=${ref}`, { workspace: "w1" })).body.total, 1);
+  assert.equal((await request("/api/issues?noParent=true", { workspace: "w1" })).body.total, 1);
+  assert.equal((await request("/api/issues?typeId=type_bug", { workspace: "w1" })).body.total, 1);
+  assert.equal(
+    (await request("/api/issues?excludeTypeIds=type_bug", { workspace: "w1" })).body.total,
+    1,
+  );
+  const comment = await request(`/api/issues/${first.body.id}/comments`, {
+    method: "POST",
+    workspace: "w1",
+    body: { body: "First comment" },
+  });
+  assert.equal(comment.status, 201);
+  const comments = await request(`/api/issues/${ref}/comments`, { workspace: "w1" });
+  assert.equal(comments.body[0].body, "First comment");
+  assert.equal(comments.body[0].author_name, "alice");
+  assert.equal(comments.body[0].author_email, "alice@example.test");
+  assert.equal(
+    (
+      await request(`/api/issues/${first.body.id}/comments/${comment.body.id}`, {
+        method: "PATCH",
+        workspace: "w1",
+        body: { body: "Edited comment" },
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (await request(`/api/issues/${ref}/comments`, { workspace: "w1" })).body[0].body,
+    "Edited comment",
+  );
+  assert.equal(
+    (
+      await request(`/api/issues/${first.body.id}/comments/${comment.body.id}`, {
+        method: "DELETE",
+        workspace: "w1",
+      })
+    ).status,
+    200,
+  );
+  assert.deepEqual((await request(`/api/issues/${ref}/comments`, { workspace: "w1" })).body, []);
+  const link = await request(`/api/issues/${first.body.id}/links`, {
+    method: "POST",
+    workspace: "w1",
+    body: { targetIssueId: second.body.id, type: "blocks" },
+  });
+  assert.equal(link.status, 201);
+  const links = await request(`/api/issues/${ref}/links`, { workspace: "w1" });
+  assert.equal(links.body[0].type, "blocks");
+  assert.equal(links.body[0].linkedIssueId, second.body.id);
+  assert.equal(
+    (
+      await request(`/api/issues/${first.body.id}/links/${link.body.id}`, {
+        method: "DELETE",
+        workspace: "w1",
+      })
+    ).status,
+    200,
+  );
+  assert.deepEqual((await request(`/api/issues/${ref}/links`, { workspace: "w1" })).body, []);
+  const search = await request("/api/issues/search?q=Changed", { workspace: "w1" });
+  assert.equal(search.status, 200);
+  assert.equal(search.body[0].id, first.body.id);
+  assert.equal(
+    (await request("/api/issues/search?q=Changed&labels=fixed", { workspace: "w1" })).body.length,
+    1,
+  );
+  assert.equal(
+    (await request("/api/issues/search?q=Changed&labels=missing", { workspace: "w1" })).body.length,
+    0,
+  );
+  const statuses = await request("/api/task-statuses", { workspace: "w1" });
+  const types = await request("/api/task-types", { workspace: "w1" });
+  assert.equal(statuses.body.find((s) => s.key === "backlog").is_default, true);
+  assert.equal(types.body.find((t) => t.key === "task").is_default, true);
+  const projects = await request("/api/projects", { workspace: "w1" });
+  const count = projects.body.find((p) => p.id === projectId);
+  assert.equal(count.open_issue_count, 2);
+  assert.equal(count.backlog_issue_count, 1);
+  const assignedOnCreate = await create("Assigned at creation", { assigneeId: actorId });
+  assert.equal(assignedOnCreate.status, 201);
+  assert.equal(
+    (await request(`/api/issues/${assignedOnCreate.body.id}`, { workspace: "w1" })).body
+      .assignee_id,
+    actorId,
+  );
+  const invalidAssignee = await create("Invalid assignee", { assigneeId: "absent" });
+  assert.equal(invalidAssignee.status, 404);
+  assert.equal((await request("/api/issues?project=ISS", { workspace: "w1" })).body.total, 3);
+  assert.equal((await request("/api/issues", { workspace: "w2" })).body.total, 0);
+  assert.equal((await request(`/api/issues/${ref}`, { workspace: "w2" })).status, 404);
+  assert.equal((await request(`/api/issues/${ref}`, { token: bob, workspace: "w3" })).status, 404);
+  assert.equal(
+    (
+      await request(`/api/issues/${first.body.id}`, {
+        method: "PATCH",
+        token: bob,
+        workspace: "w3",
+        body: { title: "Denied" },
+      })
+    ).status,
+    404,
+  );
+  const owner = await access.authenticate({ kind: "human", assertion: alice });
+  const ownerScope = await access.requireMembership(owner, "w1", "viewer-setup", "write");
+  await access.inviteMember(ownerScope, {
+    issuer,
+    subject: "bob",
+    role: "viewer",
+    expectedVersion: 0,
+    operationId: "viewer-bob-w1",
+  });
+  assert.equal((await request("/api/issues", { token: bob, workspace: "w1" })).status, 200);
+  assert.equal(
+    (
+      await request("/api/issues", {
+        token: bob,
+        workspace: "w1",
+        method: "POST",
+        body: { projectId, title: "Denied" },
+      })
+    ).status,
+    403,
+  );
+});
+
+test("concurrent issue PATCH translates the stale CAS to HTTP 409", async () => {
+  let reads = 0;
+  let release;
+  const bothRead = new Promise((resolve) => {
+    release = resolve;
+  });
+  let version = 1;
+  const issue = { id: "issue1", version: 1, projectId: "p1" };
+  const principal = {};
+  const scope = { workspaceId: "w1", principalId: "alice", role: "owner", kind: "human" };
+  const services = {
+    access: {
+      me: async () => ({ workspaces: [{ id: "w1", name: "w1", role: "owner" }], nextCursor: null }),
+      requireMembership: async () => scope,
+    },
+    issues: {
+      getIssue: async () => {
+        reads += 1;
+        if (reads === 2) release();
+        await bothRead;
+        return issue;
+      },
+      updateIssue: async (_scope, input) => {
+        if (input.expectedVersion !== version)
+          throw new platform.PlatformError("conflict", "Stale version");
+        version += 1;
+        return { id: "issue1", version };
+      },
+      listTaskStatuses: async () => [],
+    },
+  };
+  const authenticate = async () => principal;
+  const patch = (title) =>
+    platform.handleUi(
+      new Request("http://localhost/api/issues/issue1", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title }),
+      }),
+      services,
+      authenticate,
+      `race-${title}`,
+    );
+  const responses = await Promise.all([patch("first"), patch("second")]);
+  assert.deepEqual(responses.map((response) => response.status).sort(), [200, 409]);
+  assert.deepEqual(await responses.find((response) => response.status === 409).json(), {
+    error: "Conflict",
+  });
 });

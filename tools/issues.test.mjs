@@ -1327,6 +1327,12 @@ test("C2 queryIssues applies each filter before equal-time cursor paging", async
   });
   const count = async (filters) => (await f.api.queryIssues(f.human, filters)).issues.length;
   assert.equal(await count({ projectId: "p1" }), 2);
+  assert.equal(await f.api.countIssues(f.human, { projectId: "p1" }), 2);
+  assert.equal(await f.api.countIssues(f.human, { labels: ["red", "blue"] }), 1);
+  assert.deepEqual(await f.api.countIssuesByProject(f.human, ["p1", "p2"]), [
+    { projectId: "p1", open: 1, backlog: 1 },
+    { projectId: "p2", open: 1, backlog: 1 },
+  ]);
   assert.equal(await count({ category: "done" }), 1);
   assert.equal(await count({ statusIds: ["status_done"] }), 1);
   assert.equal(await count({ priorities: ["high"] }), 1);
@@ -1352,6 +1358,10 @@ test("C2 queryIssues applies each filter before equal-time cursor paging", async
   assert.deepEqual([first.issues[0].id, second.issues[0].id, third.issues[0].id], ["c", "b", "a"]);
   f.state.denied.add("w1:human:p2");
   assert.equal(await count({}), 2);
+  assert.equal(await f.api.countIssues(f.human, {}), 2);
+  await assert.rejects(f.api.countIssuesByProject(f.human, ["p2"]), code("not_found"));
+  assert.equal(await f.api.countIssues(f.other, {}), 0);
+  assert.deepEqual(await f.api.countIssuesByProject(f.other, ["p1"]), []);
 });
 
 test("C2 0004 backfills frozen and live workspaces without weakening FKs or freeze checks", async () => {

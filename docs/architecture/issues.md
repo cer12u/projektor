@@ -123,3 +123,15 @@ Link creation canonicalizes inverse and symmetric types, checks write access to 
 bump the source issue version. Lists return each visible link in either direction with the linked
 issue's reference and status. Lifecycle purges links before issues and removes workspace definitions,
 their receipts and history when the whole workspace is purged.
+
+## UI restoration reads (C3)
+
+`queryIssues` and `countIssues` apply the same workspace, visible-project and
+filter predicates. The count omits pagination, so the UI sends `total` only on
+its first page. `countIssuesByProject` accepts at most 100 authorized project IDs
+and counts open (`state` other than done/cancelled) and backlog issues for the
+project list. The caller chunks longer visible-project lists. Search accepts the
+same all/any label filter as the issue list; both SQL statements remain static.
+These reads do not add migrations or storage resources. `createIssue` also accepts
+an optional assignee and checks that principal before its existing atomic batch, so a
+UI create request cannot leave an unassigned issue after assignment fails.

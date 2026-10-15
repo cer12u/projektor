@@ -105,7 +105,6 @@ export function check(root = process.cwd(), onlyRule, { freshness = true } = {})
     const owner = matches[0];
     if (
       owner.kind !== "tooling" &&
-      owner.kind !== "web" &&
       file !== "apps/worker/index.ts" &&
       file !== "tools/check-boundaries.mjs" &&
       /\bINTEGRATIONS_KEY\b/.test(fs.readFileSync(path.join(root, file), "utf8"))
