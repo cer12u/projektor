@@ -36,3 +36,15 @@ After independently checking initial resources/schema/configuration and approvin
 The official Cloudflare GitHub App requests repository administration/contents/checks/deployments/PR write permissions, and existing authorization is unverified. Actions avoids adding that broad GitHub grant. Workers Builds is an alternative only if selected/authorized explicitly; use main only, no preview branches, Node22.22.1/pnpm10.18.0, build CI_COMMIT_SHA=$WORKERS_CI_COMMIT_SHA pnpm verify, deploy node tools/github-deploy.mjs, with the same approval variables. Never enable both pipelines.
 
 References: https://developers.cloudflare.com/workers/authorization/workers/ ; https://developers.cloudflare.com/changelog/post/2026-09-15-granular-worker-permissions/ ; https://developers.cloudflare.com/workers/ci-cd/external-cicd/github-actions/ ; https://github.com/apps/cloudflare-workers-and-pages .
+
+## Retained legacy Durable Objects
+
+The existing Worker owns SQLite Durable Object namespaces for WorkspaceHub and RateLimiter.
+Keep both compatibility class exports in the Worker entrypoint. They return 503 and never
+access storage; the modular application has no bindings to them. This preserves the
+namespaces without reviving retired business code. Do not add a delete migration or a
+deleted export tombstone: either permanently deletes the stored objects. No Durable
+Object lifecycle change is part of this cutover. The native Miniflare regression test
+seeds both namespaces, loads the production entrypoint, then verifies the original data.
+
+Reference: https://developers.cloudflare.com/durable-objects/reference/durable-object-class-migrations-legacy/ .
