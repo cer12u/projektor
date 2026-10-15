@@ -90,3 +90,36 @@ recovery requires restored current permission.
 
 See [Lifecycle](lifecycle.md) for owner-local atomic freeze, bounded purge, retained
 markers, project attribution, REST-only owner access and recovery limits.
+
+## C2 tracker model
+
+Migrations `0004_tracker_fields.sql` and `0005_definitions_links.sql` are additive. The first
+backfills issue timestamps and creator from the earliest history row and updates the old priority,
+status and comment fields, including frozen scopes through a transaction-local purge bypass. The
+second adds workspace status and type definitions, issue links, and definition command receipts and
+history. Migration checksums are recorded in `platform_schema_versions`. Production must apply both
+migrations through the operator migrator before updating `CF_APPROVED_SCHEMA_SHA256`.
+
+Issues now expose their status key and ID, category (`state`), optional type and parent, labels,
+creator, and epoch-second creation, update and completion times. `priority_level` is the public
+priority; the old `priority` column is maintained only to satisfy its historical constraint (`none`
+is stored there as `low`). The first issue write or definition write in a workspace seeds the six
+built-in statuses and four built-in types in the same batch. Until then, list reads return those
+built-ins without writing. Issue creation uses the workspace's default status and no type unless
+specified. Changing a status category updates its issues, their versions, history and outbox events
+in the same batch. Reopening clears `completed_at`; entering done stamps it.
+
+`updateIssue` changes selected fields in one version bump and validates the status, type, parent
+chain, and assignee at admission. `queryIssues` searches all visible projects when `projectId` is
+absent, supports the tracker filters, and pages by `(created_at DESC, id DESC)`. Its JSON array
+filters use static recursive CTEs with `json_extract`: the schema ownership checker currently
+rejects `json_each` as an unowned table-valued source. This retains one JSON bind per array and
+does not add dynamic SQL. `getIssuesByIds` accepts at most 100 IDs; `childRollups` reports counts by
+category.
+
+Comment edits and deletes bump the issue version, keep the full command receipt and history
+pattern, and require the comment author for edits or the author or workspace admin for deletion.
+Link creation canonicalizes inverse and symmetric types, checks write access to both issues, and
+bump the source issue version. Lists return each visible link in either direction with the linked
+issue's reference and status. Lifecycle purges links before issues and removes workspace definitions,
+their receipts and history when the whole workspace is purged.

@@ -109,6 +109,19 @@ async function fixture() {
     async getProject(s, projectId) {
       return this.authorizeProject(s, projectId);
     },
+    async listVisibleProjects(s, cursor = "") {
+      const all = ["p1", "p2"];
+      const visible = [];
+      for (const projectId of all) {
+        if (projectId <= cursor) continue;
+        try {
+          visible.push(await this.authorizeProject(s, projectId));
+        } catch (error) {
+          if (!(error instanceof platform.PlatformError) || error.code !== "not_found") throw error;
+        }
+      }
+      return { projects: visible, nextCursor: null };
+    },
     async authorizeProjectPrincipal(s, projectId, principalId) {
       await this.authorizeProject(s, projectId, "write");
       if (
@@ -1032,7 +1045,7 @@ test("trigram upgrade rebuilds existing indexed rows and preserves unknown attri
         .prepare("SELECT COUNT(*) n FROM platform_schema_versions WHERE owner='issues'")
         .first()
     ).n,
-    3,
+    5,
   );
 });
 
@@ -1111,4 +1124,568 @@ test("10a getIssueIncludingArchived preserves grants and cannot authorize archiv
   f.state.archived.add("w1:p1");
   assert.equal((await f.api.getIssueIncludingArchived(f.human, "i1")).archived, true);
   await assert.rejects(f.api.getIssueIncludingArchived(denied, "i1"), code("not_found"));
+});
+
+test("C2 built-ins seed lazily, custom status and type update issues with receipts and CAS", async () => {
+  const f = await fixture();
+  const admin = f.issueScope("w1", "human", "human", { role: "admin" });
+  assert.equal((await f.api.listTaskStatuses(admin)).length, 6);
+  assert.equal((await f.db.prepare("SELECT COUNT(*) n FROM issues_task_statuses").first()).n, 0);
+  const custom = await f.api.createTaskStatus(admin, {
+    operationId: "custom-status",
+    id: "status_custom",
+    key: "custom",
+    name: "Custom",
+    category: "in_progress",
+    isDefault: true,
+  });
+  assert.equal(custom.version, 1);
+  assert.deepEqual(
+    await f.api.createTaskStatus(admin, {
+      operationId: "custom-status",
+      id: "status_custom",
+      key: "custom",
+      name: "Custom",
+      category: "in_progress",
+      isDefault: true,
+    }),
+    custom,
+  );
+  assert.equal((await f.api.listTaskStatuses(admin)).length, 7);
+  const issue = await f.api.createIssue(f.human, {
+    ...input("c2"),
+    priority: "none",
+    typeId: "type_bug",
+    labels: ["one"],
+    statusId: "status_custom",
+  });
+  assert.equal(issue.version, 1);
+  const read = await f.api.getIssue(f.human, { issueId: "c2" });
+  assert.equal(read.status, "custom");
+  assert.equal(read.state, "in_progress");
+  assert.equal(read.priority, "none");
+  assert.equal(read.createdAt, 1800000000);
+  assert.deepEqual(read.labels, ["one"]);
+  await assert.rejects(
+    f.api.deleteTaskStatus(admin, {
+      operationId: "delete-in-use",
+      id: "status_custom",
+      expectedVersion: 1,
+    }),
+    code("conflict"),
+  );
+  const changed = await f.api.updateTaskStatus(admin, {
+    operationId: "change-category",
+    id: "status_custom",
+    expectedVersion: 1,
+    category: "done",
+  });
+  assert.equal(changed.category, "done");
+  assert.equal((await f.api.getIssue(f.human, { issueId: "c2" })).completedAt, 1800000000);
+  await assert.rejects(
+    f.api.updateTaskStatus(admin, {
+      operationId: "stale-status",
+      id: "status_custom",
+      expectedVersion: 1,
+      name: "Stale",
+    }),
+    code("conflict"),
+  );
+  const type = await f.api.createTaskType(admin, {
+    operationId: "create-type",
+    id: "type_custom",
+    key: "custom",
+    name: "Custom",
+  });
+  assert.equal(type.version, 1);
+  assert.deepEqual(
+    await f.api.createTaskType(admin, {
+      operationId: "create-type",
+      id: "type_custom",
+      key: "custom",
+      name: "Custom",
+    }),
+    type,
+  );
+  await assert.rejects(
+    f.api.createTaskType(f.human, {
+      operationId: "deny-type",
+      id: "type_denied",
+      key: "denied",
+      name: "Denied",
+    }),
+    code("forbidden"),
+  );
+  assert.equal((await f.api.listTaskStatuses(f.other)).length, 6);
+});
+
+test("C2 update, comments, links, filters and tenant isolation", async () => {
+  const f = await fixture();
+  await f.api.createIssue(f.human, input("parent"));
+  await f.api.createIssue(f.human, {
+    ...input("child"),
+    parentId: "parent",
+    labels: ["red", "blue"],
+  });
+  await f.api.createIssue(f.other, input("other"));
+  const updated = await f.api.updateIssue(f.human, {
+    operationId: "update-child",
+    issueId: "child",
+    expectedVersion: 1,
+    statusId: "status_done",
+    priority: "high",
+    labels: ["red"],
+  });
+  assert.equal(updated.version, 2);
+  assert.equal((await f.api.getIssue(f.human, { issueId: "child" })).completedAt, 1800000000);
+  await assert.rejects(
+    f.api.updateIssue(f.human, {
+      operationId: "cycle",
+      issueId: "parent",
+      expectedVersion: 1,
+      parentId: "child",
+    }),
+    code("validation"),
+  );
+  assert.equal(
+    (await f.api.queryIssues(f.human, { labels: ["red"], statusIds: ["status_done"] })).issues
+      .length,
+    1,
+  );
+  assert.equal((await f.api.queryIssues(f.other, {})).issues.length, 1);
+  assert.equal((await f.api.getIssuesByIds(f.human, ["child", "other"])).length, 1);
+  assert.equal((await f.api.childRollups(f.human, ["parent"])).parent.done, 1);
+  await f.api.addComment(f.human, {
+    operationId: "comment-c2",
+    issueId: "child",
+    expectedVersion: 2,
+    commentId: "cm",
+    body: "old",
+  });
+  assert.equal((await f.api.listComments(f.human, "child"))[0].updatedAt, 1800000000);
+  await f.api.editComment(f.human, {
+    operationId: "comment-edit",
+    issueId: "child",
+    expectedVersion: 3,
+    commentId: "cm",
+    body: "new",
+  });
+  assert.equal((await f.api.listComments(f.human, "child"))[0].body, "new");
+  await f.api.deleteComment(f.human, {
+    operationId: "comment-delete",
+    issueId: "child",
+    expectedVersion: 4,
+    commentId: "cm",
+  });
+  assert.equal((await f.api.listComments(f.human, "child")).length, 0);
+  await f.api.createIssueLink(f.human, {
+    operationId: "link",
+    linkId: "l1",
+    sourceIssueId: "parent",
+    targetIssueId: "child",
+    type: "blocks",
+    expectedVersion: 1,
+  });
+  assert.equal((await f.api.listIssueLinks(f.human, "child"))[0].type, "blocked_by");
+  await assert.rejects(
+    f.api.createIssueLink(f.human, {
+      operationId: "link-self",
+      linkId: "l2",
+      sourceIssueId: "parent",
+      targetIssueId: "parent",
+      type: "blocks",
+      expectedVersion: 2,
+    }),
+    code("validation"),
+  );
+  await f.api.deleteIssueLink(f.human, {
+    operationId: "unlink",
+    linkId: "l1",
+    sourceIssueId: "parent",
+    expectedVersion: 2,
+  });
+  assert.equal((await f.api.listIssueLinks(f.human, "parent")).length, 0);
+});
+
+test("C2 queryIssues applies each filter before equal-time cursor paging", async () => {
+  const f = await fixture();
+  await f.api.createIssue(f.human, { ...input("a"), labels: ["red", "blue"], typeId: "type_task" });
+  await f.api.createIssue(f.human, { ...input("b"), labels: ["blue"], priority: "high" });
+  await f.api.createIssue(f.human, { ...input("c", "c-create", "p2"), labels: ["green"] });
+  await f.api.updateIssue(f.human, {
+    operationId: "update-a",
+    issueId: "a",
+    expectedVersion: 1,
+    statusId: "status_done",
+    assigneeId: "bot",
+  });
+  await f.api.updateIssue(f.human, {
+    operationId: "parent-b",
+    issueId: "b",
+    expectedVersion: 1,
+    parentId: "a",
+  });
+  const count = async (filters) => (await f.api.queryIssues(f.human, filters)).issues.length;
+  assert.equal(await count({ projectId: "p1" }), 2);
+  assert.equal(await count({ category: "done" }), 1);
+  assert.equal(await count({ statusIds: ["status_done"] }), 1);
+  assert.equal(await count({ priorities: ["high"] }), 1);
+  assert.equal(await count({ assigneeId: "bot" }), 1);
+  assert.equal(await count({ assigneeId: null }), 2);
+  assert.equal(await count({ parentId: "a" }), 1);
+  assert.equal(await count({ noParent: true }), 2);
+  assert.equal(await count({ typeId: "type_task" }), 1);
+  assert.equal(await count({ excludeTypeIds: ["type_task"] }), 2);
+  assert.equal(await count({ labels: ["red", "blue"], labelsMode: "all" }), 1);
+  assert.equal(await count({ labels: ["green", "blue"], labelsMode: "any" }), 3);
+  assert.equal(await count({ completedAfter: 1800000000, completedBefore: 1800000000 }), 1);
+  assert.equal(await count({ updatedAfter: 1800000001 }), 0);
+  assert.equal(await count({ updatedBefore: 1800000000 }), 3);
+  assert.equal(await count({ issueIds: ["a", "c"] }), 2);
+  await assert.rejects(
+    f.api.queryIssues(f.human, { issueIds: Array.from({ length: 101 }, (_, i) => `x${i}`) }),
+    code("validation"),
+  );
+  const first = await f.api.queryIssues(f.human, { limit: 1 });
+  const second = await f.api.queryIssues(f.human, { limit: 1, cursor: first.nextCursor });
+  const third = await f.api.queryIssues(f.human, { limit: 1, cursor: second.nextCursor });
+  assert.deepEqual([first.issues[0].id, second.issues[0].id, third.issues[0].id], ["c", "b", "a"]);
+  f.state.denied.add("w1:human:p2");
+  assert.equal(await count({}), 2);
+});
+
+test("C2 0004 backfills frozen and live workspaces without weakening FKs or freeze checks", async () => {
+  const db = await mf.getD1Database(`ISSUES${counter++}`);
+  await platform.migrate(db, []);
+  for (const migration of platform.catalogs.issues.migrations.slice(0, 3)) {
+    await db.batch([
+      ...migration.statements.map((sql) => db.prepare(sql)),
+      db
+        .prepare("INSERT INTO platform_schema_versions(owner,version,checksum) VALUES(?,?,?)")
+        .bind("issues", migration.version, migration.checksum),
+    ]);
+  }
+  for (const ws of ["w1", "w2"]) {
+    await db
+      .prepare(
+        "INSERT INTO issues_issues(workspace_id,id,project_id,number,title,description,priority,state,version) VALUES(?,?,?,?,?,?,?,?,?)",
+      )
+      .bind(ws, "old", "p1", 1, "Old", "Body", "high", "done", 1)
+      .run();
+    await db
+      .prepare(
+        "INSERT INTO issues_history(workspace_id,issue_id,version,action,actor_id,actor_kind,occurred_at,detail) VALUES(?,?,?,?,?,?,?,?)",
+      )
+      .bind(ws, "old", 1, "create", "creator", "machine", 10, "{}")
+      .run();
+    await db
+      .prepare(
+        "INSERT INTO issues_comments(workspace_id,id,issue_id,body,actor_id,actor_kind,created_at) VALUES(?,?,?,?,?,?,?)",
+      )
+      .bind(ws, "comment", "old", "Hello", "author", "human", 11)
+      .run();
+  }
+  await db
+    .prepare(
+      "INSERT INTO issues_frozen_scopes(workspace_id,project_id,state) VALUES('w1','p1','frozen')",
+    )
+    .run();
+  await platform.migrate(db, ["issues"]);
+  for (const ws of ["w1", "w2"]) {
+    const row = await db
+      .prepare(
+        "SELECT priority_level,status,status_id,created_at,updated_at,completed_at,created_by_id,created_by_kind FROM issues_issues WHERE workspace_id=?",
+      )
+      .bind(ws)
+      .first();
+    assert.deepEqual(
+      [
+        row.priority_level,
+        row.status,
+        row.status_id,
+        row.created_at,
+        row.updated_at,
+        row.completed_at,
+        row.created_by_id,
+        row.created_by_kind,
+      ],
+      ["high", "done", "status_done", 10, 10, 10, "creator", "machine"],
+    );
+    assert.equal(
+      (
+        await db
+          .prepare("SELECT updated_at FROM issues_comments WHERE workspace_id=?")
+          .bind(ws)
+          .first()
+      ).updated_at,
+      11,
+    );
+  }
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM issues_purge_bypass").first()).n, 0);
+  await assert.rejects(
+    db
+      .prepare("UPDATE issues_issues SET title='blocked' WHERE workspace_id='w1' AND id='old'")
+      .run(),
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        "UPDATE issues_issues SET priority_level='broken' WHERE workspace_id='w2' AND id='old'",
+      )
+      .run(),
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        "UPDATE issues_issues SET created_by_kind='broken' WHERE workspace_id='w2' AND id='old'",
+      )
+      .run(),
+  );
+  await assert.rejects(
+    db
+      .prepare(
+        "INSERT INTO issues_comments(workspace_id,id,issue_id,body,actor_id,actor_kind,created_at) VALUES('w2','orphan','missing','x','a','human',12)",
+      )
+      .run(),
+  );
+  assert.equal((await db.prepare("SELECT COUNT(*) n FROM issues_history").first()).n, 2);
+});
+
+test("C2 definition commands enforce replay, CAS, workspace, viewer and freeze", async () => {
+  const f = await fixture();
+  const admin = f.issueScope("w1", "human", "human", { role: "admin" });
+  const otherAdmin = f.issueScope("w2", "human", "human", { role: "admin" });
+  const viewer = f.issueScope("w1", "human", "human", { role: "viewer" });
+  const statusInput = {
+    operationId: "s-create",
+    id: "status_custom",
+    key: "custom",
+    name: "Custom",
+    category: "todo",
+  };
+  const typeInput = { operationId: "t-create", id: "type_custom", key: "custom", name: "Custom" };
+  const status = await f.api.createTaskStatus(admin, statusInput);
+  const type = await f.api.createTaskType(admin, typeInput);
+  assert.deepEqual(await f.api.createTaskStatus(admin, statusInput), status);
+  assert.deepEqual(await f.api.createTaskType(admin, typeInput), type);
+  await assert.rejects(
+    f.api.createTaskStatus(viewer, {
+      ...statusInput,
+      operationId: "viewer-s",
+      id: "status_viewer",
+      key: "viewer",
+    }),
+    code("forbidden"),
+  );
+  await assert.rejects(
+    f.api.createTaskType(viewer, {
+      ...typeInput,
+      operationId: "viewer-t",
+      id: "type_viewer",
+      key: "viewer",
+    }),
+    code("forbidden"),
+  );
+  assert.equal((await f.api.listTaskStatuses(otherAdmin)).length, 6);
+  assert.equal((await f.api.listTaskTypes(otherAdmin)).length, 4);
+  const sUpdate = { operationId: "s-update", id: status.id, expectedVersion: 1, name: "Updated" };
+  const tUpdate = { operationId: "t-update", id: type.id, expectedVersion: 1, name: "Updated" };
+  assert.equal((await f.api.updateTaskStatus(admin, sUpdate)).version, 2);
+  assert.equal((await f.api.updateTaskType(admin, tUpdate)).version, 2);
+  assert.equal((await f.api.updateTaskStatus(admin, sUpdate)).version, 2);
+  assert.equal((await f.api.updateTaskType(admin, tUpdate)).version, 2);
+  await assert.rejects(
+    f.api.updateTaskStatus(admin, { ...sUpdate, operationId: "s-stale" }),
+    code("conflict"),
+  );
+  await assert.rejects(
+    f.api.updateTaskType(admin, { ...tUpdate, operationId: "t-stale" }),
+    code("conflict"),
+  );
+  const sDelete = { operationId: "s-delete", id: status.id, expectedVersion: 2 };
+  const tDelete = { operationId: "t-delete", id: type.id, expectedVersion: 2 };
+  assert.equal((await f.api.deleteTaskStatus(admin, sDelete)).version, 3);
+  assert.equal((await f.api.deleteTaskType(admin, tDelete)).version, 3);
+  assert.equal((await f.api.deleteTaskStatus(admin, sDelete)).version, 3);
+  assert.equal((await f.api.deleteTaskType(admin, tDelete)).version, 3);
+  await f.rawStore.run("maintenanceFreeze", ["w1", ""]);
+  await assert.rejects(
+    f.api.createTaskStatus(admin, {
+      ...statusInput,
+      operationId: "s-frozen",
+      id: "status_frozen",
+      key: "frozen",
+    }),
+    code("conflict"),
+  );
+  await assert.rejects(
+    f.api.createTaskType(admin, {
+      ...typeInput,
+      operationId: "t-frozen",
+      id: "type_frozen",
+      key: "frozen",
+    }),
+    code("conflict"),
+  );
+});
+
+test("C2 new issue commands deny stale, viewer, cross-workspace and frozen changes", async () => {
+  const f = await fixture();
+  const viewer = f.issueScope("w1", "human", "human", { role: "viewer" });
+  await f.api.createIssue(f.human, input("a"));
+  await f.api.createIssue(f.human, input("b"));
+  await f.api.createIssue(f.other, input("a"));
+  const update = { operationId: "up", issueId: "a", expectedVersion: 1, title: "Changed" };
+  assert.equal((await f.api.updateIssue(f.human, update)).version, 2);
+  assert.equal((await f.api.updateIssue(f.human, update)).version, 2);
+  await assert.rejects(
+    f.api.updateIssue(f.human, { ...update, operationId: "up-stale" }),
+    code("conflict"),
+  );
+  await assert.rejects(
+    f.api.updateIssue(viewer, { ...update, operationId: "up-viewer", expectedVersion: 2 }),
+    code("forbidden"),
+  );
+  assert.equal((await f.api.getIssue(f.other, { issueId: "a" })).title, "First title");
+  await assert.rejects(
+    f.api.editComment(f.human, {
+      operationId: "missing-comment",
+      issueId: "a",
+      expectedVersion: 2,
+      commentId: "no",
+      body: "x",
+    }),
+    code("not_found"),
+  );
+  await f.api.addComment(f.human, {
+    operationId: "add",
+    issueId: "a",
+    expectedVersion: 2,
+    commentId: "cm",
+    body: "x",
+  });
+  const edit = {
+    operationId: "edit-cm",
+    issueId: "a",
+    expectedVersion: 3,
+    commentId: "cm",
+    body: "y",
+  };
+  assert.equal((await f.api.editComment(f.human, edit)).version, 4);
+  assert.equal((await f.api.editComment(f.human, edit)).version, 4);
+  await assert.rejects(
+    f.api.editComment(f.human, { ...edit, operationId: "edit-stale" }),
+    code("conflict"),
+  );
+  await assert.rejects(
+    f.api.deleteComment(viewer, {
+      operationId: "viewer-delete",
+      issueId: "a",
+      expectedVersion: 4,
+      commentId: "cm",
+    }),
+    code("forbidden"),
+  );
+  const link = {
+    operationId: "link-a",
+    linkId: "l1",
+    sourceIssueId: "a",
+    targetIssueId: "b",
+    type: "relates_to",
+    expectedVersion: 4,
+  };
+  assert.equal((await f.api.createIssueLink(f.human, link)).version, 5);
+  assert.equal((await f.api.createIssueLink(f.human, link)).version, 5);
+  await assert.rejects(
+    f.api.createIssueLink(f.human, {
+      ...link,
+      operationId: "link-duplicate",
+      expectedVersion: 5,
+      linkId: "l2",
+    }),
+    code("conflict"),
+  );
+  await assert.rejects(
+    f.api.createIssueLink(viewer, {
+      ...link,
+      operationId: "viewer-link",
+      expectedVersion: 5,
+      linkId: "l3",
+    }),
+    code("forbidden"),
+  );
+  const unlink = { operationId: "unlink-a", linkId: "l1", sourceIssueId: "a", expectedVersion: 5 };
+  assert.equal((await f.api.deleteIssueLink(f.human, unlink)).version, 6);
+  assert.equal((await f.api.deleteIssueLink(f.human, unlink)).version, 6);
+  await f.rawStore.run("maintenanceFreeze", ["w1", "p1"]);
+  await assert.rejects(
+    f.api.updateIssue(f.human, {
+      operationId: "frozen-update",
+      issueId: "a",
+      expectedVersion: 6,
+      title: "No",
+    }),
+    code("conflict"),
+  );
+  await assert.rejects(
+    f.api.createIssueLink(f.human, {
+      ...link,
+      operationId: "frozen-link",
+      expectedVersion: 6,
+      linkId: "l4",
+    }),
+    code("conflict"),
+  );
+  assert.equal((await f.api.getIssue(f.other, { issueId: "a" })).version, 1);
+});
+
+test("C2 lifecycle purges links and workspace definitions after freeze", async () => {
+  const f = await fixture();
+  const admin = f.issueScope("w1", "human", "human", { role: "admin" });
+  await f.api.createTaskStatus(admin, {
+    operationId: "status-new",
+    id: "status_custom",
+    key: "custom",
+    name: "Custom",
+    category: "todo",
+  });
+  await f.api.createTaskType(admin, {
+    operationId: "type-new",
+    id: "type_custom",
+    key: "custom",
+    name: "Custom",
+  });
+  await f.api.createIssue(f.human, input("a"));
+  await f.api.createIssue(f.human, input("b"));
+  await f.api.createIssueLink(f.human, {
+    operationId: "link-new",
+    linkId: "l1",
+    sourceIssueId: "a",
+    targetIssueId: "b",
+    type: "blocks",
+    expectedVersion: 1,
+  });
+  const maintenance = platform.createIssues(f.deps).maintenance;
+  await maintenance.freezeScope({ workspaceId: "w1" });
+  let result;
+  for (let i = 0; i < 20; i++) {
+    result = await maintenance.purgeScope({ workspaceId: "w1" });
+    if (result?.state === "purged") break;
+  }
+  assert.equal(result?.state, "purged");
+  for (const table of [
+    "issues_links",
+    "issues_task_statuses",
+    "issues_task_types",
+    "issues_definition_history",
+    "issues_definition_receipts",
+    "issues_issues",
+  ]) {
+    assert.equal(
+      (await f.db.prepare(`SELECT COUNT(*) n FROM ${table} WHERE workspace_id='w1'`).first()).n,
+      0,
+      table,
+    );
+  }
+  assert.equal((await f.db.prepare("SELECT COUNT(*) n FROM issues_purge_bypass").first()).n, 0);
 });

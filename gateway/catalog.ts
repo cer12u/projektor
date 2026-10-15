@@ -34,6 +34,7 @@ type Field =
   | "optionalNumber"
   | "nullableString"
   | "stringArray"
+  | "optionalStringArray"
   | "optionalBoolean";
 type Fields = Readonly<Record<string, Field>>;
 type Operation = Readonly<{
@@ -46,6 +47,7 @@ const num = (a: Record<string, unknown>, k: string) => a[k] as number;
 const optStr = (a: Record<string, unknown>, k: string) => a[k] as string | undefined;
 const optNum = (a: Record<string, unknown>, k: string) => a[k] as number | undefined;
 const arr = (a: Record<string, unknown>, k: string) => a[k] as string[];
+const optArr = (a: Record<string, unknown>, k: string) => a[k] as string[] | undefined;
 const optBool = (a: Record<string, unknown>, k: string) => a[k] as boolean | undefined;
 const nullable = (a: Record<string, unknown>, k: string) => a[k] as string | null | undefined;
 const op = (fields: Fields, write: boolean, call: Operation["call"]): Operation => ({
@@ -341,6 +343,125 @@ export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
   "projects.list": op({ cursor: "optionalString", limit: "optionalNumber" }, false, (s, c, a) =>
     s.projects.listVisibleProjects(c, optStr(a, "cursor"), optNum(a, "limit")),
   ),
+  "issues.statuses": op({}, false, (s, c) => s.issues.listTaskStatuses(c)),
+  "issues.status.create": op(
+    {
+      ...operationId,
+      id: "string",
+      key: "string",
+      name: "string",
+      category: "string",
+      color: "nullableString",
+      position: "optionalNumber",
+      isDefault: "optionalBoolean",
+      isReviewStep: "optionalBoolean",
+    },
+    true,
+    (s, c, a) =>
+      s.issues.createTaskStatus(c, {
+        operationId: str(a, "operationId"),
+        id: str(a, "id"),
+        key: str(a, "key"),
+        name: str(a, "name"),
+        category: str(a, "category") as "todo" | "in_progress" | "done" | "cancelled",
+        color: nullable(a, "color"),
+        position: optNum(a, "position"),
+        isDefault: optBool(a, "isDefault"),
+        isReviewStep: optBool(a, "isReviewStep"),
+      }),
+  ),
+  "issues.status.update": op(
+    {
+      ...version,
+      id: "string",
+      name: "optionalString",
+      category: "optionalString",
+      color: "nullableString",
+      position: "optionalNumber",
+      isDefault: "optionalBoolean",
+      isReviewStep: "optionalBoolean",
+    },
+    true,
+    (s, c, a) =>
+      s.issues.updateTaskStatus(c, {
+        operationId: str(a, "operationId"),
+        id: str(a, "id"),
+        expectedVersion: num(a, "expectedVersion"),
+        name: optStr(a, "name"),
+        category: optStr(a, "category") as
+          | "todo"
+          | "in_progress"
+          | "done"
+          | "cancelled"
+          | undefined,
+        color: nullable(a, "color"),
+        position: optNum(a, "position"),
+        isDefault: optBool(a, "isDefault"),
+        isReviewStep: optBool(a, "isReviewStep"),
+      }),
+  ),
+  "issues.status.delete": op({ ...version, id: "string" }, true, (s, c, a) =>
+    s.issues.deleteTaskStatus(c, {
+      operationId: str(a, "operationId"),
+      id: str(a, "id"),
+      expectedVersion: num(a, "expectedVersion"),
+    }),
+  ),
+  "issues.types": op({}, false, (s, c) => s.issues.listTaskTypes(c)),
+  "issues.type.create": op(
+    {
+      ...operationId,
+      id: "string",
+      key: "string",
+      name: "string",
+      color: "nullableString",
+      icon: "nullableString",
+      position: "optionalNumber",
+      isDefault: "optionalBoolean",
+    },
+    true,
+    (s, c, a) =>
+      s.issues.createTaskType(c, {
+        operationId: str(a, "operationId"),
+        id: str(a, "id"),
+        key: str(a, "key"),
+        name: str(a, "name"),
+        color: nullable(a, "color"),
+        icon: nullable(a, "icon"),
+        position: optNum(a, "position"),
+        isDefault: optBool(a, "isDefault"),
+      }),
+  ),
+  "issues.type.update": op(
+    {
+      ...version,
+      id: "string",
+      name: "optionalString",
+      color: "nullableString",
+      icon: "nullableString",
+      position: "optionalNumber",
+      isDefault: "optionalBoolean",
+    },
+    true,
+    (s, c, a) =>
+      s.issues.updateTaskType(c, {
+        operationId: str(a, "operationId"),
+        id: str(a, "id"),
+        expectedVersion: num(a, "expectedVersion"),
+        name: optStr(a, "name"),
+        color: nullable(a, "color"),
+        icon: nullable(a, "icon"),
+        position: optNum(a, "position"),
+        isDefault: optBool(a, "isDefault"),
+      }),
+  ),
+  "issues.type.delete": op({ ...version, id: "string" }, true, (s, c, a) =>
+    s.issues.deleteTaskType(c, {
+      operationId: str(a, "operationId"),
+      id: str(a, "id"),
+      expectedVersion: num(a, "expectedVersion"),
+    }),
+  ),
   "issues.create": op(
     {
       ...operationId,
@@ -349,6 +470,10 @@ export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
       title: "string",
       description: "string",
       priority: "string",
+      statusId: "optionalString",
+      typeId: "nullableString",
+      labels: "optionalStringArray",
+      parentId: "nullableString",
     },
     true,
     (s, c, a) =>
@@ -358,7 +483,11 @@ export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
         projectId: str(a, "projectId"),
         title: str(a, "title"),
         description: str(a, "description"),
-        priority: str(a, "priority") as "low" | "medium" | "high" | "urgent",
+        priority: str(a, "priority") as "none" | "low" | "medium" | "high" | "urgent",
+        statusId: optStr(a, "statusId"),
+        typeId: nullable(a, "typeId"),
+        labels: optArr(a, "labels"),
+        parentId: nullable(a, "parentId"),
       }),
   ),
   "issues.edit": op(
@@ -371,7 +500,7 @@ export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
         issueId: str(a, "issueId"),
         title: str(a, "title"),
         description: str(a, "description"),
-        priority: str(a, "priority") as "low" | "medium" | "high" | "urgent",
+        priority: str(a, "priority") as "none" | "low" | "medium" | "high" | "urgent",
       }),
   ),
   "issues.transition": op({ ...version, issueId: "string", state: "string" }, true, (s, c, a) =>
@@ -880,6 +1009,14 @@ export const restOnly = Object.freeze([
   "access.credential.revoke",
   "access.oauthClients.list",
   "access.oauthClients.revoke",
+  "issues.statuses",
+  "issues.status.create",
+  "issues.status.update",
+  "issues.status.delete",
+  "issues.types",
+  "issues.type.create",
+  "issues.type.update",
+  "issues.type.delete",
 ]);
 export function inputFor(name: string, value: unknown): Record<string, unknown> {
   const entry = catalog[name];
@@ -894,7 +1031,8 @@ export function inputFor(name: string, value: unknown): Record<string, unknown> 
     const val = a[key];
     if (val === undefined && (kind.startsWith("optional") || kind === "nullableString")) continue;
     if (val === null && kind === "nullableString") continue;
-    if (kind === "stringArray") {
+    if (kind === "stringArray" || kind === "optionalStringArray") {
+      if (val === undefined && kind === "optionalStringArray") continue;
       if (!Array.isArray(val) || !val.every((x) => typeof x === "string"))
         throw new PlatformError("validation", `Invalid field: ${key}`);
       continue;
