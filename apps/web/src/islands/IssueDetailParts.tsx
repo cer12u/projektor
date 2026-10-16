@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { formatIssueRef, isValidIssueRef, normalizeIssueRef } from "../lib/issue-ref";
 import { parseStoryPoints } from "../lib/story-points";
+import { DueDate } from "../lib/due-date";
 import { apiFetch } from "../utils/api-client";
 import { clearDraft, draftKey, loadDraft, saveDraft } from "../utils/drafts";
 import { isIssueCompleted } from "../utils/issue-resolution";
@@ -2092,6 +2093,23 @@ export function SidebarPanel({
 						storyPointsValue={storyPointsField?.value ?? ""}
 						fetchIssue={fetchIssue}
 					/>
+				</SidebarField>
+
+				<SidebarField label="Due date">
+					<div class="flex flex-col gap-1">
+						<input type="date" aria-label="Due date" value={issue.due_date ?? ""}
+							class="max-w-full px-1 py-0.5 border border-border rounded bg-bg text-text-base text-sm"
+							onChange={async (event) => {
+								await apiFetch(`/api/issues/${issueId}`, { workspaceSlug, method: "PATCH",
+									body: { dueDate: (event.target as HTMLInputElement).value || null } });
+								await fetchIssue();
+							}} />
+						<div class="flex items-center gap-2 text-xs"><DueDate issue={issue} />
+							{issue.due_date && <button type="button" class="text-accent" onClick={async () => {
+								await apiFetch(`/api/issues/${issueId}`, { workspaceSlug, method: "PATCH", body: { dueDate: null } });
+								await fetchIssue();
+							}}>Clear</button>}</div>
+					</div>
 				</SidebarField>
 
 				{issue.project_name && (

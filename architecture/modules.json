@@ -278,6 +278,9 @@
         ],
         "objects": [
           "issues_project_number",
+          "issues_due_date",
+          "issues_check_due_estimate_insert",
+          "issues_check_due_estimate_update",
           "issues_freeze_comments_insert",
           "issues_freeze_comments_update",
           "issues_freeze_comments_delete",

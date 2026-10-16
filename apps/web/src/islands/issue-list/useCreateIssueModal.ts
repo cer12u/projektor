@@ -26,6 +26,7 @@ export function useCreateIssueModal({
 	const [showCreateModal, setShowCreateModal] = useState(false);
 	const [createTitle, setCreateTitle] = useState("");
 	const [createBody, setCreateBody] = useState("");
+	const [createDueDate, setCreateDueDate] = useState("");
 	const [createPriority, setCreatePriority] = useState("medium");
 	const [createStatusId, setCreateStatusId] = useState("");
 	const [createProjectId, setCreateProjectId] = useState("");
@@ -50,6 +51,7 @@ export function useCreateIssueModal({
 		setCreateProjectId(targetProjectId);
 		setCreateTitle("");
 		setCreateBody("");
+		setCreateDueDate("");
 		setCreatePriority("medium");
 		setCreateStatusId("");
 		setCreateTypeId("");
@@ -66,6 +68,7 @@ export function useCreateIssueModal({
 			createProjectId,
 			createTitle,
 			createBody,
+			createDueDate,
 			createPriority,
 			createStatusId,
 			createTypeId,
@@ -101,6 +104,8 @@ export function useCreateIssueModal({
 		createTitle,
 		setCreateTitle,
 		createBody,
+		createDueDate,
+		setCreateDueDate,
 		setCreateBody,
 		createPriority,
 		setCreatePriority,

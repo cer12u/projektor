@@ -274,10 +274,13 @@ function issueShape(
     created_at: issue.createdAt,
     updated_at: issue.updatedAt,
     completed_at: issue.completedAt,
+    due_date: issue.dueDate,
+    estimate: issue.estimate,
     needs_audit: false,
     project_key: project?.key ?? null,
     project_name: project?.name ?? null,
-    customFields: [],
+    customFields:
+      issue.estimate === null ? [] : [{ key: "story_points", value: String(issue.estimate) }],
     url: project ? `/projects/${project.key}/issues/${issue.number}/${slug}` : null,
     ...(body ? { body: issue.description } : {}),
   };
@@ -296,7 +299,35 @@ const linkShape = (link: IssueLink) => {
     createdAt: 0,
   };
 };
-const deferredIssueFields = ["customFields", "completionReport", "remainder", "agentSessionId"];
+const deferredIssueFields = ["completionReport", "remainder", "agentSessionId"];
+function issueEstimate(body: Record<string, unknown>): number | null | undefined {
+  const fields = body.customFields;
+  if (
+    fields !== undefined &&
+    (typeof fields !== "object" || fields === null || Array.isArray(fields))
+  )
+    bad("Invalid customFields");
+  const custom = fields as Record<string, unknown> | undefined;
+  if (custom && Object.keys(custom).some((key) => key !== "story_points")) return undefined;
+  const raw = custom && Object.hasOwn(custom, "story_points") ? custom.story_points : body.estimate;
+  if (raw === undefined) return undefined;
+  if (raw === null || raw === "") return null;
+  const value =
+    typeof raw === "number"
+      ? raw
+      : typeof raw === "string" && raw.trim() !== ""
+        ? Number(raw)
+        : NaN;
+  if (!Number.isFinite(value) || value < 0 || value > 1000) bad("Invalid estimate");
+  return value;
+}
+function issueDueDate(body: Record<string, unknown>): string | null | undefined {
+  const raw = Object.hasOwn(body, "dueDate") ? body.dueDate : body.due_date;
+  if (raw === undefined) return undefined;
+  if (raw === null || raw === "") return null;
+  if (typeof raw !== "string") bad("Invalid due date");
+  return raw as string;
+}
 const sprintShape = (s: Sprint, workspaceId: string) => ({
   id: s.id,
   workspaceId,
@@ -1236,6 +1267,12 @@ export async function handleUi(
         completedBefore: epoch(q.get("completedBefore")),
         updatedAfter: epoch(q.get("updatedAfter")),
         updatedBefore: epoch(q.get("updatedBefore")),
+        dueBefore: q.get("dueBefore") ?? undefined,
+        dueAfter: q.get("dueAfter") ?? undefined,
+        overdue: flag(q.get("overdue")),
+        today: q.get("today") ?? undefined,
+        hasDueDate: q.has("hasDueDate") ? flag(q.get("hasDueDate")) : undefined,
+        sort: q.get("sort") === "due_date" ? "due_date" : undefined,
         cursor: q.get("cursor") ?? undefined,
         limit: Number(q.get("limit") ?? 30),
       };
@@ -1274,6 +1311,11 @@ export async function handleUi(
     if (path === "/api/issues" && request.method === "POST") {
       const body = await input(request);
       if (deferredIssueFields.some((field) => Object.hasOwn(body, field))) return unsupported();
+      if (
+        body.customFields &&
+        Object.keys(body.customFields as object).some((key) => key !== "story_points")
+      )
+        return unsupported();
       const allowed = new Set([
         "projectId",
         "title",
@@ -1286,6 +1328,10 @@ export async function handleUi(
         "parentId",
         "typeId",
         "sprintId",
+        "dueDate",
+        "due_date",
+        "estimate",
+        "customFields",
       ]);
       if (Object.keys(body).some((field) => !allowed.has(field))) bad("Invalid issue input");
       if (typeof body.projectId !== "string" || typeof body.title !== "string")
@@ -1310,6 +1356,8 @@ export async function handleUi(
         labels: Array.isArray(body.labels) ? (body.labels as string[]) : undefined,
         parentId: typeof body.parentId === "string" ? body.parentId : undefined,
         assigneeId: typeof body.assigneeId === "string" ? body.assigneeId : undefined,
+        dueDate: issueDueDate(body),
+        estimate: issueEstimate(body),
       });
       if (body.sprintId !== undefined) {
         if (typeof body.sprintId !== "string") bad("Invalid sprintId");
@@ -1359,6 +1407,11 @@ export async function handleUi(
       if (!section && request.method === "PATCH") {
         const body = await input(request);
         if (deferredIssueFields.some((field) => Object.hasOwn(body, field))) return unsupported();
+        if (
+          body.customFields &&
+          Object.keys(body.customFields as object).some((key) => key !== "story_points")
+        )
+          return unsupported();
         const allowed = new Set([
           "title",
           "body",
@@ -1370,6 +1423,10 @@ export async function handleUi(
           "parentId",
           "typeId",
           "sprintId",
+          "dueDate",
+          "due_date",
+          "estimate",
+          "customFields",
         ]);
         if (Object.keys(body).some((field) => !allowed.has(field))) return unsupported();
         const statuses = await services.issues.listTaskStatuses(scope);
@@ -1400,6 +1457,8 @@ export async function handleUi(
                 : undefined,
             typeId:
               body.typeId === null || typeof body.typeId === "string" ? body.typeId : undefined,
+            dueDate: issueDueDate(body),
+            estimate: issueEstimate(body),
           });
         if (Object.hasOwn(body, "sprintId")) {
           if (body.sprintId !== null && typeof body.sprintId !== "string") bad("Invalid sprintId");

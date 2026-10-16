@@ -1,4 +1,5 @@
 import type { Issue, ProjectLookup, TaskStatus } from "./board-utils";
+import { localToday } from "../lib/due-date";
 
 export interface FilterQueryFilters {
 	filterStatuses: string[];
@@ -11,6 +12,8 @@ export interface FilterQueryFilters {
 	filterDateField: "" | "completed" | "updated";
 	filterDateFrom: string;
 	filterDateTo: string;
+	filterOverdue?: boolean;
+	sortBy?: string;
 }
 
 interface KeyedById {
@@ -85,6 +88,11 @@ export function buildFilterQueryParams(
 	if (filterSprintId) qs.set("sprintId", filterSprintId);
 	applyEpicParams(qs, filterEpicId, hideEpics, taskTypes);
 	applyDateRangeParams(qs, filterDateField, filterDateFrom, filterDateTo);
+	if (filters.filterOverdue) {
+		qs.set("overdue", "true");
+		qs.set("today", localToday());
+	}
+	if (filters.sortBy === "due_date") qs.set("sort", "due_date");
 	return qs;
 }
 
@@ -137,6 +145,7 @@ export interface CreateIssueInput {
 	createProjectId: string;
 	createTitle: string;
 	createBody: string;
+	createDueDate?: string;
 	createPriority: string;
 	createStatusId: string;
 	createTypeId: string;
@@ -147,6 +156,7 @@ export function buildCreateIssuePayload(input: CreateIssueInput): Record<string,
 		projectId: input.createProjectId,
 		title: input.createTitle.trim(),
 		body: input.createBody || undefined,
+		dueDate: input.createDueDate || undefined,
 		priority: input.createPriority,
 		statusId: input.createStatusId || undefined,
 		typeId: input.createTypeId || undefined,
@@ -182,6 +192,7 @@ export function buildOptimisticIssue(
 		assignee_id: null,
 		assignee_name: null,
 		parent_id: null,
+		due_date: input.createDueDate || null,
 		project_id: input.createProjectId,
 		project_key: proj?.key ?? null,
 		project_name: proj?.name ?? null,

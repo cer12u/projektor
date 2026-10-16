@@ -238,10 +238,29 @@ test("REST/MCP parity, retry, stale version, unknown and tenant/scope failures",
     title: "Issue",
     description: "Text",
     priority: "medium",
+    estimate: 5,
+    dueDate: "2026-10-20",
   };
   const rest = await req("w1", "issues.create", create, write);
   assert.deepEqual(rest, { status: 200, data: { id: "i1", number: 1, version: 1 } });
   assert.deepEqual(mcpResult(await rpc("w1", "issues.create", create, write)), rest.data);
+  const createdIssue = await req("w1", "issues.get", { issueId: "i1" }, write);
+  assert.equal(createdIssue.data.estimate, 5);
+  assert.equal(createdIssue.data.dueDate, "2026-10-20");
+  const edit = {
+    operationId: "issue-edit-due",
+    issueId: "i1",
+    expectedVersion: 1,
+    title: "Issue",
+    description: "Text",
+    priority: "medium",
+    estimate: 8,
+    dueDate: null,
+  };
+  const edited = await req("w1", "issues.edit", edit, write);
+  assert.equal(edited.status, 200);
+  assert.deepEqual(mcpResult(await rpc("w1", "issues.edit", edit, write)), edited.data);
+  assert.equal((await req("w1", "issues.get", { issueId: "i1" }, write)).data.estimate, 8);
   const cases = [
     ["issues.create", { ...create, operationId: "bad", title: "" }, "validation"],
     ["issues.get", { issueId: "missing" }, "not_found"],

@@ -414,6 +414,8 @@ test("issue UI API contracts, refs, filters, comments, links and workspace isola
       created_at: 0,
       updated_at: 0,
       completed_at: null,
+      due_date: null,
+      estimate: null,
       needs_audit: false,
       project_key: "",
       project_name: "",
@@ -623,6 +625,71 @@ test("issue UI API contracts, refs, filters, comments, links and workspace isola
     ).status,
     403,
   );
+});
+
+test("C7 issue due date and story points API shapes and filters", async () => {
+  const project = await request("/api/projects", {
+    method: "POST",
+    workspace: "w1",
+    body: { name: "Due C7", key: "DUEC7" },
+  });
+  assert.equal(project.status, 201);
+  const first = await request("/api/issues", {
+    method: "POST",
+    workspace: "w1",
+    body: {
+      projectId: project.body.id,
+      title: "Due soon",
+      dueDate: "2026-10-10",
+      customFields: { story_points: "5" },
+    },
+  });
+  assert.equal(first.status, 201);
+  const ref = `DUEC7-${first.body.number}`;
+  const detail = await request(`/api/issues/${ref}`, { workspace: "w1" });
+  assert.equal(detail.body.due_date, "2026-10-10");
+  assert.equal(detail.body.estimate, 5);
+  assert.deepEqual(detail.body.customFields, [{ key: "story_points", value: "5" }]);
+  assert.equal(
+    (
+      await request(`/api/issues?project=${project.body.id}&overdue=true&today=2026-10-11`, {
+        workspace: "w1",
+      })
+    ).body.total,
+    1,
+  );
+  assert.equal(
+    (
+      await request(`/api/issues?project=${project.body.id}&dueAfter=2026-10-11`, {
+        workspace: "w1",
+      })
+    ).body.total,
+    0,
+  );
+  assert.equal(
+    (
+      await request(`/api/issues?project=${project.body.id}&hasDueDate=true&sort=due_date`, {
+        workspace: "w1",
+      })
+    ).body.items[0].id,
+    first.body.id,
+  );
+  const invalid = await request(`/api/issues/${ref}`, {
+    method: "PATCH",
+    workspace: "w1",
+    body: { customFields: { story_points: "bad" } },
+  });
+  assert.equal(invalid.status, 400);
+  const clear = await request(`/api/issues/${ref}`, {
+    method: "PATCH",
+    workspace: "w1",
+    body: { customFields: { story_points: null }, due_date: null },
+  });
+  assert.equal(clear.status, 200);
+  const cleared = await request(`/api/issues/${ref}`, { workspace: "w1" });
+  assert.equal(cleared.body.estimate, null);
+  assert.equal(cleared.body.due_date, null);
+  assert.equal((await request(`/api/issues/${ref}`, { workspace: "w2" })).status, 404);
 });
 
 test("concurrent issue PATCH translates the stale CAS to HTTP 409", async () => {

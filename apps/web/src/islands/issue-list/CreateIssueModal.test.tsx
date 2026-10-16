@@ -27,6 +27,10 @@ function Harness() {
 }
 
 describe("CreateIssueModal — Description caption (PROJ-566)", () => {
+	it("offers an optional native due date", () => {
+		render(<Harness />);
+		expect(screen.getByLabelText("Due date").getAttribute("type")).toBe("date");
+	});
 	it("renders the Description label as a caption with no implicit control", () => {
 		render(<Harness />);
 

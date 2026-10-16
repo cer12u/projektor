@@ -159,3 +159,20 @@ same all/any label filter as the issue list; both SQL statements remain static.
 These reads do not add migrations or storage resources. `createIssue` also accepts
 an optional assignee and checks that principal before its existing atomic batch, so a
 UI create request cannot leave an unassigned issue after assignment fails.
+
+## C7 due date and estimate
+
+Migration `0008_due_estimate.sql` adds nullable `estimate` (0–1000) and `due_date`
+(`YYYY-MM-DD`, a calendar date with no time zone) to issue rows, plus a workspace/date
+index. Insert and update triggers reject out-of-range estimates and malformed dates.
+There is no backfill; existing issues retain nulls, including frozen scopes.
+`createIssue`, `editIssue`, and `updateIssue` include both values in the receipt
+fingerprint and history detail, with the row, guard, receipt, history, and event in
+one batch. Null clears either value. Reads expose both fields.
+
+`queryIssues` and `countIssues` accept inclusive due bounds, an overdue flag,
+and a due-date-presence filter. The caller supplies `today` as a bound calendar
+date for overdue filtering; done and cancelled issues are excluded. The default
+created-time order and cursor are unchanged. `sort: "due_date"` uses ascending
+date with nulls last, then descending creation time and ID, and a separate
+`d:<date-or-~>:<created-at>:<id>` cursor.

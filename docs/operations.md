@@ -107,6 +107,7 @@ production D1 through the operator migration path before deploying this code.
 Verify the `platform_schema_versions` receipts for all three files. Then build
 the merged commit, calculate `sha256sum dist/migrations.json`, and update
 `CF_APPROVED_SCHEMA_SHA256` to that exact digest before the code deploy gate.
+
 The Planning timestamp backfill skips frozen scopes, whose legacy sprint
 timestamps remain zero.
 
@@ -140,3 +141,10 @@ code. Verify both `platform_schema_versions` receipts and that
 begins empty because prior events cannot reconstruct complete spans. Build the
 merged commit, calculate `sha256sum dist/migrations.json`, then set
 `CF_APPROVED_SCHEMA_SHA256` to that exact digest before the code deploy gate.
+
+For C7, apply Issues `0008_due_estimate.sql` through the operator migration path
+on the approved production D1 before deploying code. Verify its
+`platform_schema_versions` receipt; the migration adds nullable columns and an
+index, with no backfill or freeze bypass. Build the merged commit, calculate
+`sha256sum dist/migrations.json`, and set `CF_APPROVED_SCHEMA_SHA256` to that
+exact digest before the code deploy gate.
