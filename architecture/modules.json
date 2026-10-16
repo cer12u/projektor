@@ -334,7 +334,7 @@
       "public": "modules/wiki/public.ts",
       "factory": "modules/wiki/internal/factory.ts",
       "kind": "module",
-      "dependencies": ["platform", "projects"],
+      "dependencies": ["platform", "access", "projects"],
       "external": [],
       "storage": {
         "prefix": "wiki_",
@@ -355,6 +355,8 @@
         ],
         "objects": [
           "wiki_project_slug",
+          "wiki_workspace_slug",
+          "wiki_parent",
           "wiki_freeze_revisions_insert",
           "wiki_freeze_revisions_update",
           "wiki_freeze_revisions_delete",

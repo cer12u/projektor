@@ -77,6 +77,15 @@ async function fixture() {
       ...overrides,
     });
   const projects = {
+    async listVisibleProjects(scope) {
+      await auth.access.authorize(scope);
+      return {
+        projects: ["p1", "p2"]
+          .filter((id) => !state.denied.has(`${scope.workspaceId}:${scope.principalId}:${id}`))
+          .map((id) => ({ id })),
+        nextCursor: null,
+      };
+    },
     async authorizeProject(scope, projectId, permission = "read") {
       state.calls.push([scope.workspaceId, scope.principalId, projectId, permission]);
       await auth.access.authorize(scope, permission);
@@ -102,6 +111,7 @@ async function fixture() {
   const deps = {
     store,
     projects,
+    access: auth.access,
     clock: { now: () => 1800000000 },
     ids: { next: () => crypto.randomUUID() },
     eventConsumer: "test",
@@ -335,12 +345,16 @@ test("two workspaces, project predicates, live admission and receipt visibility"
   await f.api.createPage(f.human, { ...create("same", "w1-create"), title: "ONE" });
   await f.api.createPage(f.other, { ...create("same", "w2-create"), title: "TWO" });
   await f.api.createPage(f.human, {
-    ...create("another", "p2-create", "p2", "same"),
+    ...create("another", "p2-create", "p2", "other"),
     title: "OTHER PROJECT",
   });
+  await assert.rejects(
+    f.api.createPage(f.human, { ...create("duplicate", "dup", "p2", "same") }),
+    code("conflict"),
+  );
   assert.equal((await f.api.getPage(f.human, { pageId: "same" })).title, "ONE");
   assert.equal((await f.api.getPage(f.other, { pageId: "same" })).title, "TWO");
-  assert.equal((await f.api.getPage(f.human, { projectId: "p2", slug: "same" })).id, "another");
+  assert.equal((await f.api.getPage(f.human, { projectId: "p2", slug: "other" })).id, "another");
   assert.equal((await f.api.listPages(f.human, { projectId: "p1" })).pages.length, 1);
   assert.equal((await f.api.searchPages(f.human, { projectId: "p1", text: "TWO" })).length, 0);
   assert.equal((await f.api.readEvents(f.eventReader, "w2", 0, 10)).length, 1);
@@ -604,4 +618,110 @@ test("audit archive CAS, fingerprint and full tenant revision/event contents", a
   await assert.rejects(f.api.readEvents(foreignReader, "w1", 0, 10), code("forbidden"));
   const disabled = platform.createWiki({ ...f.deps, eventConsumer: undefined }).api;
   await assert.rejects(disabled.readEvents(f.eventReader, "w1", 0, 10), code("forbidden"));
+});
+
+test("workspace pages, parent rules, live permissions, and workspace-wide visibility", async () => {
+  const f = await fixture();
+  const viewer = f.issue("w1", "viewer", "human", { role: "viewer", scope: "read" });
+  const workspace = { ...create("ws", "ws-create"), projectId: undefined };
+  await f.api.createPage(f.human, workspace);
+  assert.equal((await f.api.getPageBySlug(viewer, "ws")).projectId, null);
+  assert.equal((await f.api.listPages(viewer, {})).pages.length, 1);
+  await assert.rejects(
+    f.api.createPage(viewer, {
+      ...workspace,
+      operationId: "viewer-create",
+      pageId: "denied",
+      slug: "denied",
+    }),
+    code("forbidden"),
+  );
+  await f.api.createPage(f.human, {
+    ...create("child", "child-create"),
+    projectId: undefined,
+    parentId: "ws",
+  });
+  await assert.rejects(
+    f.api.createPage(f.human, { ...create("bad", "bad-create"), parentId: "ws" }),
+    code("validation"),
+  );
+  await assert.rejects(
+    f.api.editPage(f.human, {
+      pageId: "ws",
+      operationId: "cycle",
+      expectedVersion: 1,
+      parentId: "child",
+    }),
+    code("validation"),
+  );
+  await f.api.editPage(f.human, {
+    pageId: "child",
+    operationId: "rename",
+    expectedVersion: 1,
+    title: "Changed",
+  });
+  assert.equal((await f.api.getPageBySlug(f.human, "child")).updatedById, "human");
+  assert.equal((await f.api.searchPages(viewer, { text: "Changed" }))[0].id, "child");
+  await assert.rejects(f.api.getPageBySlug(f.other, "child"), code("not_found"));
+  await f.api.createPage(f.human, create("private", "private-create", "p1", "private"));
+  f.state.denied.add("w1:viewer:p1");
+  assert.equal(
+    (await f.api.listPages(viewer, {})).pages.some((p) => p.id === "private"),
+    false,
+  );
+});
+
+test("workspace migration backfills frozen scopes and renames slug conflicts", async () => {
+  const db = await mf.getD1Database(`WIKI${counter++}`);
+  await platform.migrate(db, []);
+  for (const migration of platform.catalogs.wiki.migrations.slice(0, 2)) {
+    await db.batch([
+      ...migration.statements.map((sql) => db.prepare(sql)),
+      db
+        .prepare("INSERT INTO platform_schema_versions(owner,version,checksum) VALUES(?,?,?)")
+        .bind("wiki", migration.version, migration.checksum),
+    ]);
+  }
+  for (const [id, project, at] of [
+    ["a", "p1", 10],
+    ["b", "p2", 20],
+  ]) {
+    await db
+      .prepare(
+        "INSERT INTO wiki_pages(workspace_id,id,project_id,slug,title,body,version) VALUES('w1',?,?, 'same','Title','Body',1)",
+      )
+      .bind(id, project)
+      .run();
+    await db
+      .prepare(
+        "INSERT INTO wiki_revisions(workspace_id,page_id,version,action,title,body,actor_id,actor_kind,occurred_at) VALUES('w1',?,1,'create','Title','Body',?,'human',?)",
+      )
+      .bind(id, id, at)
+      .run();
+  }
+  await db
+    .prepare(
+      "INSERT INTO wiki_frozen_scopes(workspace_id,project_id,state) VALUES('w1','p2','frozen')",
+    )
+    .run();
+  await platform.migrate(db, ["wiki"]);
+  const rows = (
+    await db
+      .prepare(
+        "SELECT id,slug,created_by_id,updated_by_id,created_at,updated_at FROM wiki_pages WHERE workspace_id='w1' ORDER BY id",
+      )
+      .all()
+  ).results;
+  assert.deepEqual(
+    rows.map((row) => row.slug),
+    ["same", "same-2"],
+  );
+  assert.deepEqual(
+    rows.map((row) => [row.created_by_id, row.updated_by_id, row.created_at, row.updated_at]),
+    [
+      ["a", "a", 10, 10],
+      ["b", "b", 20, 20],
+    ],
+  );
+  assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM wiki_purge_bypass").first()).n, 0);
 });

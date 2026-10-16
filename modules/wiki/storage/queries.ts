@@ -1,17 +1,20 @@
 export const queries = {
-  page: "SELECT id,project_id,slug,title,body,version,archived FROM wiki_pages WHERE workspace_id=? AND id=?",
+  page: "SELECT id,project_id,parent_id,created_by_id,updated_by_id,created_at,updated_at,slug,title,body,version,archived FROM wiki_pages WHERE workspace_id=? AND id=?",
   bySlug:
-    "SELECT id,project_id,slug,title,body,version,archived FROM wiki_pages WHERE workspace_id=? AND project_id=? AND slug=? COLLATE NOCASE",
-  list: "SELECT id,project_id,slug,title,body,version,archived FROM wiki_pages WHERE workspace_id=? AND project_id=? AND archived=0 AND slug COLLATE NOCASE > ? COLLATE NOCASE ORDER BY slug COLLATE NOCASE LIMIT ?",
+    "SELECT id,project_id,parent_id,created_by_id,updated_by_id,created_at,updated_at,slug,title,body,version,archived FROM wiki_pages WHERE workspace_id=? AND project_id=? AND slug=? COLLATE NOCASE",
+  byWorkspaceSlug:
+    "SELECT id,project_id,parent_id,created_by_id,updated_by_id,created_at,updated_at,slug,title,body,version,archived FROM wiki_pages WHERE workspace_id=? AND slug=? COLLATE NOCASE",
+  parent: "SELECT id,project_id,parent_id,archived FROM wiki_pages WHERE workspace_id=? AND id=?",
+  list: "SELECT id,project_id,parent_id,created_by_id,updated_by_id,created_at,updated_at,slug,title,body,version,archived FROM wiki_pages WHERE workspace_id=? AND (? IS NULL OR project_id=?) AND (project_id='' OR instr(?, char(34)||project_id||char(34))>0) AND archived=0 AND slug COLLATE NOCASE > ? COLLATE NOCASE ORDER BY slug COLLATE NOCASE LIMIT ?",
   search:
-    "SELECT p.id,p.project_id,p.slug,p.title,p.body,p.version,p.archived FROM wiki_search s JOIN wiki_pages p ON p.rowid=s.rowid WHERE wiki_search MATCH ? AND s.workspace_id=? AND s.project_id=? AND s.archived='0' AND p.workspace_id=? AND p.project_id=? AND p.archived=0 ORDER BY bm25(wiki_search),p.slug COLLATE NOCASE LIMIT ?",
+    "SELECT p.id,p.project_id,p.parent_id,p.created_by_id,p.updated_by_id,p.created_at,p.updated_at,p.slug,p.title,p.body,p.version,p.archived FROM wiki_search s JOIN wiki_pages p ON p.rowid=s.rowid WHERE wiki_search MATCH ? AND s.workspace_id=? AND (? IS NULL OR s.project_id=?) AND s.archived='0' AND p.workspace_id=? AND (? IS NULL OR p.project_id=?) AND (p.project_id='' OR instr(?, char(34)||p.project_id||char(34))>0) AND p.archived=0 ORDER BY bm25(wiki_search),p.slug COLLATE NOCASE LIMIT ?",
   searchShort:
-    "WITH terms(pattern) AS (VALUES (?),(?),(?),(?),(?),(?),(?),(?),(?),(?),(?),(?)) SELECT p.id,p.project_id,p.slug,p.title,p.body,p.version,p.archived FROM wiki_pages p WHERE p.workspace_id=? AND p.project_id=? AND p.archived=0 AND NOT EXISTS (SELECT 1 FROM terms WHERE pattern IS NOT NULL AND NOT (p.title LIKE pattern ESCAPE '\\' OR p.body LIKE pattern ESCAPE '\\')) ORDER BY p.slug COLLATE NOCASE LIMIT ?",
+    "WITH terms(pattern) AS (VALUES (?),(?),(?),(?),(?),(?),(?),(?),(?),(?),(?),(?)) SELECT p.id,p.project_id,p.parent_id,p.created_by_id,p.updated_by_id,p.created_at,p.updated_at,p.slug,p.title,p.body,p.version,p.archived FROM wiki_pages p WHERE p.workspace_id=? AND (? IS NULL OR p.project_id=?) AND (p.project_id='' OR instr(?, char(34)||p.project_id||char(34))>0) AND p.archived=0 AND NOT EXISTS (SELECT 1 FROM terms WHERE pattern IS NOT NULL AND NOT (p.title LIKE pattern ESCAPE '\\' OR p.body LIKE pattern ESCAPE '\\')) ORDER BY p.slug COLLATE NOCASE LIMIT ?",
   create:
-    "INSERT INTO wiki_pages(workspace_id,id,project_id,slug,title,body,version) VALUES(?,?,?,?,?,?,1)",
-  edit: "UPDATE wiki_pages SET title=?,body=?,version=version+1 WHERE workspace_id=? AND id=? AND version=? AND archived=0",
+    "INSERT INTO wiki_pages(workspace_id,id,project_id,parent_id,slug,title,body,created_by_id,updated_by_id,created_at,updated_at,version) VALUES(?,?,?,?,?,?,?,?,?,?,?,1)",
+  edit: "UPDATE wiki_pages SET title=?,body=?,parent_id=?,updated_by_id=?,updated_at=?,version=version+1 WHERE workspace_id=? AND id=? AND version=? AND archived=0",
   archive:
-    "UPDATE wiki_pages SET archived=1,version=version+1 WHERE workspace_id=? AND id=? AND version=? AND archived=0",
+    "UPDATE wiki_pages SET archived=1,updated_by_id=?,updated_at=?,version=version+1 WHERE workspace_id=? AND id=? AND version=? AND archived=0",
   guard: "INSERT INTO wiki_guards(workspace_id,id,changed) VALUES(?,?,changes())",
   clearGuard: "DELETE FROM wiki_guards WHERE workspace_id=? AND id=?",
   deleteSearch:

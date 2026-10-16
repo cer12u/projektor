@@ -177,7 +177,11 @@ export function createIntegrations(d: Dependencies): {
   async function target(s: RequestScope, t: ExternalTarget, mode: "read" | "write") {
     id(t.id);
     if (t.kind === "issue") return (await issues.authorizeIssue(s, t.id, mode)).projectId;
-    if (t.kind === "wiki") return (await wiki.authorizePage(s, t.id, mode)).projectId;
+    if (t.kind === "wiki")
+      return (
+        (await wiki.authorizePage(s, t.id, mode)).projectId ??
+        fail("validation", "Workspace wiki references are unavailable")
+      );
     return fail("validation", "Invalid target");
   }
   async function receipt(s: RequestScope, operationId: string, input: unknown) {

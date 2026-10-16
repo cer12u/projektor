@@ -4,7 +4,12 @@ type Scope = Parameters<ProjectsApi["authorizeProject"]>[0];
 
 export interface WikiPage {
   readonly id: string;
-  readonly projectId: string;
+  readonly projectId: string | null;
+  readonly parentId: string | null;
+  readonly createdById: string;
+  readonly updatedById: string;
+  readonly createdAt: number;
+  readonly updatedAt: number;
   readonly slug: string;
   readonly title: string;
   readonly body: string;
@@ -57,7 +62,8 @@ export interface WikiApi {
     input: {
       readonly operationId: string;
       readonly pageId: string;
-      readonly projectId: string;
+      readonly projectId?: string;
+      readonly parentId?: string | null;
       readonly slug: string;
       readonly title: string;
       readonly body: string;
@@ -69,8 +75,9 @@ export interface WikiApi {
       readonly operationId: string;
       readonly pageId: string;
       readonly expectedVersion: number;
-      readonly title: string;
-      readonly body: string;
+      readonly title?: string;
+      readonly body?: string;
+      readonly parentId?: string | null;
     },
   ): Promise<WikiResult>;
   archivePage(
@@ -85,13 +92,14 @@ export interface WikiApi {
     scope: Scope,
     input: { readonly pageId: string } | { readonly projectId: string; readonly slug: string },
   ): Promise<WikiPage>;
+  getPageBySlug(scope: Scope, slug: string): Promise<WikiPage>;
   listPages(
     scope: Scope,
-    input: { readonly projectId: string; readonly cursor?: string; readonly limit?: number },
+    input: { readonly projectId?: string; readonly cursor?: string; readonly limit?: number },
   ): Promise<WikiPageList>;
   searchPages(
     scope: Scope,
-    input: { readonly projectId: string; readonly text: string; readonly limit?: number },
+    input: { readonly projectId?: string; readonly text: string; readonly limit?: number },
   ): Promise<readonly WikiPage[]>;
   getRevision(scope: Scope, pageId: string, version: number): Promise<WikiRevision>;
   listRevisions(

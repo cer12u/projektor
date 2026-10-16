@@ -1069,6 +1069,7 @@ test("09a real Access Projects Issues Wiki satisfy Assets provider contract", as
   const wiki = platform.createWiki({
     store: platform.createModuleStore(await mf.getD1Database("DB"), "wiki"),
     projects: f.projects,
+    access: f.access,
     clock: { now: () => Math.floor(Date.now() / 1000) },
     ids: platform.randomIds,
   }).api;
@@ -1679,6 +1680,7 @@ test("real Access Projects Issues Wiki satisfy Integrations provider contract", 
   const wiki = platform.createWiki({
     store: platform.createModuleStore(await mf.getD1Database("DB"), "wiki"),
     projects: f.projects,
+    access: f.access,
     clock: { now: () => Math.floor(Date.now() / 1000) },
     ids: platform.randomIds,
   }).api;

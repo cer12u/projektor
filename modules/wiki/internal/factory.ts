@@ -6,6 +6,7 @@ import {
   PlatformError,
   type Row,
 } from "../../../platform/public";
+import type { AccessApi } from "../../access/public";
 import type { ProjectsApi } from "../../projects/public";
 import type {
   WikiApi,
@@ -25,7 +26,8 @@ type Name = keyof typeof queries;
 type Statement = Call<Name>;
 interface Dependencies {
   readonly store: ModuleStore<"wiki", Name>;
-  readonly projects: Pick<ProjectsApi, "authorizeProject">;
+  readonly projects: Pick<ProjectsApi, "authorizeProject" | "listVisibleProjects">;
+  readonly access: Pick<AccessApi, "authorize">;
   readonly clock: Clock;
   readonly ids: IdGenerator;
   readonly eventConsumer?: string;
@@ -87,7 +89,7 @@ export function createWiki(deps: Dependencies): {
   eventReader?: WikiEventReader;
   maintenance: WikiMaintenance;
 } {
-  const { store, projects, clock, ids } = deps;
+  const { store, projects, access, clock, ids } = deps;
   if (store.owner !== "wiki") fail("forbidden", "Wrong Wiki store");
   const eventReader = deps.eventConsumer ? (Object.freeze({}) as WikiEventReader) : undefined;
   const one = async (name: Name, values: Statement["values"]): Promise<Row | undefined> =>
@@ -97,7 +99,12 @@ export function createWiki(deps: Dependencies): {
   const kind = (scope: Scope) => (scope.kind === "machine" ? "machine" : "human");
   const fromRow = (row: Row): WikiPage => ({
     id: field(row, "id"),
-    projectId: field(row, "project_id"),
+    projectId: field(row, "project_id") || null,
+    parentId: row.parent_id === null ? null : field(row, "parent_id"),
+    createdById: field(row, "created_by_id"),
+    updatedById: field(row, "updated_by_id"),
+    createdAt: integer(row, "created_at"),
+    updatedAt: integer(row, "updated_at"),
     slug: field(row, "slug"),
     title: field(row, "title"),
     body: field(row, "body"),
@@ -115,6 +122,34 @@ export function createWiki(deps: Dependencies): {
     clientId: row.client_id === null ? null : field(row, "client_id"),
     occurredAt: integer(row, "occurred_at"),
   });
+  async function authorize(scope: Scope, projectId: string, permission: "read" | "write") {
+    await access.authorize(scope, permission);
+    if (projectId) await projects.authorizeProject(scope, projectId, permission);
+  }
+  async function visibleProjectIds(scope: Scope): Promise<string[]> {
+    const result: string[] = [];
+    let cursor: string | undefined;
+    do {
+      const batch = await projects.listVisibleProjects(scope, cursor, 100);
+      result.push(...batch.projects.map((project) => project.id));
+      cursor = batch.nextCursor ?? undefined;
+    } while (cursor);
+    return result;
+  }
+  async function parent(scope: Scope, parentId: string | null, projectId: string, pageId?: string) {
+    if (parentId === null) return;
+    let next: string | null = id(parentId);
+    const seen = new Set<string>();
+    for (let depth = 0; next !== null; depth++) {
+      if (depth >= 20 || seen.has(next) || next === pageId)
+        fail("validation", "Invalid page parent hierarchy");
+      seen.add(next);
+      const row = await one("parent", [workspace(scope), next]);
+      if (!row || row.archived === 1 || field(row, "project_id") !== projectId)
+        fail("validation", "Parent page must be active in the same scope");
+      next = row.parent_id === null ? null : field(row, "parent_id");
+    }
+  }
   async function page(
     scope: Scope,
     pageId: string,
@@ -123,7 +158,7 @@ export function createWiki(deps: Dependencies): {
   ): Promise<WikiPage> {
     const row = await one("page", [workspace(scope), id(pageId)]);
     if (!row) fail("not_found", "Page not found");
-    await projects.authorizeProject(scope, field(row, "project_id"), permission);
+    await authorize(scope, field(row, "project_id"), permission);
     if (!archived && row.archived === 1) fail("not_found", "Page not found");
     return fromRow(row);
   }
@@ -229,18 +264,22 @@ export function createWiki(deps: Dependencies): {
   const api: WikiApi = {
     async createPage(scope, input) {
       object(input);
-      const projectId = id(input.projectId),
+      const projectId = input.projectId === undefined ? "" : id(input.projectId),
         pageId = id(input.pageId),
         pageSlug = slug(input.slug),
         pageTitle = title(input.title),
-        markdown = body(input.body);
-      await projects.authorizeProject(scope, projectId, "write");
+        markdown = body(input.body),
+        parentId =
+          input.parentId === undefined || input.parentId === null ? null : id(input.parentId);
+      await authorize(scope, projectId, "write");
+      await parent(scope, parentId, projectId, pageId);
       const fp = await fingerprint("create", input.operationId, [
         projectId,
         pageId,
         pageSlug,
         pageTitle,
         markdown,
+        parentId,
       ]);
       const saved = await replay(scope, input.operationId, fp);
       if (saved) return saved;
@@ -253,7 +292,19 @@ export function createWiki(deps: Dependencies): {
         "create",
         guarded(scope, {
           name: "create",
-          values: [workspace(scope), pageId, projectId, pageSlug, pageTitle, markdown],
+          values: [
+            workspace(scope),
+            pageId,
+            projectId,
+            parentId,
+            pageSlug,
+            pageTitle,
+            markdown,
+            actor(scope),
+            actor(scope),
+            clock.now(),
+            clock.now(),
+          ],
         }),
       );
     },
@@ -261,13 +312,21 @@ export function createWiki(deps: Dependencies): {
       object(input);
       const current = await page(scope, input.pageId, "write", true),
         expected = version(input.expectedVersion),
-        pageTitle = title(input.title),
-        markdown = body(input.body);
+        pageTitle = input.title === undefined ? current.title : title(input.title),
+        markdown = input.body === undefined ? current.body : body(input.body),
+        parentId =
+          input.parentId === undefined
+            ? current.parentId
+            : input.parentId === null
+              ? null
+              : id(input.parentId);
+      await parent(scope, parentId, current.projectId ?? "", current.id);
       const fp = await fingerprint("edit", input.operationId, [
         current.id,
         expected,
         pageTitle,
         markdown,
+        parentId,
       ]);
       const saved = await replay(scope, input.operationId, fp);
       if (saved) return saved;
@@ -281,7 +340,16 @@ export function createWiki(deps: Dependencies): {
         "edit",
         guarded(scope, {
           name: "edit",
-          values: [pageTitle, markdown, workspace(scope), current.id, expected],
+          values: [
+            pageTitle,
+            markdown,
+            parentId,
+            actor(scope),
+            clock.now(),
+            workspace(scope),
+            current.id,
+            expected,
+          ],
         }),
       );
     },
@@ -300,7 +368,10 @@ export function createWiki(deps: Dependencies): {
         current.id,
         expected + 1,
         "archive",
-        guarded(scope, { name: "archive", values: [workspace(scope), current.id, expected] }),
+        guarded(scope, {
+          name: "archive",
+          values: [actor(scope), clock.now(), workspace(scope), current.id, expected],
+        }),
       );
     },
     async getPage(scope, input) {
@@ -308,20 +379,37 @@ export function createWiki(deps: Dependencies): {
       if ("pageId" in input) return page(scope, input.pageId);
       const projectId = id(input.projectId),
         pageSlug = slug(input.slug);
-      await projects.authorizeProject(scope, projectId);
+      await authorize(scope, projectId, "read");
       const row = await one("bySlug", [workspace(scope), projectId, pageSlug]);
       if (!row || row.archived === 1) fail("not_found", "Page not found");
       return fromRow(row);
     },
+    async getPageBySlug(scope, pageSlug) {
+      const row = await one("byWorkspaceSlug", [workspace(scope), slug(pageSlug)]);
+      if (!row || row.archived === 1) fail("not_found", "Page not found");
+      await authorize(scope, field(row, "project_id"), "read");
+      return fromRow(row);
+    },
     async listPages(scope, input) {
       object(input);
-      const projectId = id(input.projectId);
-      await projects.authorizeProject(scope, projectId);
+      const projectId = input.projectId === undefined ? null : id(input.projectId);
+      if (projectId !== null) await authorize(scope, projectId, "read");
+      else await access.authorize(scope, "read");
+      const visible = projectId === null ? await visibleProjectIds(scope) : [projectId];
       const limit = input.limit ?? 50;
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
         fail("validation", "Invalid limit");
       const cursor = input.cursor === undefined ? "" : slug(input.cursor);
-      const rows = (await store.run("list", [workspace(scope), projectId, cursor, limit + 1])).rows;
+      const rows = (
+        await store.run("list", [
+          workspace(scope),
+          projectId,
+          projectId,
+          JSON.stringify(visible),
+          cursor,
+          limit + 1,
+        ])
+      ).rows;
       const selected = rows.slice(0, limit);
       return {
         pages: selected.map(fromRow),
@@ -330,8 +418,10 @@ export function createWiki(deps: Dependencies): {
     },
     async searchPages(scope, input) {
       object(input);
-      const projectId = id(input.projectId);
-      await projects.authorizeProject(scope, projectId);
+      const projectId = input.projectId === undefined ? null : id(input.projectId);
+      if (projectId !== null) await authorize(scope, projectId, "read");
+      else await access.authorize(scope, "read");
+      const visible = projectId === null ? await visibleProjectIds(scope) : [projectId];
       if (typeof input.text !== "string" || input.text.length > 256)
         fail("validation", "Invalid search text");
       const terms = searchTerms(input.text);
@@ -347,14 +437,19 @@ export function createWiki(deps: Dependencies): {
               ),
               workspace(scope),
               projectId,
+              projectId,
+              JSON.stringify(visible),
               limit,
             ])
           : store.run("search", [
               searchExpression(terms),
               workspace(scope),
               projectId,
+              projectId,
               workspace(scope),
               projectId,
+              projectId,
+              JSON.stringify(visible),
               limit,
             ]))
       ).rows;
@@ -403,7 +498,7 @@ export function createWiki(deps: Dependencies): {
           source: "wiki",
           schemaVersion: 1,
           workspaceId,
-          projectId: row.project_id === null ? null : field(row, "project_id"),
+          projectId: row.project_id === null ? null : field(row, "project_id") || null,
           aggregateId: field(row, "aggregate_id"),
           aggregateVersion: integer(row, "aggregate_version"),
           type:

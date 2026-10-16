@@ -15,6 +15,7 @@ import type {
 } from "../../modules/issues/public";
 import type { Sprint } from "../../modules/planning/public";
 import type { Project } from "../../modules/projects/public";
+import type { WikiPage, WikiRevision } from "../../modules/wiki/public";
 import { PlatformError } from "../../platform/public";
 import type { Services } from "../catalog";
 
@@ -282,6 +283,37 @@ const fileShape = (a: AssetLink) => ({
   createdAt: a.createdAt,
   wikiPage: null,
 });
+const wikiListShape = (p: WikiPage) => ({
+  id: p.id,
+  slug: p.slug,
+  title: p.title,
+  parent_id: p.parentId,
+  project_id: p.projectId,
+  updated_at: p.updatedAt,
+  url: `/wiki/${p.slug}`,
+  type: null,
+  tags: [],
+  status: null,
+  verified_at: null,
+  verified_by: null,
+  owners: [],
+  verify_interval: null,
+  is_template: false,
+});
+const wikiDetailShape = (p: WikiPage) => ({
+  ...wikiListShape(p),
+  content: p.body,
+  revisionId: String(p.version),
+  freshness: null,
+});
+const wikiRevisionShape = (r: WikiRevision, people: Map<string, MemberItem>) => ({
+  id: String(r.version),
+  title: r.title,
+  summary: null,
+  author_id: r.actorId,
+  author_name: people.get(r.actorId)?.displayName ?? null,
+  created_at: r.occurredAt,
+});
 function fileTarget(kind: unknown, entityId: unknown): AssetTarget {
   if (typeof entityId !== "string") bad("Invalid entityId");
   if (kind === "issue") return { kind: "issue", id: entityId as string };
@@ -363,6 +395,7 @@ export async function handleUi(
       !path.startsWith("/api/sprints") &&
       !path.startsWith("/api/files") &&
       !path.startsWith("/api/issues") &&
+      !path.startsWith("/api/wiki") &&
       path !== "/api/task-statuses" &&
       path !== "/api/task-types"
     )
@@ -375,6 +408,139 @@ export async function handleUi(
       requestId,
       request.method === "GET" ? "read" : "write",
     );
+    if (path === "/api/wiki/search" && request.method === "GET") {
+      const q = url.searchParams.get("q");
+      if (!q) bad("Invalid query");
+      const projectId = url.searchParams.get("projectId") ?? undefined;
+      const pages = await services.wiki.searchPages(scope, { projectId, text: q as string });
+      return json(
+        pages.map((p) => ({
+          id: p.id,
+          slug: p.slug,
+          title: p.title,
+          project_id: p.projectId,
+          excerpt: null,
+          type: null,
+          status: null,
+          tags: [],
+          owners: [],
+          verified_at: null,
+          verified_by: null,
+          verify_interval: null,
+          freshness: null,
+        })),
+      );
+    }
+    if (path === "/api/wiki" && request.method === "GET") {
+      const projectId = url.searchParams.get("projectId") ?? undefined;
+      const pages: WikiPage[] = [];
+      let cursor: string | undefined;
+      do {
+        const result = await services.wiki.listPages(scope, { projectId, limit: 100, cursor });
+        pages.push(...result.pages);
+        cursor = result.nextCursor ?? undefined;
+      } while (cursor);
+      return json(pages.map(wikiListShape));
+    }
+    if (path === "/api/wiki" && request.method === "POST") {
+      const data = await input(request);
+      if (typeof data.title !== "string") bad("Invalid title");
+      const title = data.title as string;
+      const slug =
+        typeof data.slug === "string"
+          ? data.slug
+          : title
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, "-")
+              .replace(/^-|-$/g, "");
+      const result = await services.wiki.createPage(scope, {
+        operationId: crypto.randomUUID(),
+        pageId: crypto.randomUUID(),
+        projectId: optionalString(data.projectId, "projectId"),
+        parentId: data.parentId === null ? null : optionalString(data.parentId, "parentId"),
+        slug,
+        title,
+        body: optionalString(data.content, "content") ?? "",
+      });
+      return json(
+        {
+          id: result.id,
+          slug,
+          projectId: data.projectId ?? null,
+          url: `/wiki/${slug}`,
+          type: null,
+          tags: [],
+          status: null,
+          verified_at: null,
+          verified_by: null,
+          owners: [],
+          verify_interval: null,
+          is_template: false,
+        },
+        201,
+      );
+    }
+    if (
+      /^\/api\/wiki\/(?:tree|templates|trash|stale-pages|watches|notifications|backlinks|export|broken-links|changes|search|backfill-links|purge-trash)(?:\/|$)/.test(
+        path,
+      )
+    )
+      return unsupported();
+    const wikiMatch = path.match(/^\/api\/wiki\/([^/]+)$/);
+    const wikiRevisionMatch = path.match(/^\/api\/wiki\/([^/]+)\/revisions(?:\/([^/]+))?$/);
+    if (wikiMatch || wikiRevisionMatch) {
+      const page = await services.wiki.getPageBySlug(
+        scope,
+        decodeURIComponent((wikiMatch ?? wikiRevisionMatch)?.[1] ?? ""),
+      );
+      if (wikiRevisionMatch && request.method === "GET") {
+        if (wikiRevisionMatch[2]) {
+          const number = Number(wikiRevisionMatch[2]);
+          const revision = await services.wiki.getRevision(scope, page.id, number);
+          return json({
+            id: String(revision.version),
+            title: revision.title,
+            content: revision.body,
+            summary: null,
+            author_id: revision.actorId,
+            created_at: revision.occurredAt,
+          });
+        }
+        const revisions = await services.wiki.listRevisions(scope, page.id, undefined, 100);
+        const people = await members(services, scope);
+        return json(revisions.revisions.map((revision) => wikiRevisionShape(revision, people)));
+      }
+      if (wikiMatch && request.method === "GET") return json(wikiDetailShape(page));
+      if (wikiMatch && request.method === "PUT") {
+        const data = await input(request);
+        const supplied = data.expectedVersion ?? data.baseVersion;
+        const baseRevision = data.baseRevisionId;
+        if (
+          (supplied !== undefined &&
+            (!Number.isSafeInteger(supplied) || supplied !== page.version)) ||
+          (baseRevision !== undefined && baseRevision !== String(page.version))
+        )
+          throw new PlatformError("conflict", "Conflict");
+        await services.wiki.editPage(scope, {
+          operationId: crypto.randomUUID(),
+          pageId: page.id,
+          expectedVersion: supplied === undefined ? page.version : (supplied as number),
+          title: optionalString(data.title, "title"),
+          body: optionalString(data.content, "content"),
+          parentId: data.parentId === null ? null : optionalString(data.parentId, "parentId"),
+        });
+        return json({ ok: true, url: `/wiki/${page.slug}` });
+      }
+      if (wikiMatch && request.method === "DELETE") {
+        await services.wiki.archivePage(scope, {
+          operationId: crypto.randomUUID(),
+          pageId: page.id,
+          expectedVersion: page.version,
+        });
+        return json({ ok: true });
+      }
+    }
+    if (path.startsWith("/api/wiki")) return unsupported();
     const sprintMatch = path.match(/^\/api\/sprints\/([^/]+)$/);
     if (path === "/api/sprints" && request.method === "GET") {
       const projectId = url.searchParams.get("projectId");
@@ -475,7 +641,8 @@ export async function handleUi(
       const projectId =
         target.kind === "issue"
           ? (await services.issues.authorizeIssue(scope, target.id, "write")).projectId
-          : (await services.wiki.authorizePage(scope, target.id, "write")).projectId;
+          : ((await services.wiki.authorizePage(scope, target.id, "write")).projectId ??
+            bad("Workspace wiki attachments are unavailable"));
       const assetId = crypto.randomUUID();
       const contentType = file.type || "application/octet-stream";
       await services.assets.beginUpload(scope, {

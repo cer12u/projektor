@@ -109,3 +109,10 @@ the merged commit, calculate `sha256sum dist/migrations.json`, and update
 `CF_APPROVED_SCHEMA_SHA256` to that exact digest before the code deploy gate.
 The Planning timestamp backfill skips frozen scopes, whose legacy sprint
 timestamps remain zero.
+
+For C4b, run the read-only slug-conflict query in the MR before migration.
+Apply Wiki `0003_workspace_pages.sql` through the operator migration path on
+the approved production D1 before deploying code. Verify its
+`platform_schema_versions` receipt and that `wiki_purge_bypass` has no remaining
+rows. Build the merged commit, calculate `sha256sum dist/migrations.json`, and
+set `CF_APPROVED_SCHEMA_SHA256` to that exact digest before the code deploy gate.
