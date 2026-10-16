@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { expect, test } from "@playwright/test";
+import { expectUiWrite } from "./write-response.mjs";
 
 test("original issue pages create, edit, comment, link, board, My Issues and search", async ({
   page,
@@ -36,7 +37,9 @@ test("original issue pages create, edit, comment, link, board, My Issues and sea
     (response) => response.url().endsWith("/api/issues") && response.request().method() === "POST",
   );
   await page.getByRole("button", { name: "Create issue", exact: true }).click();
-  const first = await (await firstCreated).json();
+  const firstResponse = await firstCreated;
+  expect(firstResponse.ok()).toBeTruthy();
+  const first = await firstResponse.json();
   const firstRef = `${key}-${first.number}`;
   await expect(page.getByText("E2E first issue")).toBeVisible();
   await page.getByRole("link", { name: firstRef, exact: true }).click();
@@ -46,12 +49,18 @@ test("original issue pages create, edit, comment, link, board, My Issues and sea
   await expect(page.getByRole("heading", { name: "E2E first issue" })).toBeVisible();
   await page.getByTitle("Edit title", { exact: true }).click();
   await page.getByRole("textbox").first().fill("E2E edited issue");
-  await page.getByRole("button", { name: "Save", exact: true }).first().click();
+  await expectUiWrite(page, "PATCH", `/api/issues/${first.id}`, () =>
+    page.getByRole("button", { name: "Save", exact: true }).first().click(),
+  );
   await expect(page.getByRole("heading", { name: "E2E edited issue" })).toBeVisible();
   await page.getByRole("combobox", { name: "Change status" }).click();
-  await page.getByRole("option", { name: "In Progress" }).click();
+  await expectUiWrite(page, "PATCH", `/api/issues/${first.id}`, () =>
+    page.getByRole("option", { name: "In Progress" }).click(),
+  );
   await page.getByRole("combobox", { name: "Change priority" }).click();
-  await page.getByRole("option", { name: "High" }).click();
+  await expectUiWrite(page, "PATCH", `/api/issues/${first.id}`, () =>
+    page.getByRole("option", { name: "High" }).click(),
+  );
   // The original detail page has no label editor; verify its PATCH contract from this browser flow.
   const labels = await request.patch(`/api/issues/${firstRef}`, {
     headers,
@@ -63,14 +72,20 @@ test("original issue pages create, edit, comment, link, board, My Issues and sea
   });
   expect(JSON.parse((await labelled.json()).labels)).toEqual(["e2e"]);
   await page.getByPlaceholder("Add a comment…").fill("E2E comment");
-  await page.getByRole("button", { name: "Comment", exact: true }).click();
+  await expectUiWrite(page, "POST", `/api/issues/${first.id}/comments`, () =>
+    page.getByRole("button", { name: "Comment", exact: true }).click(),
+  );
   await expect(page.getByText("E2E comment")).toBeVisible();
   await page.getByRole("button", { name: "Edit", exact: true }).last().click();
   await page.locator("textarea").first().fill("E2E edited comment");
-  await page.getByRole("button", { name: "Save", exact: true }).last().click();
+  await expectUiWrite(page, "PATCH", new RegExp(`^/api/issues/${first.id}/comments/[^/]+$`), () =>
+    page.getByRole("button", { name: "Save", exact: true }).last().click(),
+  );
   await expect(page.getByText("E2E edited comment")).toBeVisible();
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "Delete", exact: true }).click();
+  await expectUiWrite(page, "DELETE", new RegExp(`^/api/issues/${first.id}/comments/[^/]+$`), () =>
+    page.getByRole("button", { name: "Delete", exact: true }).click(),
+  );
   await expect(page.getByText("E2E edited comment")).toHaveCount(0);
   const me = await request.get("/auth/me", {
     headers: { cookie: `CF_Authorization=${assertion}` },
@@ -94,13 +109,17 @@ test("original issue pages create, edit, comment, link, board, My Issues and sea
     (response) => response.url().endsWith("/api/issues") && response.request().method() === "POST",
   );
   await page.getByRole("button", { name: "Create issue", exact: true }).click();
-  const linked = await (await linkedCreated).json();
+  const linkedResponse = await linkedCreated;
+  expect(linkedResponse.ok()).toBeTruthy();
+  const linked = await linkedResponse.json();
   const linkedRef = `${key}-${linked.number}`;
   await expect(page.getByRole("link", { name: "E2E linked issue" })).toBeVisible();
   await page.getByRole("link", { name: firstRef, exact: true }).click();
   await page.getByRole("button", { name: /Add relation/ }).click();
   await page.getByPlaceholder("PROJ-12").fill(linkedRef);
-  await page.getByRole("button", { name: "Add", exact: true }).click();
+  await expectUiWrite(page, "POST", `/api/issues/${first.id}/links`, () =>
+    page.getByRole("button", { name: "Add", exact: true }).click(),
+  );
   await expect(page.getByRole("link", { name: new RegExp(linkedRef) })).toBeVisible();
   await page.goto(`/issues?project=${key}`);
   await page.getByRole("button", { name: "board", exact: true }).click();
