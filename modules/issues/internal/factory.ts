@@ -91,6 +91,21 @@ function priority(value: unknown): IssuePriority {
     fail("validation", "Invalid priority");
   return value;
 }
+function estimateValue(value: unknown): number | null {
+  if (value === null) return null;
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0 || value > 1000)
+    fail("validation", "Invalid estimate");
+  return value;
+}
+function calendarDate(value: unknown): string | null {
+  if (value === null) return null;
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value))
+    fail("validation", "Invalid due date");
+  const parsed = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(parsed.valueOf()) || parsed.toISOString().slice(0, 10) !== value)
+    fail("validation", "Invalid due date");
+  return value;
+}
 function state(value: unknown): IssueState {
   if (value !== "todo" && value !== "in_progress" && value !== "done" && value !== "cancelled")
     fail("validation", "Invalid state");
@@ -319,6 +334,8 @@ export function createIssues(deps: Dependencies): {
     inReviewAt: row.in_review_at === null ? null : number(row, "in_review_at"),
     reviewBounceCount: number(row, "review_bounce_count"),
     assigneeId: row.assignee_id === null ? null : string(row, "assignee_id"),
+    estimate: row.estimate === null ? null : number(row, "estimate"),
+    dueDate: row.due_date === null ? null : string(row, "due_date"),
     version: number(row, "version"),
     archived: row.archived === 1,
   });
@@ -989,6 +1006,8 @@ export function createIssues(deps: Dependencies): {
         input.parentId === undefined || input.parentId === null ? null : id(input.parentId);
       if (parentId) await validateParent(scope, parentId, null);
       const labels = validateLabels(input.labels ?? []);
+      const estimate = estimateValue(input.estimate ?? null);
+      const dueDate = calendarDate(input.dueDate ?? null);
       const assigneeId =
         input.assigneeId === undefined || input.assigneeId === null ? null : id(input.assigneeId);
       if (assigneeId) await projects.authorizeProjectPrincipal(scope, projectId, assigneeId);
@@ -1003,6 +1022,8 @@ export function createIssues(deps: Dependencies): {
         parentId,
         labels,
         assigneeId,
+        estimate,
+        dueDate,
       ]);
       const saved = await replay(scope, input.operationId, fp);
       if (saved) return saved;
@@ -1028,6 +1049,8 @@ export function createIssues(deps: Dependencies): {
           parentId,
           labels,
           assigneeId,
+          estimate,
+          dueDate,
         }),
         [
           { name: "allocate", values: [w(scope), projectId] },
@@ -1058,6 +1081,8 @@ export function createIssues(deps: Dependencies): {
               flow.claimedAt,
               flow.inReviewAt,
               flow.reviewBounceCount,
+              estimate,
+              dueDate,
               w(scope),
               projectId,
             ],
@@ -1072,12 +1097,17 @@ export function createIssues(deps: Dependencies): {
       const title = body(input.title, 512).trim(),
         description = body(input.description, 100000, true),
         level = priority(input.priority);
+      const estimate =
+        input.estimate === undefined ? current.estimate : estimateValue(input.estimate);
+      const dueDate = input.dueDate === undefined ? current.dueDate : calendarDate(input.dueDate);
       const fp = await fingerprint("edit", input.operationId, [
         current.id,
         expected,
         title,
         description,
         level,
+        estimate,
+        dueDate,
       ]);
       const saved = await replay(scope, input.operationId, fp);
       if (saved) return saved;
@@ -1089,7 +1119,7 @@ export function createIssues(deps: Dependencies): {
         current.id,
         expected + 1,
         "edit",
-        JSON.stringify({ title, description, priority: level }),
+        JSON.stringify({ title, description, priority: level, estimate, dueDate }),
         guarded(scope, {
           name: "edit",
           values: [
@@ -1097,6 +1127,8 @@ export function createIssues(deps: Dependencies): {
             description,
             legacyPriority(level),
             level,
+            estimate,
+            dueDate,
             clock.now(),
             w(scope),
             current.id,
@@ -1135,6 +1167,9 @@ export function createIssues(deps: Dependencies): {
       if (parentId && parentId !== current.parentId)
         await validateParent(scope, parentId, current.id);
       const labels = input.labels === undefined ? current.labels : validateLabels(input.labels);
+      const estimate =
+        input.estimate === undefined ? current.estimate : estimateValue(input.estimate);
+      const dueDate = input.dueDate === undefined ? current.dueDate : calendarDate(input.dueDate);
       const assigneeId =
         input.assigneeId === undefined
           ? current.assigneeId
@@ -1155,6 +1190,8 @@ export function createIssues(deps: Dependencies): {
         "parentId",
         "labels",
         "assigneeId",
+        "estimate",
+        "dueDate",
       ] as const)
         if (key in input) changed.push(key);
       const now = clock.now();
@@ -1182,6 +1219,8 @@ export function createIssues(deps: Dependencies): {
         parentId,
         labels,
         assigneeId,
+        estimate,
+        dueDate,
       ]);
       const saved = await replay(scope, input.operationId, fp);
       if (saved) return saved;
@@ -1194,7 +1233,9 @@ export function createIssues(deps: Dependencies): {
         expected + 1,
         "update",
         JSON.stringify(
-          input.statusId === undefined ? { changed } : { changed, statusId: definition.id },
+          input.statusId === undefined
+            ? { changed, estimate, dueDate }
+            : { changed, statusId: definition.id, estimate, dueDate },
         ),
         guarded(scope, {
           name: "updateIssue",
@@ -1216,6 +1257,8 @@ export function createIssues(deps: Dependencies): {
             flow.claimedAt,
             flow.inReviewAt,
             flow.reviewBounceCount,
+            estimate,
+            dueDate,
             now,
             w(scope),
             current.id,
@@ -1695,18 +1738,52 @@ export function createIssues(deps: Dependencies): {
         completedBefore = range(filters.completedBefore),
         updatedAfter = range(filters.updatedAfter),
         updatedBefore = range(filters.updatedBefore);
+      const dueBefore = filters.dueBefore === undefined ? null : calendarDate(filters.dueBefore);
+      const dueAfter = filters.dueAfter === undefined ? null : calendarDate(filters.dueAfter);
+      const today = filters.overdue
+        ? calendarDate(filters.today ?? new Date(clock.now()).toISOString().slice(0, 10))
+        : null;
+      if (filters.sort !== undefined && filters.sort !== "due_date")
+        fail("validation", "Invalid sort");
       let cursorAt: number | null = null,
-        cursorId: string | null = null;
+        cursorId: string | null = null,
+        cursorDate: string | null = null,
+        cursorNull = 0;
       if (filters.cursor !== undefined) {
         if (typeof filters.cursor !== "string") fail("validation", "Invalid cursor");
-        const match = filters.cursor.match(/^([0-9]+):([A-Za-z0-9_-]{1,128})$/);
+        const match =
+          filters.sort === "due_date"
+            ? filters.cursor.match(/^d:(\d{4}-\d{2}-\d{2}|~):([0-9]+):([A-Za-z0-9_-]{1,128})$/)
+            : filters.cursor.match(/^([0-9]+):([A-Za-z0-9_-]{1,128})$/);
         if (!match) fail("validation", "Invalid cursor");
-        cursorAt = range(Number(match[1]));
-        cursorId = id(match[2]);
+        if (filters.sort === "due_date") {
+          cursorDate = match[1] === "~" ? null : calendarDate(match[1]);
+          cursorNull = cursorDate === null ? 1 : 0;
+          cursorAt = range(Number(match[2]));
+          cursorId = id(match[3]);
+        } else {
+          cursorAt = range(Number(match[1]));
+          cursorId = id(match[2]);
+        }
       }
       const projectId = filters.projectId ?? null;
+      const dueCursor = [
+        cursorAt,
+        cursorNull,
+        cursorNull,
+        cursorNull,
+        cursorAt,
+        cursorAt,
+        cursorId,
+        cursorNull,
+        cursorDate,
+        cursorDate,
+        cursorAt,
+        cursorAt,
+        cursorId,
+      ];
       const rows = (
-        await store.run("queryIssues", [
+        await store.run(filters.sort === "due_date" ? "queryIssuesDueDate" : "queryIssues", [
           w(scope),
           JSON.stringify(visible),
           projectId,
@@ -1745,10 +1822,15 @@ export function createIssues(deps: Dependencies): {
           issueIds,
           issueIds,
           filters.includeArchived === true ? 1 : 0,
-          cursorAt,
-          cursorAt,
-          cursorAt,
-          cursorId,
+          dueBefore,
+          dueBefore,
+          dueAfter,
+          dueAfter,
+          filters.overdue === true ? 1 : 0,
+          today,
+          filters.hasDueDate === undefined ? null : filters.hasDueDate ? 1 : 0,
+          filters.hasDueDate === true ? 1 : 0,
+          ...(filters.sort === "due_date" ? dueCursor : [cursorAt, cursorAt, cursorAt, cursorId]),
           limit + 1,
         ])
       ).rows;
@@ -1763,7 +1845,9 @@ export function createIssues(deps: Dependencies): {
         issues: selected.map((row) => fromRow(row, keys.get(string(row, "project_id")) ?? "")),
         nextCursor:
           rows.length > limit
-            ? `${number(selected[selected.length - 1], "created_at")}:${string(selected[selected.length - 1], "id")}`
+            ? filters.sort === "due_date"
+              ? `d:${selected[selected.length - 1].due_date ?? "~"}:${number(selected[selected.length - 1], "created_at")}:${string(selected[selected.length - 1], "id")}`
+              : `${number(selected[selected.length - 1], "created_at")}:${string(selected[selected.length - 1], "id")}`
             : null,
       };
     },
@@ -1814,6 +1898,11 @@ export function createIssues(deps: Dependencies): {
         completedBefore = range(filters.completedBefore),
         updatedAfter = range(filters.updatedAfter),
         updatedBefore = range(filters.updatedBefore);
+      const dueBefore = filters.dueBefore === undefined ? null : calendarDate(filters.dueBefore);
+      const dueAfter = filters.dueAfter === undefined ? null : calendarDate(filters.dueAfter);
+      const today = filters.overdue
+        ? calendarDate(filters.today ?? new Date(clock.now()).toISOString().slice(0, 10))
+        : null;
       const projectId = filters.projectId ?? null;
       const rows = (
         await store.run("countIssues", [
@@ -1855,6 +1944,14 @@ export function createIssues(deps: Dependencies): {
           issueIds,
           issueIds,
           filters.includeArchived === true ? 1 : 0,
+          dueBefore,
+          dueBefore,
+          dueAfter,
+          dueAfter,
+          filters.overdue === true ? 1 : 0,
+          today,
+          filters.hasDueDate === undefined ? null : filters.hasDueDate ? 1 : 0,
+          filters.hasDueDate === true ? 1 : 0,
         ])
       ).rows;
       return number(rows[0], "n");

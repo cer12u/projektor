@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "preact/hooks";
 import { formatIssueRef } from "../../lib/issue-ref";
+import { DueDate } from "../../lib/due-date";
 import { issueUrl } from "../../utils/issue-url";
 import { useMediaQuery } from "../../utils/use-media-query";
 import type { Issue, SortKey, TaskStatus } from "../board-utils";
@@ -119,6 +120,7 @@ function DesktopTable({
 											onChange={(v) => changePriority(issue.id, v)}
 										/>
 										{pts && spBadge(pts)}
+										<DueDate issue={issue} />
 									</div>
 								</td>
 								<td class="px-3 py-2 align-middle whitespace-nowrap text-text-base">
@@ -165,6 +167,7 @@ function MobileCards({ issues, updatingPriorityId, changePriority }: RowsProps) 
 							onChange={(v) => changePriority(issue.id, v)}
 						/>
 						{statusBadge(issue)}
+						<DueDate issue={issue} />
 					</div>
 				</div>
 			))}

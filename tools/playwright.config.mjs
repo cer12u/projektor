@@ -4,6 +4,7 @@ export default defineConfig({
   projects: [
     { name: "foundation", testMatch: "ui-foundation.spec.mjs" },
     { name: "issues", testMatch: "issues.spec.mjs" },
+    { name: "due-estimate", testMatch: "due-estimate.spec.mjs" },
     { name: "metrics", testMatch: "metrics.spec.mjs" },
     { name: "sprints-files", testMatch: "sprints-files.spec.mjs" },
     { name: "wiki", testMatch: "wiki.spec.mjs" },

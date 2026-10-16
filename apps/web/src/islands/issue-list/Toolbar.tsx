@@ -136,6 +136,7 @@ function SortControls({
 				onChange={(v) => setSortBy(v as SortKey)}
 				options={[
 					{ value: "created_at", label: "Created" },
+					{ value: "due_date", label: "Due date" },
 					{ value: "updated", label: "Updated" },
 					{ value: "priority", label: "Priority" },
 					{ value: "status", label: "Status" },
@@ -144,7 +145,7 @@ function SortControls({
 					{ value: "number", label: "Number" },
 				]}
 			/>
-			<Button
+			{sortBy !== "due_date" && <Button
 				type="button"
 				variant="outline"
 				size="sm"
@@ -152,7 +153,7 @@ function SortControls({
 				onClick={() => setSortDir((d) => (d === "asc" ? "desc" : "asc"))}
 			>
 				{sortDir === "asc" ? "↑" : "↓"}
-			</Button>
+			</Button>}
 		</span>
 	);
 }
@@ -173,6 +174,8 @@ interface ToolbarProps extends FilterSelectsProps {
 	filterDateFrom: string;
 	setFilterDateFrom: Dispatch<StateUpdater<string>>;
 	filterDateTo: string;
+	filterOverdue: boolean;
+	setFilterOverdue: Dispatch<StateUpdater<boolean>>;
 	setFilterDateTo: Dispatch<StateUpdater<string>>;
 
 	saved: ReturnType<typeof useSavedViews>;
@@ -200,6 +203,8 @@ export default function Toolbar(props: ToolbarProps) {
 		setFilterDateFrom,
 		filterDateTo,
 		setFilterDateTo,
+		filterOverdue,
+		setFilterOverdue,
 		saved,
 		sortBy,
 		setSortBy,
@@ -235,6 +240,8 @@ export default function Toolbar(props: ToolbarProps) {
 				setFilterDateTo={setFilterDateTo}
 				isSearchActive={isSearchActive}
 			/>
+			<button type="button" aria-pressed={filterOverdue} onClick={() => setFilterOverdue((value) => !value)}
+				class="px-2 py-1 rounded-full border border-border text-sm text-text-base">Overdue</button>
 
 			<FilterSelects {...props} />
 

@@ -47,6 +47,7 @@ export function useIssueFilters(workspaceSlug?: string) {
 	const [filterDateTo, setFilterDateTo] = useState(initial.dateTo);
 	const [filterSprintId, setFilterSprintId] = useState(initial.sprintId);
 	const [sortBy, setSortBy] = useState<SortKey>("created_at");
+	const [filterOverdue, setFilterOverdue] = useState(false);
 	const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
 	useFilterUrlSync({
@@ -127,6 +128,8 @@ export function useIssueFilters(workspaceSlug?: string) {
 		filterSprintId,
 		setFilterSprintId,
 		sortBy,
+		filterOverdue,
+		setFilterOverdue,
 		setSortBy,
 		sortDir,
 		setSortDir,

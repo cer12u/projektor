@@ -28,6 +28,8 @@ export interface Issue {
   readonly reviewBounceCount: number;
   readonly priority: IssuePriority;
   readonly assigneeId: string | null;
+  readonly estimate: number | null;
+  readonly dueDate: string | null;
   readonly version: number;
   readonly archived: boolean;
 }
@@ -121,6 +123,12 @@ export interface IssueFilters {
   readonly completedBefore?: number;
   readonly updatedAfter?: number;
   readonly updatedBefore?: number;
+  readonly dueBefore?: string;
+  readonly dueAfter?: string;
+  readonly overdue?: boolean;
+  readonly today?: string;
+  readonly hasDueDate?: boolean;
+  readonly sort?: "due_date";
   readonly issueIds?: readonly string[];
   readonly includeArchived?: boolean;
   readonly cursor?: string;
@@ -176,6 +184,8 @@ export interface IssuesApi {
       readonly labels?: readonly string[];
       readonly parentId?: string | null;
       readonly assigneeId?: string | null;
+      readonly estimate?: number | null;
+      readonly dueDate?: string | null;
     },
   ): Promise<IssueResult>;
   editIssue(
@@ -187,6 +197,8 @@ export interface IssuesApi {
       readonly title: string;
       readonly description: string;
       readonly priority: IssuePriority;
+      readonly estimate?: number | null;
+      readonly dueDate?: string | null;
     },
   ): Promise<IssueResult>;
   updateIssue(
@@ -203,6 +215,8 @@ export interface IssuesApi {
       readonly labels?: readonly string[];
       readonly parentId?: string | null;
       readonly assigneeId?: string | null;
+      readonly estimate?: number | null;
+      readonly dueDate?: string | null;
     },
   ): Promise<IssueResult>;
   transitionIssue(

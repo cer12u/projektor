@@ -1045,8 +1045,93 @@ test("trigram upgrade rebuilds existing indexed rows and preserves unknown attri
         .prepare("SELECT COUNT(*) n FROM platform_schema_versions WHERE owner='issues'")
         .first()
     ).n,
-    7,
+    8,
   );
+});
+
+test("due date and estimate validate, isolate, page, retry and respect frozen scopes", async () => {
+  const f = await fixture();
+  await assert.rejects(
+    f.api.createIssue(f.human, { ...input("bad-date"), dueDate: "2026-02-30" }),
+    code("validation"),
+  );
+  for (const estimate of [-1, 1001])
+    await assert.rejects(
+      f.api.createIssue(f.human, { ...input("bad-points"), estimate }),
+      code("validation"),
+    );
+  await f.api.createIssue(f.human, { ...input("a"), dueDate: "2026-10-10", estimate: 3 });
+  await f.api.createIssue(f.human, { ...input("b"), dueDate: "2026-10-10", estimate: 5 });
+  await f.api.createIssue(f.human, { ...input("c"), dueDate: "2026-10-20" });
+  await f.api.createIssue(f.human, input("no-date"));
+  await f.api.createIssue(f.other, { ...input("w2"), dueDate: "2026-10-01", estimate: 8 });
+  const filters = { projectId: "p1", sort: "due_date", limit: 1 };
+  const ids = [];
+  let cursor;
+  do {
+    const page = await f.api.queryIssues(f.human, { ...filters, cursor });
+    ids.push(...page.issues.map((issue) => issue.id));
+    cursor = page.nextCursor ?? undefined;
+  } while (cursor);
+  assert.deepEqual(ids, ["b", "a", "c", "no-date"]);
+  assert.equal(await f.api.countIssues(f.human, { dueBefore: "2026-10-10" }), 2);
+  assert.equal(await f.api.countIssues(f.human, { dueAfter: "2026-10-20" }), 1);
+  assert.equal(await f.api.countIssues(f.human, { overdue: true, today: "2026-10-15" }), 2);
+  assert.equal(await f.api.countIssues(f.human, { hasDueDate: false }), 1);
+  assert.equal(await f.api.countIssues(f.other, { hasDueDate: true }), 1);
+  assert.equal((await f.api.getIssue(f.human, { issueId: "a" })).estimate, 3);
+  const change = {
+    operationId: "due-update",
+    issueId: "a",
+    expectedVersion: 1,
+    dueDate: null,
+    estimate: 0,
+  };
+  const result = await f.api.updateIssue(f.human, change);
+  assert.deepEqual(await f.api.updateIssue(f.human, change), result);
+  await assert.rejects(
+    f.api.updateIssue(f.human, { ...change, operationId: "stale" }),
+    code("conflict"),
+  );
+  assert.equal((await f.api.getIssue(f.human, { issueId: "a" })).dueDate, null);
+  await f.api.updateIssue(f.human, {
+    operationId: "set-again",
+    issueId: "a",
+    expectedVersion: 2,
+    dueDate: "2026-10-26",
+  });
+  assert.equal((await f.api.getIssue(f.human, { issueId: "a" })).dueDate, "2026-10-26");
+  await f.api.editIssue(f.human, {
+    operationId: "edit-due",
+    issueId: "a",
+    expectedVersion: 3,
+    title: "Edited",
+    description: "",
+    priority: "medium",
+    estimate: 7,
+    dueDate: "2026-11-01",
+  });
+  assert.equal((await f.api.getIssue(f.human, { issueId: "a" })).estimate, 7);
+  for (const sql of [
+    "UPDATE issues_issues SET estimate=-1 WHERE workspace_id='w1' AND id='a'",
+    "UPDATE issues_issues SET due_date='bad' WHERE workspace_id='w1' AND id='a'",
+    "UPDATE issues_issues SET due_date='2026-19-39' WHERE workspace_id='w1' AND id='a'",
+  ])
+    await assert.rejects(f.db.prepare(sql).run());
+  await f.db
+    .prepare(
+      "INSERT INTO issues_frozen_scopes(workspace_id,project_id,state) VALUES('w1','p1','frozen')",
+    )
+    .run();
+  await assert.rejects(
+    f.api.updateIssue(f.human, {
+      operationId: "frozen-due",
+      issueId: "a",
+      expectedVersion: 4,
+      dueDate: "2026-10-16",
+    }),
+  );
+  assert.equal((await f.api.getIssue(f.other, { issueId: "w2" })).estimate, 8);
 });
 
 test("unassignment, duplicate comment IDs, terminal archive and current write isolation", async () => {

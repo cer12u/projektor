@@ -32,6 +32,7 @@ type Field =
   | "number"
   | "optionalString"
   | "optionalNumber"
+  | "nullableReal"
   | "nullableString"
   | "stringArray"
   | "optionalStringArray"
@@ -50,6 +51,7 @@ const arr = (a: Record<string, unknown>, k: string) => a[k] as string[];
 const optArr = (a: Record<string, unknown>, k: string) => a[k] as string[] | undefined;
 const optBool = (a: Record<string, unknown>, k: string) => a[k] as boolean | undefined;
 const nullable = (a: Record<string, unknown>, k: string) => a[k] as string | null | undefined;
+const nullableReal = (a: Record<string, unknown>, k: string) => a[k] as number | null | undefined;
 const op = (fields: Fields, write: boolean, call: Operation["call"]): Operation => ({
   fields,
   write,
@@ -474,6 +476,8 @@ export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
       typeId: "nullableString",
       labels: "optionalStringArray",
       parentId: "nullableString",
+      estimate: "nullableReal",
+      dueDate: "nullableString",
     },
     true,
     (s, c, a) =>
@@ -488,10 +492,20 @@ export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
         typeId: nullable(a, "typeId"),
         labels: optArr(a, "labels"),
         parentId: nullable(a, "parentId"),
+        estimate: nullableReal(a, "estimate"),
+        dueDate: nullable(a, "dueDate"),
       }),
   ),
   "issues.edit": op(
-    { ...version, issueId: "string", title: "string", description: "string", priority: "string" },
+    {
+      ...version,
+      issueId: "string",
+      title: "string",
+      description: "string",
+      priority: "string",
+      estimate: "nullableReal",
+      dueDate: "nullableString",
+    },
     true,
     (s, c, a) =>
       s.issues.editIssue(c, {
@@ -501,6 +515,8 @@ export const catalog: Readonly<Record<string, Operation>> = Object.freeze({
         title: str(a, "title"),
         description: str(a, "description"),
         priority: str(a, "priority") as "none" | "low" | "medium" | "high" | "urgent",
+        estimate: nullableReal(a, "estimate"),
+        dueDate: nullable(a, "dueDate"),
       }),
   ),
   "issues.transition": op({ ...version, issueId: "string", state: "string" }, true, (s, c, a) =>
@@ -1029,8 +1045,12 @@ export function inputFor(name: string, value: unknown): Record<string, unknown> 
       throw new PlatformError("validation", `Unknown field: ${key}`);
   for (const [key, kind] of Object.entries(entry.fields)) {
     const val = a[key];
-    if (val === undefined && (kind.startsWith("optional") || kind === "nullableString")) continue;
-    if (val === null && kind === "nullableString") continue;
+    if (val === undefined && (kind.startsWith("optional") || kind.startsWith("nullable"))) continue;
+    if (val === null && kind.startsWith("nullable")) continue;
+    if (kind === "nullableReal") {
+      if (typeof val === "number" && Number.isFinite(val)) continue;
+      throw new PlatformError("validation", `Invalid field: ${key}`);
+    }
     if (kind === "stringArray" || kind === "optionalStringArray") {
       if (val === undefined && kind === "optionalStringArray") continue;
       if (!Array.isArray(val) || !val.every((x) => typeof x === "string"))
@@ -1070,16 +1090,19 @@ export function toolCatalog() {
                   ? "array"
                   : kind === "optionalBoolean"
                     ? "boolean"
-                    : kind.includes("Number") || kind === "number"
-                      ? "integer"
-                      : "string",
+                    : kind === "nullableReal"
+                      ? "number"
+                      : kind.includes("Number") || kind === "number"
+                        ? "integer"
+                        : "string",
               ...(kind === "stringArray" ? { items: { type: "string" } } : {}),
               ...(kind === "nullableString" ? { type: ["string", "null"] } : {}),
+              ...(kind === "nullableReal" ? { type: ["number", "null"] } : {}),
             },
           ]),
         ),
         required: Object.entries(entry.fields)
-          .filter(([, kind]) => !kind.startsWith("optional") && kind !== "nullableString")
+          .filter(([, kind]) => !kind.startsWith("optional") && !kind.startsWith("nullable"))
           .map(([field]) => field),
         additionalProperties: false,
       },

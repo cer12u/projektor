@@ -117,6 +117,7 @@ These endpoints return 501 and the original UI shows its error state.
 | C4a | Sprints (Planning lookup of an issue's sprint) and files (Assets). |
 | C4b | Wiki core, tokens, connectors, mcp-info, feedback core. |
 | C6 | Stabilize browser and Cloudflare smoke checks; restore write-once issue `done_at` and Coordination flow history. |
+| C7 | Add issue due dates and estimates, with the original story-points UI mapping to estimates. |
 
 ## C6 flow history
 

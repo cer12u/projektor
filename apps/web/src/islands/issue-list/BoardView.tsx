@@ -1,5 +1,6 @@
 import { useState } from "preact/hooks";
 import { issueUrl } from "../../utils/issue-url";
+import { DueDate } from "../../lib/due-date";
 import {
 	assigneeInitials,
 	BOARD_COLUMNS,
@@ -56,6 +57,7 @@ function BoardCard({
 					<div class="flex items-center gap-1.5">
 						{priorityBadge(issue)}
 						{pts && spBadge(pts)}
+						<DueDate issue={issue} />
 					</div>
 					{issue.assignee_name && (
 						<span

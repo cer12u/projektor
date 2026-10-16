@@ -18,6 +18,8 @@ interface CreateIssueModalProps {
 	setCreateTitle: Dispatch<StateUpdater<string>>;
 	createBody: string;
 	setCreateBody: Dispatch<StateUpdater<string>>;
+	createDueDate?: string;
+	setCreateDueDate?: Dispatch<StateUpdater<string>>;
 	createPriority: string;
 	setCreatePriority: Dispatch<StateUpdater<string>>;
 	createProjectId: string;
@@ -132,6 +134,8 @@ export default function CreateIssueModal(props: CreateIssueModalProps) {
 		setCreateTitle,
 		createBody,
 		setCreateBody,
+		createDueDate,
+		setCreateDueDate,
 		createError,
 		submittingCreate,
 		submitCreate,
@@ -215,6 +219,11 @@ export default function CreateIssueModal(props: CreateIssueModalProps) {
 							/>
 						</div>
 
+						<label class="block mb-3 text-sm text-text-muted">Due date
+							<input type="date" value={createDueDate ?? ""}
+								onChange={(event) => setCreateDueDate?.((event.target as HTMLInputElement).value)}
+								class="block mt-1 px-2 py-1 border border-border rounded bg-bg text-text-base" />
+						</label>
 						<CreateIssueModalFields {...props} />
 					</div>
 

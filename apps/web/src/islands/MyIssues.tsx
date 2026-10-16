@@ -1,5 +1,6 @@
 import { useEffect, useState } from "preact/hooks";
 import { formatIssueRef } from "../lib/issue-ref";
+import { DueDate } from "../lib/due-date";
 import { statusDisplayName } from "../lib/status";
 import { apiFetch } from "../utils/api-client";
 import { issueUrl } from "../utils/issue-url";
@@ -156,6 +157,7 @@ function ProjectIssuesSection({ name, issues }: { name: string; issues: Issue[] 
 										<div class="flex items-center gap-[0.375rem]">
 											{priorityBadge(issue)}
 											{pts && spBadge(pts)}
+											<DueDate issue={issue} />
 										</div>
 									</td>
 									<td class="px-3 py-2 align-middle whitespace-nowrap">{statusBadge(issue)}</td>
@@ -185,6 +187,7 @@ function ProjectIssuesSection({ name, issues }: { name: string; issues: Issue[] 
 						<div class="flex gap-[0.375rem] flex-wrap items-center">
 							{priorityBadge(issue)}
 							{statusBadge(issue)}
+							<DueDate issue={issue} />
 						</div>
 					</div>
 				))}

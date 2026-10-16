@@ -53,6 +53,8 @@ export default function IssueList({ workspaceSlug }: Props) {
 			filterDateField: filters.filterDateField,
 			filterDateFrom: filters.filterDateFrom,
 			filterDateTo: filters.filterDateTo,
+			filterOverdue: filters.filterOverdue,
+			sortBy: filters.sortBy,
 		},
 		filters.projectScopeReady
 	);
@@ -69,7 +71,7 @@ export default function IssueList({ workspaceSlug }: Props) {
 	// Filtering happens server-side (PROJ-211): `issues` is already the filtered,
 	// paginated result set, so the client only sorts the loaded rows. (Sorting is
 	// still page-local — tracked separately as a follow-up.)
-	const filtered = sortIssues(data.issues, filters.sortBy, filters.sortDir);
+	const filtered = filters.sortBy === "due_date" ? data.issues : sortIssues(data.issues, filters.sortBy, filters.sortDir);
 
 	if (gate.pending) return <AccessPending />;
 	if (filters.projectScopeError) {

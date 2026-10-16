@@ -40,6 +40,8 @@ export interface Issue {
 	updated_at: number;
 	created_at: number;
 	customFields?: CustomFieldValue[];
+	due_date?: string | null;
+	estimate?: number | null;
 }
 
 export type SortKey =
@@ -49,7 +51,8 @@ export type SortKey =
 	| "status"
 	| "assignee"
 	| "created_at"
-	| "title";
+	| "title"
+	| "due_date";
 
 const PRIORITY_ORDER: Record<string, number> = {
 	urgent: 0,
@@ -158,6 +161,7 @@ const SORT_COMPARATORS: Record<SortKey, (a: Issue, b: Issue) => number> = {
 	title: (a, b) => a.title.localeCompare(b.title),
 	assignee: (a, b) => (a.assignee_name ?? "").localeCompare(b.assignee_name ?? ""),
 	status: (a, b) => statusSortOrder(a) - statusSortOrder(b),
+	due_date: (a, b) => (a.due_date ?? "~").localeCompare(b.due_date ?? "~") || b.created_at - a.created_at || b.id.localeCompare(a.id),
 };
 
 /** Sorts a copy of an issue list by the given SortKey. */

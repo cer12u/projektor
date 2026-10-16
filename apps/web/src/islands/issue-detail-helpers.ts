@@ -49,6 +49,8 @@ export interface IssueData {
 	status_category: string | null;
 	created_at: number;
 	updated_at: number;
+	due_date?: string | null;
+	estimate?: number | null;
 	completed_at?: number | null;
 	completed_at_source?: "observed" | "legacy_unverified" | null;
 	last_completed_at?: number | null;

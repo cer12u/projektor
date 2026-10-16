@@ -85,6 +85,8 @@ function IssueListTop({
 				setFilterDateFrom={filters.setFilterDateFrom}
 				filterDateTo={filters.filterDateTo}
 				setFilterDateTo={filters.setFilterDateTo}
+				filterOverdue={filters.filterOverdue}
+				setFilterOverdue={filters.setFilterOverdue}
 				uniqueProjects={
 					data.projects.length > 0 ? data.projects : deriveProjectOptions(data.issues)
 				}
