@@ -12,6 +12,13 @@ Coordination lets agents share an issue backlog. Start a session, acquire an iss
 
 The module owns `coord_sessions`, `coord_leases`, `coord_file_claims`, `coord_reports`, `coord_report_history`, `coord_limits`, `coord_receipts`, `coord_events`, and `coord_guards`. Coordination's migration is independently testable in Miniflare D1 with only its own schema. `tools/coordination.test.mjs` covers concurrency, fencing, expiry, WIP, claim atomicity, force events, restart, receipts, authorization and two workspaces. `tools/gateway.test.mjs` drives two official MCP SDK clients through the real Worker and checks REST query parity and the untouched Issues state. The local workerd result does not assert production D1 behavior; main-only Cloudflare smoke remains separately gated.
 
+C6 adds `coord_lease_spans`, `coord_file_claim_spans` and `coord_wip_denials` for flow metrics.
+Lease and claim lifecycle changes close or open spans in the command batch. A rejected acquisition
+at the WIP cap records one denial, receipt and `WipCapDenied` event in its own guarded batch,
+then returns the existing conflict error. A frozen scope records no denial. These tables are
+included in scope freeze, status and purge. Older events lack the fencing token and release
+reason needed to reconstruct spans, so migration `0005_flow_history.sql` starts empty.
+
 ## Progress timeline (08a)
 
 `reportProgress` still returns `Progress`, and `getProgress` remains a primary-key

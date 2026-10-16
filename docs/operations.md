@@ -132,3 +132,11 @@ The backfill is best effort from transition/category history; review timestamps
 and bounce counts have no older source. Build the merged commit, calculate
 `sha256sum dist/migrations.json`, and set `CF_APPROVED_SCHEMA_SHA256` to that
 digest before the code deploy gate.
+
+For C6, apply Issues `0007_done_at.sql` and Coordination `0005_flow_history.sql`
+through the operator migration path on the approved production D1 before deploying
+code. Verify both `platform_schema_versions` receipts and that
+`issues_purge_bypass` and `coord_purge_bypass` are empty. Coordination history
+begins empty because prior events cannot reconstruct complete spans. Build the
+merged commit, calculate `sha256sum dist/migrations.json`, then set
+`CF_APPROVED_SCHEMA_SHA256` to that exact digest before the code deploy gate.

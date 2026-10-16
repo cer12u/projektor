@@ -3,14 +3,13 @@ export default defineConfig({
   testDir: "web-e2e",
   projects: [
     { name: "foundation", testMatch: "ui-foundation.spec.mjs" },
-    { name: "issues", testMatch: "issues.spec.mjs", dependencies: ["foundation"] },
-    { name: "metrics", testMatch: "metrics.spec.mjs", dependencies: ["foundation"] },
-    { name: "sprints-files", testMatch: "sprints-files.spec.mjs", dependencies: ["foundation"] },
-    { name: "wiki", testMatch: "wiki.spec.mjs", dependencies: ["foundation"] },
+    { name: "issues", testMatch: "issues.spec.mjs" },
+    { name: "metrics", testMatch: "metrics.spec.mjs" },
+    { name: "sprints-files", testMatch: "sprints-files.spec.mjs" },
+    { name: "wiki", testMatch: "wiki.spec.mjs" },
     {
       name: "settings-feedback",
       testMatch: "settings-feedback.spec.mjs",
-      dependencies: ["foundation"],
     },
   ],
   use: {

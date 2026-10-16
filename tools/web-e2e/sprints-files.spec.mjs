@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { expect, test } from "@playwright/test";
 
 test("create and start a sprint, assign an issue, upload and link attachments", async ({
@@ -10,23 +11,36 @@ test("create and start a sprint, assign an issue, upload and link attachments", 
   await context.addCookies([
     { name: "CF_Authorization", value: assertion, url: "http://127.0.0.1:8789" },
   ]);
+  const key = `SF${randomBytes(4).toString("hex").toUpperCase()}`;
+  const projectName = `Sprint Files ${key}`;
+  const sprintName = `Sprint ${key}`;
   await page.goto("/");
   await page.getByRole("button", { name: "+ New project" }).click();
-  await page.getByRole("textbox", { name: "Name" }).fill("Sprint Files E2E");
+  await page.getByRole("textbox", { name: "Name" }).fill(projectName);
+  await page.getByRole("textbox", { name: "Key" }).fill(key);
   await page.getByRole("button", { name: "Create project" }).click();
-  await page.getByRole("link", { name: /Sprint Files E2E/ }).click();
+  await page.getByRole("link", { name: new RegExp(projectName) }).click();
   await expect(page).toHaveURL(/projectId=/);
   const projectId = new URL(page.url()).searchParams.get("projectId");
   expect(projectId).toBeTruthy();
-  await page.goto("/issues?project=SPRINTFILE");
+  await page.goto(`/issues?project=${key}`);
   await page.getByRole("button", { name: "+ New issue" }).click();
+  if (await page.getByRole("combobox", { name: "Select project" }).count()) {
+    await page.getByRole("combobox", { name: "Select project" }).click();
+    await page.getByRole("option", { name: projectName }).click();
+  }
   await page.getByPlaceholder("Issue title").fill("Sprint attachment issue");
+  const issueCreated = page.waitForResponse(
+    (response) => response.url().endsWith("/api/issues") && response.request().method() === "POST",
+  );
   await page.getByRole("button", { name: "Create issue", exact: true }).click();
+  const issue = await (await issueCreated).json();
+  const issueRef = `${key}-${issue.number}`;
   await page.goto(`/sprints?projectId=${projectId}`);
   await page.getByRole("button", { name: "+ New sprint" }).click();
-  await page.getByPlaceholder("e.g. Sprint 1").fill("Sprint E2E");
+  await page.getByPlaceholder("e.g. Sprint 1").fill(sprintName);
   await page.getByRole("button", { name: "Create sprint" }).click();
-  await expect(page.getByText("Sprint E2E")).toBeVisible();
+  await expect(page.getByText(sprintName)).toBeVisible();
   await page.getByRole("link", { name: "View issues →" }).click();
   await page.getByRole("button", { name: "Edit", exact: true }).click();
   const sprintId = new URL(page.url()).searchParams.get("sprintId");
@@ -34,9 +48,9 @@ test("create and start a sprint, assign an issue, upload and link attachments", 
   await page.getByRole("combobox", { name: "Status", exact: true }).selectOption("active");
   await page.getByRole("button", { name: "Save", exact: true }).click();
   await expect(page.getByText("active", { exact: true }).first()).toBeVisible();
-  await page.goto("/issues?project=SPRINTFILE");
-  await page.getByRole("link", { name: "Sprint attachment issue" }).click();
-  await page.getByLabel("Change sprint").selectOption({ label: "Sprint E2E" });
+  await page.goto(`/issues?project=${key}`);
+  await page.getByRole("link", { name: issueRef, exact: true }).click();
+  await page.getByLabel("Change sprint").selectOption({ label: sprintName });
   await expect(page.getByLabel("Change sprint")).toHaveValue(/.+/);
   await page.getByRole("button", { name: /Attach file/ }).click();
   await page.locator('input[type="file"]').setInputFiles({
@@ -61,6 +75,6 @@ test("create and start a sprint, assign an issue, upload and link attachments", 
   await page.getByRole("button", { name: "Add", exact: true }).click();
   await expect(page.getByRole("link", { name: "Sprint docs" })).toBeVisible();
   await page.goto(`/issues?sprintId=${sprintId}`);
-  await expect(page.getByText("Sprint E2E", { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole("link", { name: "Sprint attachment issue" })).toBeVisible();
+  await expect(page.getByText(sprintName, { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("link", { name: issueRef, exact: true })).toBeVisible();
 });

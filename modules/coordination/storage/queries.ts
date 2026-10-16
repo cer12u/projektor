@@ -26,6 +26,16 @@ export const queries = {
     "UPDATE coord_leases SET expires_at=? WHERE workspace_id=? AND issue_id=? AND session_id=? AND fencing_token=? AND expires_at>?",
   release:
     "UPDATE coord_leases SET session_id=NULL,expires_at=?,release_reason='released' WHERE workspace_id=? AND issue_id=? AND session_id=? AND fencing_token=? AND expires_at>?",
+  openLeaseSpan:
+    "INSERT INTO coord_lease_spans(workspace_id,project_id,issue_id,session_id,principal_id,fencing_token,claimed_at) SELECT l.workspace_id,l.project_id,l.issue_id,l.session_id,s.principal_id,l.fencing_token,? FROM coord_leases l JOIN coord_sessions s ON s.workspace_id=l.workspace_id AND s.id=l.session_id WHERE l.workspace_id=? AND l.issue_id=? AND l.fencing_token=?",
+  closeLeaseSpan:
+    "UPDATE coord_lease_spans SET released_at=?,release_reason=? WHERE workspace_id=? AND issue_id=? AND fencing_token=? AND released_at IS NULL",
+  closeSessionLeaseSpans:
+    "UPDATE coord_lease_spans SET released_at=?,release_reason='session_ended' WHERE workspace_id=? AND session_id=? AND released_at IS NULL",
+  activeLeaseCount:
+    "SELECT COUNT(*) AS n FROM coord_leases WHERE workspace_id=? AND project_id=? AND session_id IS NOT NULL AND expires_at>?",
+  recordWipDenial:
+    "INSERT INTO coord_wip_denials(workspace_id,project_id,issue_id,principal_id,occurred_at) SELECT ?,?,?,?,MAX(?,COALESCE((SELECT MAX(occurred_at)+1 FROM coord_wip_denials WHERE workspace_id=? AND project_id=? AND issue_id=? AND principal_id=?),0)) WHERE NOT EXISTS(SELECT 1 FROM coord_frozen_scopes WHERE workspace_id=? AND (project_id='' OR project_id=?))",
   limit: "SELECT cap,version FROM coord_limits WHERE workspace_id=? AND project_id=?",
   projectClaims:
     "SELECT c.repo,c.path,c.session_id,c.lease_issue_id,c.expires_at FROM coord_file_claims c JOIN coord_leases l ON l.workspace_id=c.workspace_id AND l.issue_id=c.lease_issue_id AND l.session_id=c.session_id WHERE c.workspace_id=? AND l.project_id=? AND c.expires_at>? AND l.expires_at>? AND (c.repo>? OR (c.repo=? AND c.path>?)) ORDER BY c.repo,c.path LIMIT ?",
@@ -44,6 +54,16 @@ export const queries = {
   dropClaim:
     "DELETE FROM coord_file_claims WHERE workspace_id=? AND repo=? AND path=? AND session_id=?",
   dropSessionClaims: "DELETE FROM coord_file_claims WHERE workspace_id=? AND session_id=?",
+  openFileClaimSpan:
+    "INSERT INTO coord_file_claim_spans(workspace_id,project_id,repo,path,session_id,lease_issue_id,claimed_at) SELECT c.workspace_id,c.project_id,c.repo,c.path,c.session_id,c.lease_issue_id,MAX(?,COALESCE((SELECT MAX(claimed_at)+1 FROM coord_file_claim_spans WHERE workspace_id=c.workspace_id AND repo=c.repo AND path=c.path AND session_id=c.session_id),0)) FROM coord_file_claims c WHERE c.workspace_id=? AND c.repo=? AND c.path=? AND c.session_id=? AND NOT EXISTS(SELECT 1 FROM coord_file_claim_spans s WHERE s.workspace_id=c.workspace_id AND s.repo=c.repo AND s.path=c.path AND s.session_id=c.session_id AND s.released_at IS NULL)",
+  closeFileClaimSpan:
+    "UPDATE coord_file_claim_spans SET released_at=?,release_reason=? WHERE workspace_id=? AND repo=? AND path=? AND session_id=? AND released_at IS NULL",
+  closeSessionFileClaimSpans:
+    "UPDATE coord_file_claim_spans SET released_at=?,release_reason='agent_ended' WHERE workspace_id=? AND session_id=? AND released_at IS NULL",
+  leaseHeldSeconds:
+    "SELECT issue_id,claimed_at,released_at FROM coord_lease_spans WHERE workspace_id=? AND project_id=? AND issue_id IN (WITH RECURSIVE seq(n,js) AS (SELECT 0,? UNION ALL SELECT n+1,js FROM seq WHERE n+1<json_array_length(js)) SELECT json_extract(js,'$['||n||']') FROM seq WHERE n<json_array_length(js))",
+  flowWindowCounts:
+    "SELECT (SELECT COUNT(*) FROM coord_lease_spans WHERE workspace_id=? AND project_id=? AND release_reason='expired' AND released_at>=? AND released_at<=?) AS lease_expiries,(SELECT COUNT(*) FROM coord_file_claim_spans WHERE workspace_id=? AND project_id=? AND release_reason='agent_ended' AND released_at>=? AND released_at<=?) AS abandoned_claims,(SELECT COUNT(*) FROM coord_wip_denials WHERE workspace_id=? AND project_id=? AND occurred_at>=? AND occurred_at<=?) AS wip_cap_pressure",
   report:
     "INSERT INTO coord_reports(workspace_id,issue_id,session_id,fencing_token,text,status,reported_at,project_id) SELECT ?,?,?,?,?,?,?,(SELECT project_id FROM coord_leases WHERE workspace_id=? AND issue_id=?) WHERE EXISTS (SELECT 1 FROM coord_leases WHERE workspace_id=? AND issue_id=? AND session_id=? AND fencing_token=? AND expires_at>?) ON CONFLICT(workspace_id,issue_id) DO UPDATE SET session_id=excluded.session_id,fencing_token=excluded.fencing_token,text=excluded.text,status=excluded.status,reported_at=excluded.reported_at,project_id=excluded.project_id",
   appendReport:
@@ -75,6 +95,18 @@ export const queries = {
     "UPDATE coord_frozen_scopes SET state='purged' WHERE workspace_id=? AND project_id=? AND state='purging'",
   maintenanceBypass: "INSERT INTO coord_purge_bypass(workspace_id,project_id) VALUES(?,?)",
   maintenanceUnbypass: "DELETE FROM coord_purge_bypass WHERE workspace_id=? AND project_id=?",
+  maintenanceCountLeaseSpans:
+    "SELECT COUNT(*) AS n FROM coord_lease_spans WHERE workspace_id=? AND (?='' OR project_id=?)",
+  maintenanceDeleteLeaseSpans:
+    "DELETE FROM coord_lease_spans WHERE rowid IN (SELECT rowid FROM coord_lease_spans WHERE workspace_id=? AND (?='' OR project_id=?) ORDER BY rowid LIMIT 50)",
+  maintenanceCountFileClaimSpans:
+    "SELECT COUNT(*) AS n FROM coord_file_claim_spans WHERE workspace_id=? AND (?='' OR project_id=?)",
+  maintenanceDeleteFileClaimSpans:
+    "DELETE FROM coord_file_claim_spans WHERE rowid IN (SELECT rowid FROM coord_file_claim_spans WHERE workspace_id=? AND (?='' OR project_id=?) ORDER BY rowid LIMIT 50)",
+  maintenanceCountWipDenials:
+    "SELECT COUNT(*) AS n FROM coord_wip_denials WHERE workspace_id=? AND (?='' OR project_id=?)",
+  maintenanceDeleteWipDenials:
+    "DELETE FROM coord_wip_denials WHERE rowid IN (SELECT rowid FROM coord_wip_denials WHERE workspace_id=? AND (?='' OR project_id=?) ORDER BY rowid LIMIT 50)",
   maintenanceCountFileClaims:
     "SELECT COUNT(*) AS n FROM coord_file_claims t WHERE t.workspace_id=? AND (?='' OR t.project_id=?)",
   maintenanceDeleteFileClaims:

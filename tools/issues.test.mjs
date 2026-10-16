@@ -1045,7 +1045,7 @@ test("trigram upgrade rebuilds existing indexed rows and preserves unknown attri
         .prepare("SELECT COUNT(*) n FROM platform_schema_versions WHERE owner='issues'")
         .first()
     ).n,
-    6,
+    7,
   );
 });
 
@@ -1726,6 +1726,7 @@ test("C5 flow stamps are write-once, review bounce is counted, and flow reads is
   assert.equal(issue.reviewBounceCount, 1);
   await advance("status_done", "done");
   assert.equal(issue.completedAt, 1800000000);
+  assert.equal(issue.doneAt, 1800000000);
   assert.equal(issue.readyAt, 1800000000);
   assert.equal(issue.claimedAt, 1800000000);
   assert.equal(issue.inReviewAt, 1800000000);
@@ -1741,6 +1742,72 @@ test("C5 flow stamps are write-once, review bounce is counted, and flow reads is
   assert.equal(w2[0].readyAt, null);
   assert.equal(await f.api.countDoneBefore(f.human, "p1", 1800000000, 1800000001), 1);
   assert.equal(await f.api.countDoneBefore(f.other, "p1", 1800000000, 1800000001), 0);
+  await advance("status_todo", "reopen");
+  assert.equal(issue.completedAt, null);
+  assert.equal(issue.doneAt, 1800000000);
+  assert.equal((await f.api.flowIssueRows(f.human, "p1", 1800000000, null))[0].doneAt, 1800000000);
+});
+
+test("C6 0007 backfills the earliest done history through frozen scopes", async () => {
+  const db = await mf.getD1Database(`ISSUES${counter++}`);
+  await platform.migrate(db, []);
+  for (const migration of platform.catalogs.issues.migrations.slice(0, 6))
+    await db.batch([
+      ...migration.statements.map((sql) => db.prepare(sql)),
+      db
+        .prepare("INSERT INTO platform_schema_versions(owner,version,checksum) VALUES(?,?,?)")
+        .bind("issues", migration.version, migration.checksum),
+    ]);
+  for (const ws of ["w1", "w2"]) {
+    await db
+      .prepare(
+        "INSERT INTO issues_issues(workspace_id,id,project_id,number,title,description,priority,state,version,status,status_id,completed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+      )
+      .bind(ws, "old", "p1", 1, "Old", "", "medium", "todo", 4, "todo", "status_todo", null)
+      .run();
+    await db
+      .prepare(
+        "INSERT INTO issues_issues(workspace_id,id,project_id,number,title,description,priority,state,version,status,status_id,completed_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+      )
+      .bind(ws, "fallback", "p1", 2, "Fallback", "", "medium", "done", 1, "done", "status_done", 30)
+      .run();
+    for (const [version, action, at, detail] of [
+      [2, "transition", 12, '{"from":"todo","to":"done"}'],
+      [3, "transition", 15, '{"from":"done","to":"todo"}'],
+      [4, "update", 20, '{"changed":["statusId"],"statusId":"status_done"}'],
+    ])
+      await db
+        .prepare(
+          "INSERT INTO issues_history(workspace_id,issue_id,version,action,actor_id,actor_kind,occurred_at,detail) VALUES(?,?,?,?,?,?,?,?)",
+        )
+        .bind(ws, "old", version, action, "human", "human", at, detail)
+        .run();
+  }
+  await db
+    .prepare(
+      "INSERT INTO issues_task_statuses(workspace_id,id,key,name,category,position,is_default,is_review_step,version) VALUES('w1','status_done','done','Done','done',1,0,0,1),('w2','status_done','done','Done','done',1,0,0,1)",
+    )
+    .run();
+  await db
+    .prepare(
+      "INSERT INTO issues_frozen_scopes(workspace_id,project_id,state) VALUES('w1','p1','frozen')",
+    )
+    .run();
+  await platform.migrate(db, ["issues"]);
+  for (const ws of ["w1", "w2"])
+    assert.deepEqual(
+      (
+        await db
+          .prepare("SELECT id,done_at FROM issues_issues WHERE workspace_id=? ORDER BY id")
+          .bind(ws)
+          .all()
+      ).results,
+      [
+        { id: "fallback", done_at: 30 },
+        { id: "old", done_at: 12 },
+      ],
+    );
+  assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM issues_purge_bypass").first()).n, 0);
 });
 
 test("C5 0006 backfills transition history through frozen scopes and clears bypass", async () => {

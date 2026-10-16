@@ -26,6 +26,15 @@ export function createMaintenance(
       (await store.run("maintenanceCountFileClaims", [workspaceId, projectId, projectId])).rows[0]
         ?.n ?? 0,
     );
+    const historyNames = [
+      "maintenanceCountLeaseSpans",
+      "maintenanceCountFileClaimSpans",
+      "maintenanceCountWipDenials",
+    ] as const;
+    const history = await Promise.all(
+      historyNames.map((name) => store.run(name, [workspaceId, projectId, projectId])),
+    );
+    const historyCount = history.reduce((n, result) => n + Number(result.rows[0]?.n ?? 0), 0);
     const reportHistory = Number(
       (await store.run("maintenanceCountReportHistory", [workspaceId, projectId, projectId]))
         .rows[0]?.n ?? 0,
@@ -58,6 +67,7 @@ export function createMaintenance(
     );
     const remaining =
       fileClaims +
+      historyCount +
       reportHistory +
       reports +
       receipts +
@@ -90,6 +100,9 @@ export function createMaintenance(
       await store.run("maintenanceBegin", [workspaceId, projectId]);
       await store.batch([
         { name: "maintenanceBypass", values: [workspaceId, projectId] },
+        { name: "maintenanceDeleteLeaseSpans", values: [workspaceId, projectId, projectId] },
+        { name: "maintenanceDeleteFileClaimSpans", values: [workspaceId, projectId, projectId] },
+        { name: "maintenanceDeleteWipDenials", values: [workspaceId, projectId, projectId] },
         { name: "maintenanceDeleteFileClaims", values: [workspaceId, projectId, projectId] },
         { name: "maintenanceDeleteReportHistory", values: [workspaceId, projectId, projectId] },
         { name: "maintenanceDeleteReports", values: [workspaceId, projectId, projectId] },

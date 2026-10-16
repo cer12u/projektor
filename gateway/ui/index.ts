@@ -1345,7 +1345,7 @@ export async function handleUi(
           links,
           ready_at: current.readyAt,
           claimed_at: current.claimedAt,
-          done_at: current.completedAt,
+          done_at: current.doneAt,
           in_review_at: current.inReviewAt,
           review_bounce_count: current.reviewBounceCount,
           dor_ready: false,

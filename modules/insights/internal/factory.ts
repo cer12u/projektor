@@ -71,7 +71,10 @@ interface Dependencies {
     | "listTaskTypes"
   >;
   readonly wiki: Pick<WikiApi, "authorizePage">;
-  readonly coordination: Pick<CoordinationApi, "listLeases" | "projectSessions">;
+  readonly coordination: Pick<
+    CoordinationApi,
+    "listLeases" | "projectSessions" | "leaseHeldSeconds" | "flowWindowCounts"
+  >;
   readonly planning: Pick<PlanningApi, "listSprints">;
   readonly assets: Pick<AssetsApi, "getMetadata">;
   readonly readers: {
@@ -463,7 +466,7 @@ export function createInsights(d: Dependencies): {
       const projectId = id(input.projectId);
       await projects.authorizeProject(s, projectId);
       const now = Math.floor(clock.now());
-      validateFlowMetrics(input, now);
+      const window = validateFlowMetrics(input, now);
       const createdUntil = input.until ?? now;
       const doneBefore = input.since === undefined ? null : input.since - (input.since % 86400);
       const loaded = await issues.flowIssueRows(s, projectId, createdUntil, doneBefore);
@@ -478,6 +481,12 @@ export function createInsights(d: Dependencies): {
         projectId,
         done.map((i) => i.id),
       );
+      const leaseSeconds = await coordination.leaseHeldSeconds(
+        s,
+        projectId,
+        done.map((issue) => ({ id: issue.id, doneAt: issue.doneAt as number })),
+      );
+      const counts = await coordination.flowWindowCounts(s, projectId, window.since, window.until);
       const doneBeforeWindow =
         doneBefore === null
           ? 0
@@ -488,14 +497,14 @@ export function createInsights(d: Dependencies): {
         {
           loaded,
           comments,
-          leaseSeconds: {},
+          leaseSeconds,
           bugTypeTracked,
           doneBeforeWindow,
           factoryHealth: {
-            leaseExpiries: 0,
-            abandonedClaims: 0,
+            leaseExpiries: counts.leaseExpiries,
+            abandonedClaims: counts.abandonedClaims,
             gateRejections: 0,
-            wipCapPressure: 0,
+            wipCapPressure: counts.wipCapPressure,
           },
         },
         now,

@@ -128,6 +128,11 @@ built-ins without writing. Issue creation uses the workspace's default status an
 specified. Changing a status category updates its issues, their versions, history and outbox events
 in the same batch. Reopening clears `completed_at`; entering done stamps it.
 
+C6 migration `0007_done_at.sql` adds write-once `done_at`, backfilled from the earliest recorded
+entry into a done category or from `completed_at`. Reopening clears `completed_at` while retaining
+`done_at`; flow metrics use the latter. The backfill temporarily bypasses freezes and clears the
+bypass marker in the same migration batch.
+
 `updateIssue` changes selected fields in one version bump and validates the status, type, parent
 chain, and assignee at admission. `queryIssues` searches all visible projects when `projectId` is
 absent, supports the tracker filters, and pages by `(created_at DESC, id DESC)`. Its JSON array

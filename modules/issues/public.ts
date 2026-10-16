@@ -21,6 +21,7 @@ export interface Issue {
   readonly createdAt: number;
   readonly updatedAt: number;
   readonly completedAt: number | null;
+  readonly doneAt: number | null;
   readonly readyAt: number | null;
   readonly claimedAt: number | null;
   readonly inReviewAt: number | null;

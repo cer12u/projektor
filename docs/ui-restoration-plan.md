@@ -116,6 +116,18 @@ These endpoints return 501 and the original UI shows its error state.
 | Checkpoint | The owner tries the deployed UI. |
 | C4a | Sprints (Planning lookup of an issue's sprint) and files (Assets). |
 | C4b | Wiki core, tokens, connectors, mcp-info, feedback core. |
+| C6 | Stabilize browser and Cloudflare smoke checks; restore write-once issue `done_at` and Coordination flow history. |
+
+## C6 flow history
+
+Issues migration `0007_done_at.sql` preserves the first entry into a done status across reopen.
+It backfills from the earliest recorded done transition or status update, then falls back to
+`completed_at`. Coordination migration `0005_flow_history.sql` begins lease, file claim and
+WIP-cap denial history. Earlier Coordination events omit fencing tokens and release reasons,
+so historical spans cannot be reconstructed reliably. The new history starts empty.
+
+Flow metrics read these histories for lease-held time, lease expiries, abandoned file claims
+and WIP-cap pressure. Gate rejections remain zero because there is no review gate.
 
 ## Owner actions
 

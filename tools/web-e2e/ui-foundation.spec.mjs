@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { expect, test } from "@playwright/test";
 
 test("original project UI loads, creates a project, and opens its slug route", async ({
@@ -13,15 +14,19 @@ test("original project UI loads, creates a project, and opens its slug route", a
   ]);
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Projects", exact: true })).toBeVisible();
-  await expect(page.getByText("No projects yet.")).toBeVisible();
+  const suffix = randomBytes(4).toString("hex");
+  const key = `FO${suffix.toUpperCase()}`;
+  const name = `Foundation Project ${suffix}`;
   await page.getByRole("button", { name: "+ New project" }).click();
-  await page.getByRole("textbox", { name: "Name" }).fill("Foundation Project");
-  await expect(page.getByRole("textbox", { name: "Key" })).toHaveValue("FOUNDATION");
+  await page.getByRole("textbox", { name: "Name" }).fill(name);
+  await page.getByRole("textbox", { name: "Key" }).fill(key);
   await page.getByRole("button", { name: "Create project" }).click();
-  const card = page.getByRole("link", { name: /Foundation Project/ });
+  const card = page.getByRole("link", { name });
   await expect(card).toBeVisible();
-  await expect(card).toHaveAttribute("href", "/projects/view/foundation");
+  await expect(card).toHaveAttribute("href", `/projects/view/${key.toLowerCase()}`);
   await card.click();
-  await expect(page).toHaveURL(/\/projects\/view\/foundation\?projectId=[0-9a-f-]{36}$/);
-  await expect(page.getByRole("heading", { level: 1, name: "Foundation Project" })).toBeVisible();
+  await expect(page).toHaveURL(
+    new RegExp(`/projects/view/${key.toLowerCase()}\\?projectId=[0-9a-f-]{36}$`),
+  );
+  await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();
 });

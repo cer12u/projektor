@@ -4,6 +4,7 @@ import { createHash, randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { waitForReady } from "./smoke-retry.mjs";
 
 const token = process.env.CLOUDFLARE_API_TOKEN;
 const account = process.env.CLOUDFLARE_ACCOUNT_ID;
@@ -105,18 +106,7 @@ try {
   // The edge keeps serving the previous version (old secret) or no route for a short
   // while after deploy. Only this deploy knows the fresh secret, and it answers a GET
   // to a smoke route with 405, so poll without side effects until that appears.
-  const deadline = Date.now() + 120_000;
-  for (;;) {
-    const probe = await fetch(`${match[0]}/__smoke/migrate`, {
-      headers: { "x-smoke-secret": secret },
-    }).catch(() => null);
-    if (probe?.status === 405) break;
-    if (Date.now() > deadline)
-      throw new Error(
-        `Verification Worker not ready (last status ${probe?.status ?? "network error"})`,
-      );
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-  }
+  await waitForReady(fetch, match[0], secret);
   const result = execFileSync(process.execPath, ["tools/smoke-check.mjs", "remote"], {
     encoding: "utf8",
     env: { ...process.env, SMOKE_ORIGIN: match[0], SMOKE_SECRET: secret },

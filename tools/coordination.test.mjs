@@ -90,7 +90,7 @@ async function fixture() {
     ids: { next: () => crypto.randomUUID() },
     eventConsumer: "test",
   };
-  const { api, eventReader } = platform.createCoordination(deps);
+  const { api, eventReader, maintenance } = platform.createCoordination(deps);
   return {
     db,
     providers: { access: auth.access, projects, issues },
@@ -98,6 +98,7 @@ async function fixture() {
       beforeBatch = hook;
     },
     api,
+    maintenance,
     auth,
     issue,
     calls,
@@ -119,6 +120,148 @@ const start = (api, s, sessionId) =>
   });
 const acquire = (api, s, sessionId, issueId, operationId = `acq-${sessionId}-${issueId}`) =>
   api.acquireLease(s, { operationId, sessionId, issueId });
+test("C6 coordination history migration accepts frozen scopes without leaving bypass", async () => {
+  const db = await mf.getD1Database(`COORD${index++}`);
+  await platform.migrate(db, []);
+  for (const migration of platform.catalogs.coordination.migrations.slice(0, 4))
+    await db.batch([
+      ...migration.statements.map((sql) => db.prepare(sql)),
+      db
+        .prepare("INSERT INTO platform_schema_versions(owner,version,checksum) VALUES(?,?,?)")
+        .bind("coordination", migration.version, migration.checksum),
+    ]);
+  await db
+    .prepare(
+      "INSERT INTO coord_frozen_scopes(workspace_id,project_id,state) VALUES('w1','p1','frozen')",
+    )
+    .run();
+  await platform.migrate(db, ["coordination"]);
+  assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM coord_purge_bypass").first()).n, 0);
+  assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM coord_lease_spans").first()).n, 0);
+});
+test("C6 lease spans, WIP denials, tenant isolation and frozen purge", async () => {
+  const f = await fixture();
+  const a = f.issue("w1", "a"),
+    b = f.issue("w1", "b"),
+    other = f.issue("w2", "a");
+  await start(f.api, a, "sa");
+  await start(f.api, b, "sb");
+  await start(f.api, other, "sa");
+  const first = await acquire(f.api, a, "sa", "p1-a");
+  await f.api.renewLease(a, {
+    operationId: "renew-a",
+    sessionId: "sa",
+    issueId: "p1-a",
+    fencingToken: first.fencingToken,
+  });
+  f.advance(10);
+  await f.api.releaseLease(a, {
+    operationId: "release-a",
+    sessionId: "sa",
+    issueId: "p1-a",
+    fencingToken: first.fencingToken,
+  });
+  assert.equal(
+    (await f.api.leaseHeldSeconds(a, "p1", [{ id: "p1-a", doneAt: 10020 }]))["p1-a"],
+    10,
+  );
+  assert.deepEqual(await f.api.leaseHeldSeconds(other, "p1", [{ id: "p1-a", doneAt: 10020 }]), {});
+  await acquire(f.api, b, "sb", "p1-b");
+  await f.api.setProjectLimit(f.issue("w1", "admin", "admin"), {
+    operationId: "cap-one",
+    projectId: "p1",
+    cap: 1,
+    expectedVersion: 0,
+  });
+  await assert.rejects(acquire(f.api, a, "sa", "p1-c"), code("conflict"));
+  await assert.rejects(acquire(f.api, a, "sa", "p1-d"), code("conflict"));
+  assert.equal((await f.api.flowWindowCounts(a, "p1", 10000, 10020)).wipCapPressure, 2);
+  assert.equal((await f.api.flowWindowCounts(other, "p1", 10000, 10020)).wipCapPressure, 0);
+  f.advance(130);
+  await start(f.api, a, "sc");
+  const reclaimed = await acquire(f.api, a, "sc", "p1-b");
+  assert.equal(reclaimed.fencingToken, 2);
+  assert.equal((await f.api.flowWindowCounts(a, "p1", 10000, 10200)).leaseExpiries, 1);
+  await f.db
+    .prepare(
+      "INSERT INTO coord_frozen_scopes(workspace_id,project_id,state) VALUES('w1','p1','frozen')",
+    )
+    .run();
+  await assert.rejects(acquire(f.api, a, "sc", "p1-e"), code("conflict"));
+  assert.equal((await f.db.prepare("SELECT COUNT(*) AS n FROM coord_wip_denials").first()).n, 2);
+  let status = await f.maintenance.purgeScope({ workspaceId: "w1", projectId: "p1" });
+  for (let attempt = 0; attempt < 10 && status?.state !== "purged"; attempt++)
+    status = await f.maintenance.purgeScope({ workspaceId: "w1", projectId: "p1" });
+  assert.equal(status?.state, "purged");
+  assert.equal(
+    (
+      await f.db
+        .prepare("SELECT COUNT(*) AS n FROM coord_lease_spans WHERE workspace_id='w1'")
+        .first()
+    ).n,
+    0,
+  );
+  assert.equal(
+    (
+      await f.db
+        .prepare("SELECT COUNT(*) AS n FROM coord_wip_denials WHERE workspace_id='w1'")
+        .first()
+    ).n,
+    0,
+  );
+});
+test("C6 linked file claim spans close on release and session end", async () => {
+  const f = await fixture();
+  const a = f.issue("w1", "a");
+  await start(f.api, a, "sa");
+  await acquire(f.api, a, "sa", "p1-a");
+  await f.api.claimFiles(a, {
+    operationId: "claim-first",
+    sessionId: "sa",
+    repo: "repo",
+    paths: ["first"],
+    leaseIssueId: "p1-a",
+    fencingToken: 1,
+  });
+  f.advance(5);
+  await f.api.releaseFiles(a, {
+    operationId: "release-first",
+    sessionId: "sa",
+    repo: "repo",
+    paths: ["first"],
+  });
+  await f.api.claimFiles(a, {
+    operationId: "claim-second",
+    sessionId: "sa",
+    repo: "repo",
+    paths: ["second"],
+    leaseIssueId: "p1-a",
+    fencingToken: 1,
+  });
+  f.advance(5);
+  await f.api.endSession(a, { operationId: "end-sa", sessionId: "sa" });
+  const rows = (
+    await f.db
+      .prepare(
+        "SELECT path,claimed_at,released_at,release_reason FROM coord_file_claim_spans WHERE workspace_id='w1' ORDER BY path",
+      )
+      .all()
+  ).results;
+  assert.deepEqual(rows, [
+    { path: "first", claimed_at: 10000, released_at: 10005, release_reason: "released" },
+    { path: "second", claimed_at: 10005, released_at: 10010, release_reason: "agent_ended" },
+  ]);
+  assert.equal((await f.api.flowWindowCounts(a, "p1", 10000, 10020)).abandonedClaims, 1);
+  await f.maintenance.freezeScope({ workspaceId: "w1", projectId: "p1" });
+  let status = await f.maintenance.purgeScope({ workspaceId: "w1", projectId: "p1" });
+  for (let attempt = 0; attempt < 10 && status?.state !== "purged"; attempt++)
+    status = await f.maintenance.purgeScope({ workspaceId: "w1", projectId: "p1" });
+  assert.equal(status?.state, "purged");
+  assert.equal(
+    (await f.db.prepare("SELECT COUNT(*) AS n FROM coord_file_claim_spans").first()).n,
+    0,
+  );
+});
 test("project pages expose active work and enforce project/tenant authorization", async () => {
   const f = await fixture();
   const a = f.issue("w1", "a"),

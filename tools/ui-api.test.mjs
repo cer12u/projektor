@@ -1089,6 +1089,22 @@ test("C5 flow metrics UI API shape, window validation, viewer access and workspa
   const active = await request(`/api/issues/${b.body.id}`, { workspace: "w1" });
   assert.equal(typeof active.body.ready_at, "number");
   assert.equal(typeof active.body.claimed_at, "number");
+  const beforeReopen = await request(`/api/issues/${a.body.id}`, { workspace: "w1" });
+  assert.equal(typeof beforeReopen.body.done_at, "number");
+  assert.equal(beforeReopen.body.done_at, beforeReopen.body.completed_at);
+  assert.equal(
+    (
+      await request(`/api/issues/${a.body.id}`, {
+        method: "PATCH",
+        workspace: "w1",
+        body: { statusId: "status_todo" },
+      })
+    ).status,
+    200,
+  );
+  const reopened = await request(`/api/issues/${a.body.id}`, { workspace: "w1" });
+  assert.equal(reopened.body.completed_at, null);
+  assert.equal(reopened.body.done_at, beforeReopen.body.done_at);
   const path = `/api/projects/${id}/flow-metrics`;
   const metrics = await request(path, { workspace: "w1" });
   assert.equal(metrics.status, 200);

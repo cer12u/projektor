@@ -402,7 +402,10 @@
           "coord_events",
           "coord_guards",
           "coord_frozen_scopes",
-          "coord_purge_bypass"
+          "coord_purge_bypass",
+          "coord_lease_spans",
+          "coord_file_claim_spans",
+          "coord_wip_denials"
         ],
         "objects": [
           "coord_freeze_file_claims_insert",
@@ -431,7 +434,16 @@
           "coord_freeze_leases_delete",
           "coord_freeze_sessions_insert",
           "coord_freeze_sessions_update",
-          "coord_freeze_sessions_delete"
+          "coord_freeze_sessions_delete",
+          "coord_freeze_lease_spans_insert",
+          "coord_freeze_lease_spans_update",
+          "coord_freeze_lease_spans_delete",
+          "coord_freeze_file_claim_spans_insert",
+          "coord_freeze_file_claim_spans_update",
+          "coord_freeze_file_claim_spans_delete",
+          "coord_freeze_wip_denials_insert",
+          "coord_freeze_wip_denials_update",
+          "coord_freeze_wip_denials_delete"
         ],
         "globalTables": [],
         "catalog": "modules/coordination/storage/queries.ts",
