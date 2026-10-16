@@ -44,6 +44,7 @@ function createMf(adminEmails = "") {
     bindings: {
       ACCESS_TEAM_DOMAIN: issuer,
       ACCESS_AUDIENCE: audience,
+      INTEGRATIONS_KEY: "ab".repeat(32),
       ...(adminEmails ? { ADMIN_EMAILS: adminEmails } : {}),
     },
   });
@@ -880,4 +881,172 @@ test("wiki core UI API shapes, conflicts, workspace authorization and tenant iso
     200,
   );
   assert.equal((await request("/api/wiki/home", { workspace: "w1" })).status, 404);
+});
+
+test("settings token and feedback core preserve UI shapes and workspace isolation", async () => {
+  const token = await request("/api/workspaces/w1/tokens", {
+    workspace: "w1",
+    method: "POST",
+    body: { name: "Agent", scopes: ["read", "write"] },
+  });
+  assert.equal(token.status, 201);
+  assert.match(token.body.token, /^pt1\.w1\.[^.]+\.[0-9a-f]{64}$/);
+  const listed = await request("/api/workspaces/w1/tokens", { workspace: "w1" });
+  assert.equal(listed.status, 200);
+  assert.equal(listed.body.find((item) => item.id === token.body.id).name, "Agent");
+  assert.equal(JSON.stringify(listed.body).includes(token.body.token), false);
+  assert.equal(
+    (await request("/api/workspaces/w2/tokens", { workspace: "w2" })).body.some(
+      (item) => item.id === token.body.id,
+    ),
+    false,
+  );
+  assert.equal((await request("/api/workspaces/w2/tokens", { workspace: "w1" })).status, 403);
+  assert.equal(
+    (
+      await request("/api/workspaces/w1/tokens", {
+        workspace: "w1",
+        method: "POST",
+        bearer: token.body.token,
+        body: { name: "Bad" },
+      })
+    ).status,
+    403,
+  );
+  const mcpBearer = await mf.dispatchFetch("http://localhost/mcp/w1", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token.body.token}`,
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      origin: "http://localhost",
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+  });
+  assert.equal(mcpBearer.status, 200);
+  const mcp = await request("/api/workspaces/w1/mcp-info", { workspace: "w1" });
+  assert.equal(mcp.body.mcpUrl, "http://localhost/mcp/w1");
+  assert.equal(
+    mcp.body.mcpAddCommandTemplate,
+    'claude mcp add --transport http --header "Authorization: Bearer {{TOKEN}}" --header "X-Workspace-Slug: w1" -- projektor "http://localhost/mcp/w1"',
+  );
+  assert.equal(
+    (
+      await request(`/api/workspaces/w1/tokens/${token.body.id}`, {
+        workspace: "w1",
+        method: "DELETE",
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (await request("/api/workspaces/w1/tokens", { workspace: "w1", bearer: token.body.token }))
+      .status,
+    403,
+  );
+  await db
+    .prepare(
+      "INSERT INTO access_oauth_clients(id,name,redirect_uris,scope,refresh_allowed,created_at) VALUES(?,?,?,?,?,?)",
+    )
+    .bind("ui-client", "UI client", "[]", "read", 0, 1)
+    .run();
+  await db
+    .prepare("INSERT INTO access_oauth_workspace_clients(workspace_id,client_id) VALUES(?,?)")
+    .bind("w1", "ui-client")
+    .run();
+  const connectors = await request("/api/workspaces/w1/connectors", { workspace: "w1" });
+  assert.equal(connectors.body.find((item) => item.clientId === "ui-client").client, "UI client");
+  assert.equal(
+    (await request("/api/workspaces/w2/connectors", { workspace: "w2" })).body.length,
+    0,
+  );
+  assert.equal(
+    (
+      await request("/api/workspaces/w1/connectors/ui-client", {
+        workspace: "w1",
+        method: "DELETE",
+      })
+    ).status,
+    200,
+  );
+  assert.equal(
+    (await request("/api/workspaces/w1/connectors", { workspace: "w1" })).body.length,
+    0,
+  );
+
+  const project = await request("/api/projects", {
+    workspace: "w1",
+    method: "POST",
+    body: { name: "Feedback Core", key: "FCORE" },
+  });
+  assert.equal(project.status, 201);
+  const source = await request(`/api/projects/${project.body.id}/feedback-sources`, {
+    workspace: "w1",
+    method: "POST",
+    body: { name: "Widget" },
+  });
+  assert.equal(source.status, 201);
+  assert.match(source.body.token, /^[0-9a-f]{64}$/);
+  const sources = await request(`/api/projects/${project.body.id}/feedback-sources`, {
+    workspace: "w1",
+  });
+  assert.equal(sources.body.find((s) => s.id === source.body.id).name, "Widget");
+  assert.equal(
+    (await request(`/api/feedback-sources/${source.body.id}`, { workspace: "w1" })).body.projectId,
+    project.body.id,
+  );
+  assert.equal(
+    (await request(`/api/feedback-sources/${source.body.id}`, { workspace: "w2" })).status,
+    404,
+  );
+  const payload = JSON.stringify({ title: "Reported issue", body: "Feedback body" });
+  const timestamp = Math.floor(Date.now() / 1000),
+    delivery = crypto.randomUUID();
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(source.body.token),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = Buffer.from(
+    await crypto.subtle.sign(
+      "HMAC",
+      key,
+      new TextEncoder().encode(`${timestamp}.${delivery}.${payload}`),
+    ),
+  ).toString("hex");
+  const incoming = await mf.dispatchFetch(
+    `http://localhost/integrations/feedback/w1/${source.body.id}`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-projektor-timestamp": String(timestamp),
+        "x-projektor-delivery-id": delivery,
+        "x-projektor-signature": signature,
+      },
+      body: payload,
+    },
+  );
+  assert.equal(incoming.status, 200);
+  const feedback = await request(`/api/projects/${project.body.id}/feedback`, { workspace: "w1" });
+  assert.equal(feedback.status, 200);
+  const row = feedback.body.find((item) => item.body === "Feedback body");
+  assert.equal(row.sourceName, "Widget");
+  assert.equal(
+    (await request(`/api/projects/${project.body.id}/feedback`, { workspace: "w2" })).status,
+    404,
+  );
+  const converted = await request(
+    `/api/projects/${project.body.id}/feedback/${row.id}/convert-to-issue`,
+    { workspace: "w1", method: "POST" },
+  );
+  assert.equal(converted.status, 201);
+  assert.equal(typeof converted.body.number, "number");
+  assert.equal(
+    (await request(`/api/projects/${project.body.id}/feedback/summary`, { workspace: "w1" }))
+      .status,
+    501,
+  );
 });

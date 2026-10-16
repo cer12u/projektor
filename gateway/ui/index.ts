@@ -30,6 +30,7 @@ const json = (data: unknown, status = 200) =>
     headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" },
   });
 const unsupported = () => json({ error: "Not implemented" }, 501);
+const noExpiry = Number.MAX_SAFE_INTEGER;
 const bad = (message: string): never => {
   throw new PlatformError("validation", message);
 };
@@ -171,6 +172,41 @@ async function members(services: Services, scope: RequestScope): Promise<Map<str
   } while (cursor);
   return result;
 }
+async function allSources(services: Services, scope: RequestScope) {
+  const items: Awaited<ReturnType<Services["integrations"]["listSources"]>>["items"][number][] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await services.integrations.listSources(scope, cursor, 50);
+    items.push(...page.items);
+    cursor = page.nextCursor ?? undefined;
+  } while (cursor);
+  return items;
+}
+async function projectFeedback(services: Services, scope: RequestScope, projectId: string) {
+  await services.projects.authorizeProject(scope, projectId, "read");
+  const items: Awaited<ReturnType<Services["integrations"]["listFeedback"]>>["items"][number][] =
+    [];
+  let cursor: string | undefined;
+  do {
+    const page = await services.integrations.listFeedback(scope, cursor, 50);
+    items.push(...page.items.filter((item) => item.projectId === projectId));
+    cursor = page.nextCursor ?? undefined;
+  } while (cursor);
+  return items;
+}
+const sourceShape = (
+  source: Awaited<ReturnType<Services["integrations"]["listSources"]>>["items"][number],
+) => ({
+  id: source.id,
+  projectId: source.projectId,
+  name: source.name,
+  description: null,
+  isActive: true,
+  allowedOrigins: null,
+  tokenPreview: null,
+  createdAt: 0,
+  revokedAt: null,
+});
 async function issueRef(services: Services, scope: RequestScope, ref: string): Promise<Issue> {
   const match = ref.match(/^([A-Za-z][A-Za-z0-9]*)-([1-9][0-9]*)$/);
   if (!match) return services.issues.getIssue(scope, { issueId: ref });
@@ -396,8 +432,11 @@ export async function handleUi(
       !path.startsWith("/api/files") &&
       !path.startsWith("/api/issues") &&
       !path.startsWith("/api/wiki") &&
+      !path.startsWith("/api/feedback-sources") &&
       path !== "/api/task-statuses" &&
-      path !== "/api/task-types"
+      path !== "/api/task-types" &&
+      !/^\/api\/projects\/[^/]+\/feedback(?:-sources)?(?:\/|$)/.test(path) &&
+      !/^\/api\/workspaces\/[^/]+\/(?:tokens|connectors|mcp-info)(?:\/|$)/.test(path)
     )
       return unsupported();
     const principal = await authenticate(request, services, "rest");
@@ -408,6 +447,241 @@ export async function handleUi(
       requestId,
       request.method === "GET" ? "read" : "write",
     );
+    const settings = path.match(
+      /^\/api\/workspaces\/([^/]+)\/(tokens|connectors|mcp-info)(?:\/([^/]+))?$/,
+    );
+    if (settings) {
+      if (decodeURIComponent(settings[1]) !== scope.workspaceId)
+        throw new PlatformError("forbidden", "Access denied");
+      const section = settings[2],
+        itemId = settings[3];
+      if (section === "mcp-info" && request.method === "GET" && !itemId) {
+        const mcpUrl = `${url.origin}/mcp/${scope.workspaceId}`;
+        return json({
+          mcpUrl,
+          workspaceId: scope.workspaceId,
+          workspaceSlug: scope.workspaceId,
+          mcpAddCommandTemplate: `claude mcp add --transport http --header "Authorization: Bearer {{TOKEN}}" --header "X-Workspace-Slug: ${scope.workspaceId}" -- projektor "${mcpUrl}"`,
+          ...(services.oauthOrigin ? { oauth: { issuer: services.oauthOrigin } } : {}),
+        });
+      }
+      if (section === "tokens") {
+        if (request.method === "GET" && !itemId) {
+          const items = [];
+          let cursor: string | undefined;
+          do {
+            const page = await services.access.listCredentials(scope, cursor, 100);
+            items.push(
+              ...page.items
+                .filter((c) => !c.revoked)
+                .map((c) => ({
+                  id: c.id,
+                  name: c.name,
+                  userId: c.principalId,
+                  issuedByUserId: null,
+                  workspaceId: scope.workspaceId,
+                  scopes: JSON.stringify(c.scope === "write" ? ["read", "write"] : ["read"]),
+                  lastUsedAt: null,
+                  expiresAt: c.expiresAt === noExpiry ? null : c.expiresAt,
+                  createdAt: c.createdAt,
+                })),
+            );
+            cursor = page.nextCursor ?? undefined;
+          } while (cursor);
+          return json(items);
+        }
+        if (request.method === "POST" && !itemId) {
+          const me = await services.access.meForScope(scope);
+          if (me.principal.kind !== "human" || scope.clientId)
+            throw new PlatformError("forbidden", "Human session required");
+          const body = await input(request);
+          if (typeof body.name !== "string" || !body.name.trim()) bad("Invalid name");
+          if (
+            body.scopes !== undefined &&
+            (!Array.isArray(body.scopes) || body.scopes.some((s) => s !== "read" && s !== "write"))
+          )
+            bad("Invalid scopes");
+          const scopes = (body.scopes ?? ["read", "write"]) as string[];
+          const permission = scopes.includes("write") ? "write" : "read";
+          const days = body.expiresInDays;
+          if (days !== undefined && (!Number.isSafeInteger(days) || (days as number) <= 0))
+            bad("Invalid expiresInDays");
+          if (
+            body.expiresAt !== undefined &&
+            (!Number.isSafeInteger(body.expiresAt) ||
+              (body.expiresAt as number) <= Date.now() / 1000)
+          )
+            bad("Invalid expiresAt");
+          const expiresAt =
+            typeof body.expiresAt === "number"
+              ? body.expiresAt
+              : typeof days === "number"
+                ? Math.floor(Date.now() / 1000) + days * 86400
+                : noExpiry;
+          const principalId = crypto.randomUUID();
+          const machine = await services.access.provisionMachine(scope, {
+            operationId: crypto.randomUUID(),
+            principalId,
+            role: permission === "write" ? "member" : "viewer",
+          });
+          const credentialId = crypto.randomUUID();
+          const secret = Array.from(crypto.getRandomValues(new Uint8Array(32)), (b) =>
+            b.toString(16).padStart(2, "0"),
+          ).join("");
+          await services.access.issueCredential(scope, {
+            operationId: crypto.randomUUID(),
+            principalId: machine.id,
+            credentialId,
+            secret,
+            scope: permission,
+            expiresAt,
+            name: body.name as string,
+          });
+          return json(
+            {
+              id: credentialId,
+              token: `pt1.${scope.workspaceId}.${credentialId}.${secret}`,
+              name: body.name,
+              scopes,
+              expiresAt: expiresAt === noExpiry ? null : expiresAt,
+              userId: machine.id,
+              issuedByUserId: scope.principalId,
+              workspaceId: scope.workspaceId,
+            },
+            201,
+          );
+        }
+        if (request.method === "DELETE" && itemId) {
+          const me = await services.access.meForScope(scope);
+          if (me.principal.kind !== "human" || scope.clientId)
+            throw new PlatformError("forbidden", "Human session required");
+          const credential = await services.access.getCredential(scope, itemId);
+          await services.access.revokeCredential(scope, {
+            operationId: crypto.randomUUID(),
+            credentialId: itemId,
+            expectedVersion: credential.version,
+          });
+          return json({ ok: true });
+        }
+      }
+      if (section === "connectors") {
+        if (request.method === "GET" && !itemId) {
+          const items = [];
+          let cursor: string | undefined;
+          do {
+            const page = await services.access.listOAuthClients(scope, cursor, 100);
+            items.push(
+              ...page.items
+                .filter((c) => !c.revoked)
+                .map((c) => ({
+                  id: c.clientId,
+                  client: c.name,
+                  clientId: c.clientId,
+                  scopes: [],
+                  grantedAt: 0,
+                  expiresAt: 0,
+                })),
+            );
+            cursor = page.nextCursor ?? undefined;
+          } while (cursor);
+          return json(items);
+        }
+        if (request.method === "DELETE" && itemId) {
+          const client = await services.access.getOAuthClient(scope, itemId);
+          await services.access.revokeOAuthClient(scope, {
+            operationId: crypto.randomUUID(),
+            clientId: itemId,
+            expectedVersion: client.version,
+          });
+          return json({ ok: true });
+        }
+      }
+      return unsupported();
+    }
+    const feedbackProject = path.match(
+      /^\/api\/projects\/([^/]+)\/(feedback|feedback-sources)(?:\/([^/]+)(?:\/(convert-to-issue|rotate))?)?$/,
+    );
+    if (feedbackProject) {
+      const project = await resolveProject(services, scope, decodeURIComponent(feedbackProject[1]));
+      const section = feedbackProject[2],
+        itemId = feedbackProject[3],
+        action = feedbackProject[4];
+      if (section === "feedback-sources") {
+        if (request.method === "GET" && !itemId)
+          return json(
+            (await allSources(services, scope))
+              .filter((s) => s.projectId === project.id)
+              .map(sourceShape),
+          );
+        if (request.method === "POST" && !itemId) {
+          const body = await input(request);
+          if (typeof body.name !== "string") bad("Invalid name");
+          const result = await services.integrations.registerSource(scope, {
+            operationId: crypto.randomUUID(),
+            sourceId: crypto.randomUUID(),
+            projectId: project.id,
+            name: body.name as string,
+          });
+          return json({ id: result.id, token: result.secret }, 201);
+        }
+      }
+      if (section === "feedback") {
+        if (request.method === "GET" && !itemId) {
+          const sources =
+            scope.role === "owner" || scope.role === "admin"
+              ? (await allSources(services, scope)).filter((s) => s.projectId === project.id)
+              : [];
+          const names = new Map(sources.map((s) => [s.id, s.name]));
+          const sourceId = url.searchParams.get("sourceId"),
+            status = url.searchParams.get("status");
+          const rows = await projectFeedback(services, scope, project.id);
+          return json(
+            rows
+              .filter(
+                (f) =>
+                  (!sourceId || f.sourceId === sourceId) &&
+                  (!status || (f.issueId ? "actioned" : "new") === status),
+              )
+              .map((f) => ({
+                id: f.id,
+                sourceId: f.sourceId,
+                sourceName: names.get(f.sourceId) ?? null,
+                rating: null,
+                ratingScale: null,
+                body: f.body,
+                submitterLabel: null,
+                sourceUrl: null,
+                appVersion: null,
+                status: f.issueId ? "actioned" : "new",
+                linkedIssueId: f.issueId,
+                createdAt: f.receivedAt,
+              })),
+          );
+        }
+        if (request.method === "POST" && itemId && action === "convert-to-issue") {
+          const feedback = (await projectFeedback(services, scope, project.id)).find(
+            (f) => f.id === itemId,
+          );
+          if (!feedback) throw new PlatformError("not_found", "Feedback not found");
+          const result = await services.integrations.convertFeedback(scope, {
+            operationId: crypto.randomUUID(),
+            feedbackId: itemId,
+            expectedVersion: feedback.version,
+          });
+          const issue = await services.issues.getIssue(scope, { issueId: result.issueId });
+          return json({ id: issue.id, number: issue.number }, 201);
+        }
+      }
+      return unsupported();
+    }
+    const sourceLookup = path.match(/^\/api\/feedback-sources\/([^/]+)$/);
+    if (sourceLookup && request.method === "GET") {
+      const source = (await allSources(services, scope)).find((s) => s.id === sourceLookup[1]);
+      if (!source) throw new PlatformError("not_found", "Feedback source not found");
+      await services.projects.authorizeProject(scope, source.projectId, "read");
+      return json(sourceShape(source));
+    }
+    if (path.startsWith("/api/feedback-sources")) return unsupported();
     if (path === "/api/wiki/search" && request.method === "GET") {
       const q = url.searchParams.get("q");
       if (!q) bad("Invalid query");

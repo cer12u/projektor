@@ -102,6 +102,9 @@ export default function FeedbackSourceGrid({ workspaceSlug, projectId: projectId
 					}),
 					apiFetch<SourceSummary[]>(`/api/projects/${projectId}/feedback/summary`, {
 						workspaceSlug,
+					}).catch((error) => {
+						if (String(error).includes(": 501")) return [];
+						throw error;
 					}),
 				]);
 				setSources(Array.isArray(sourcesData) ? sourcesData : []);

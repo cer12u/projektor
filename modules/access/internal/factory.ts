@@ -434,6 +434,24 @@ export function createAccess(deps: Dependencies): {
         revoked: c.revoked === 1,
       };
     },
+    async listCredentials(scope, cursor = "", limit = 50) {
+      const s = await authorize(scope);
+      if (s.role !== "owner" && s.role !== "admin") deny();
+      if (cursor) identifier(cursor);
+      valid(Number.isSafeInteger(limit) && limit >= 1 && limit <= 100);
+      const rows = (await store.run("listCredentials", [s.workspaceId, cursor, limit + 1])).rows;
+      const items = rows.slice(0, limit).map((r) => ({
+        id: str(r, "id"),
+        name: str(r, "name"),
+        principalId: str(r, "principal_id"),
+        scope: permission(r.scope),
+        expiresAt: num(r, "expires_at"),
+        createdAt: num(r, "created_at"),
+        revoked: r.revoked === 1,
+        version: num(r, "version"),
+      }));
+      return { items, nextCursor: rows.length > limit ? items[items.length - 1].id : null };
+    },
     async bootstrap(cap, principal, input) {
       if (!operator || cap !== operator) deny();
       return workspace(principal, input, true);
@@ -596,6 +614,8 @@ export function createAccess(deps: Dependencies): {
       permission(input.scope);
       valid(typeof input.secret === "string" && /^[0-9a-f]{64}$/.test(input.secret));
       valid(Number.isSafeInteger(input.expiresAt));
+      if (input.name !== undefined)
+        valid(typeof input.name === "string" && input.name.length <= 120);
       const tokenHash = await hash(input.secret);
       const fp = await fingerprint("issueCredential", input.operationId, [
         input.principalId,
@@ -603,6 +623,7 @@ export function createAccess(deps: Dependencies): {
         tokenHash,
         input.scope,
         input.expiresAt,
+        input.name ?? "",
       ]);
       const saved = await replay(s.workspaceId, s.principalId, input.operationId, fp);
       if (saved) return saved;
@@ -628,6 +649,8 @@ export function createAccess(deps: Dependencies): {
               tokenHash,
               input.scope,
               input.expiresAt,
+              input.name ?? "",
+              clock.now(),
             ],
           },
         ],

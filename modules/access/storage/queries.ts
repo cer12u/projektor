@@ -38,8 +38,10 @@ export const queries = {
     "UPDATE access_memberships SET active=0, version=version+1 WHERE workspace_id=? AND principal_id=? AND active=1 AND version=? AND (role!='owner' OR (SELECT COUNT(*) FROM access_memberships WHERE workspace_id=? AND role='owner' AND active=1)>1) AND (?='owner' OR role IN ('member','viewer'))",
   credential:
     "SELECT id, principal_id, token_hash, scope, expires_at, revoked, version FROM access_credentials WHERE workspace_id=? AND id=?",
+  listCredentials:
+    "SELECT id,name,principal_id,scope,expires_at,created_at,revoked,version FROM access_credentials WHERE workspace_id=? AND id>? ORDER BY id LIMIT ?",
   issueCredential:
-    "INSERT INTO access_credentials(workspace_id,id,principal_id,token_hash,scope,expires_at,version) VALUES(?,?,?,?,?,?,1)",
+    "INSERT INTO access_credentials(workspace_id,id,principal_id,token_hash,scope,expires_at,name,created_at,version) VALUES(?,?,?,?,?,?,?,?,1)",
   revokeCredential:
     "UPDATE access_credentials SET revoked=1, version=version+1 WHERE workspace_id=? AND id=? AND version=? AND revoked=0",
   revokeMemberCredentials:
