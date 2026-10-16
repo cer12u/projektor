@@ -691,3 +691,203 @@ test("11a command receipt failures roll back subscription and read marker", asyn
   assert.equal((await f.raw.run("readReceipt", ["w1", "alice", "read"])).rows.length, 0);
   assert.deepEqual(await f.api.markRead(s, input), { id: item.id, version: 2 });
 });
+
+test("C5 flow metrics pure computation preserves original distribution and bucket shapes", async () => {
+  const now = 1800000000;
+  const day = 86400;
+  const since = now - 2 * day;
+  const rows = [
+    {
+      id: "done",
+      createdAt: since + 1,
+      readyAt: since + 10,
+      claimedAt: since + 20,
+      inReviewAt: since + 30,
+      doneAt: since + 40,
+      reviewBounceCount: 1,
+      status: "done",
+      typeKey: "bug",
+    },
+    {
+      id: "open",
+      createdAt: since + 1,
+      readyAt: since + 5,
+      claimedAt: since + 6,
+      inReviewAt: null,
+      doneAt: null,
+      reviewBounceCount: 0,
+      status: "in_progress",
+      typeKey: null,
+    },
+  ];
+  const result = p.computeFlowMetrics(
+    { projectId: "p1", since, until: now, granularity: "day" },
+    {
+      loaded: rows,
+      comments: { done: 2 },
+      leaseSeconds: { done: 10 },
+      bugTypeTracked: true,
+      doneBeforeWindow: 0,
+      factoryHealth: { leaseExpiries: 0, abandonedClaims: 0, gateRejections: 0, wipCapPressure: 0 },
+    },
+    now,
+  );
+  assert.deepEqual(result.leadTime, { count: 1, avg: 30, p50: 30, p90: 30 });
+  assert.deepEqual(result.cycleTime, { count: 1, avg: 20, p50: 20, p90: 20 });
+  assert.deepEqual(result.reviewLatency, { count: 1, avg: 10, p50: 10, p90: 10 });
+  assert.deepEqual(result.humanInterventions, { count: 1, avg: 3, p50: 3, p90: 3 });
+  assert.equal(result.autonomyRatio.avg, 0.5);
+  assert.equal(result.flowEfficiency.avg, 1 / 3);
+  assert.equal(
+    result.throughputOverTime.reduce((n, b) => n + b.count, 0),
+    1,
+  );
+  assert.equal(result.bugShareOverTime.find((b) => b.total === 1).bugSharePercent, 1);
+  assert.equal(result.agingWip[0].id, "open");
+  assert.equal(result.cfdOverTime.at(-1).done, 1);
+});
+
+test("C5 flow window validation caps day/week spans", async () => {
+  const now = 1800000000;
+  assert.throws(
+    () => p.validateFlowMetrics({ projectId: "p1", since: 0, granularity: "day" }, now),
+    /366 days/,
+  );
+  assert.throws(
+    () => p.validateFlowMetrics({ projectId: "p1", since: now, until: now - 1 }, now),
+    /until must be/,
+  );
+  assert.equal(
+    p.validateFlowMetrics({ projectId: "p1", since: now - 366 * 86400, granularity: "day" }, now)
+      .granularity,
+    "day",
+  );
+});
+
+test("C5 original window assertions: aligned labels, clamped edges, old active issues and empty samples", () => {
+  const day = 86400;
+  const monday = Date.UTC(2026, 5, 1) / 1000;
+  const since = monday - 3 * day + 3600;
+  const until = monday + 2 * day;
+  const row = (
+    id,
+    createdAt,
+    readyAt,
+    claimedAt,
+    inReviewAt,
+    doneAt,
+    status = "backlog",
+    typeKey = null,
+  ) => ({
+    id,
+    createdAt,
+    readyAt,
+    claimedAt,
+    inReviewAt,
+    doneAt,
+    status,
+    typeKey,
+    reviewBounceCount: 0,
+  });
+  const loaded = [
+    row("old-active", since - 30 * day, since - day, since + 10, null, since + day, "done"),
+    row("before-edge", since - day, since - day, since - day, null, since - 1, "done"),
+    row("burst", since + 100, since + 110, since + 120, null, since + 130, "done", "bug"),
+    row("legacy", since + 100, null, null, null, null),
+    row("open-outside", until + day, until + day, until + day, null, null, "in_progress"),
+  ];
+  const data = {
+    loaded,
+    comments: {},
+    leaseSeconds: {},
+    bugTypeTracked: true,
+    doneBeforeWindow: 0,
+    factoryHealth: { leaseExpiries: 0, abandonedClaims: 0, gateRejections: 0, wipCapPressure: 0 },
+  };
+  const daily = p.computeFlowMetrics(
+    { projectId: "p1", since, until, granularity: "day" },
+    data,
+    until + 2 * day,
+  );
+  const weekly = p.computeFlowMetrics(
+    { projectId: "p1", since, until, granularity: "week" },
+    data,
+    until + 2 * day,
+  );
+  assert.equal(
+    daily.throughputOverTime.reduce((n, x) => n + x.count, 0),
+    2,
+  );
+  assert.equal(
+    weekly.throughputOverTime.reduce((n, x) => n + x.count, 0),
+    2,
+  );
+  assert.equal(weekly.throughputOverTime[0].bucketStart, "2026-05-25");
+  assert.equal(weekly.leadTime.count, 2);
+  assert.equal(weekly.leadTimeExcluded, 0);
+  assert.equal(weekly.agingWip.length, 1);
+  assert.equal(weekly.agingWip[0].id, "open-outside");
+  assert.equal(weekly.cfdOverTime.at(-1).done, 3);
+  assert.equal(
+    weekly.bugShareOverTime.reduce((n, x) => n + x.bugCount, 0),
+    1,
+  );
+  assert.equal(
+    weekly.arrivalVsCompletionOverTime.reduce((n, x) => n + x.net, 0),
+    0,
+  );
+  const empty = p.computeFlowMetrics(
+    { projectId: "p1", since, until, granularity: "week" },
+    { ...data, loaded: [], bugTypeTracked: false },
+    until,
+  );
+  assert.deepEqual(empty.leadTime, { count: 0, avg: null, p50: null, p90: null });
+  assert.equal(empty.bugTypeTracked, false);
+  assert.equal(
+    empty.throughputOverTime.every((x) => x.count === 0),
+    true,
+  );
+});
+
+test("C5 original window validation: exact limits, until-only and default bounds", () => {
+  const day = 86400;
+  const now = Date.UTC(2026, 5, 3) / 1000;
+  assert.equal(
+    p.validateFlowMetrics({ projectId: "p1", since: now - 5 * 365 * day, granularity: "week" }, now)
+      .granularity,
+    "week",
+  );
+  assert.throws(
+    () =>
+      p.validateFlowMetrics(
+        { projectId: "p1", since: now - 5 * 365 * day - day, granularity: "week" },
+        now,
+      ),
+    /5 years/,
+  );
+  assert.equal(
+    p.validateFlowMetrics({ projectId: "p1" }, now).bucketSince,
+    Date.UTC(2026, 3, 27) / 1000,
+  );
+  assert.equal(
+    p.validateFlowMetrics({ projectId: "p1", until: now - 365 * day }, now).granularity,
+    "week",
+  );
+  assert.throws(
+    () => p.validateFlowMetrics({ projectId: "p1", until: now + 6 * 365 * day }, now),
+    /5 years/,
+  );
+  const defaultWindow = p.computeFlowMetrics(
+    { projectId: "p1" },
+    {
+      loaded: [],
+      comments: {},
+      leaseSeconds: {},
+      bugTypeTracked: false,
+      doneBeforeWindow: 0,
+      factoryHealth: { leaseExpiries: 0, abandonedClaims: 0, gateRejections: 0, wipCapPressure: 0 },
+    },
+    now,
+  );
+  assert.equal(defaultWindow.throughputOverTime.length, 6);
+});

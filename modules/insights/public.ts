@@ -55,6 +55,59 @@ export interface ProjectMetrics {
   readonly activeSessions: number;
   readonly lag: readonly ProjectionLag[];
 }
+export interface FlowDistribution {
+  readonly count: number;
+  readonly avg: number | null;
+  readonly p50: number | null;
+  readonly p90: number | null;
+}
+export interface FlowMetrics {
+  readonly leadTime: FlowDistribution;
+  readonly leadTimeExcluded: number;
+  readonly cycleTime: FlowDistribution;
+  readonly wipOverTime: readonly { readonly date: string; readonly count: number }[];
+  readonly throughputOverTime: readonly { readonly bucketStart: string; readonly count: number }[];
+  readonly bugShareOverTime: readonly {
+    readonly bucketStart: string;
+    readonly total: number;
+    readonly bugCount: number;
+    readonly bugSharePercent: number | null;
+  }[];
+  readonly bugTypeTracked: boolean;
+  readonly reviewLatency: FlowDistribution;
+  readonly reviewLatencyOverTime: readonly {
+    readonly bucketStart: string;
+    readonly p50: number | null;
+  }[];
+  readonly humanInterventions: FlowDistribution;
+  readonly autonomyRatio: FlowDistribution;
+  readonly cfdOverTime: readonly {
+    readonly bucketStart: string;
+    readonly backlogTodo: number;
+    readonly inProgress: number;
+    readonly inReview: number;
+    readonly done: number;
+  }[];
+  readonly timeInProgress: FlowDistribution;
+  readonly arrivalVsCompletionOverTime: readonly {
+    readonly bucketStart: string;
+    readonly created: number;
+    readonly completed: number;
+    readonly net: number;
+  }[];
+  readonly flowEfficiency: FlowDistribution;
+  readonly agingWip: readonly {
+    readonly id: string;
+    readonly status: "in_progress" | "in_review";
+    readonly ageSeconds: number;
+  }[];
+  readonly factoryHealth: {
+    readonly leaseExpiries: number;
+    readonly abandonedClaims: number;
+    readonly gateRejections: number;
+    readonly wipCapPressure: number;
+  };
+}
 export interface Notification {
   readonly id: string;
   readonly issueId: string;
@@ -79,6 +132,15 @@ export interface ReadResult {
   readonly version: number;
 }
 export interface InsightsApi {
+  getFlowMetrics(
+    scope: RequestScope,
+    input: {
+      readonly projectId: string;
+      readonly since?: number;
+      readonly until?: number;
+      readonly granularity?: "day" | "week";
+    },
+  ): Promise<FlowMetrics>;
   getSubscription(scope: RequestScope, issueId: string): Promise<SubscriptionResult | null>;
   subscribe(
     scope: RequestScope,

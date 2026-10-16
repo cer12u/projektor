@@ -124,3 +124,11 @@ matches each `CredentialIssued` event time where available, and confirm
 `access_purge_bypass` has no remaining rows. Build the merged commit, calculate
 `sha256sum dist/migrations.json`, and set `CF_APPROVED_SCHEMA_SHA256` to that
 digest before the code deploy gate.
+
+For C5, apply Issues `0006_flow_timestamps.sql` through the operator migration
+path to the approved production D1 before deploying code. Verify its
+`platform_schema_versions` receipt and that `issues_purge_bypass` is empty.
+The backfill is best effort from transition/category history; review timestamps
+and bounce counts have no older source. Build the merged commit, calculate
+`sha256sum dist/migrations.json`, and set `CF_APPROVED_SCHEMA_SHA256` to that
+digest before the code deploy gate.

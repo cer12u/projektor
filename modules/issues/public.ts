@@ -21,10 +21,25 @@ export interface Issue {
   readonly createdAt: number;
   readonly updatedAt: number;
   readonly completedAt: number | null;
+  readonly readyAt: number | null;
+  readonly claimedAt: number | null;
+  readonly inReviewAt: number | null;
+  readonly reviewBounceCount: number;
   readonly priority: IssuePriority;
   readonly assigneeId: string | null;
   readonly version: number;
   readonly archived: boolean;
+}
+export interface FlowIssueRow {
+  readonly id: string;
+  readonly createdAt: number;
+  readonly readyAt: number | null;
+  readonly claimedAt: number | null;
+  readonly doneAt: number | null;
+  readonly inReviewAt: number | null;
+  readonly reviewBounceCount: number;
+  readonly status: string;
+  readonly typeKey: string | null;
 }
 export interface IssueResult {
   readonly id: string;
@@ -371,6 +386,23 @@ export interface IssuesApi {
       readonly labelsMode?: "all" | "any";
     },
   ): Promise<readonly Issue[]>;
+  flowIssueRows(
+    scope: RequestScope,
+    projectId: string,
+    createdUntil: number,
+    doneBefore: number | null,
+  ): Promise<readonly FlowIssueRow[]>;
+  countDoneBefore(
+    scope: RequestScope,
+    projectId: string,
+    createdUntil: number,
+    doneBefore: number,
+  ): Promise<number>;
+  humanCommentCounts(
+    scope: RequestScope,
+    projectId: string,
+    issueIds: readonly string[],
+  ): Promise<{ readonly [issueId: string]: number }>;
   getHistory(scope: RequestScope, issueId: string): Promise<readonly IssueHistory[]>;
   authorizeIssue(
     scope: RequestScope,

@@ -1045,7 +1045,7 @@ test("trigram upgrade rebuilds existing indexed rows and preserves unknown attri
         .prepare("SELECT COUNT(*) n FROM platform_schema_versions WHERE owner='issues'")
         .first()
     ).n,
-    5,
+    6,
   );
 });
 
@@ -1698,4 +1698,118 @@ test("C2 lifecycle purges links and workspace definitions after freeze", async (
     );
   }
   assert.equal((await f.db.prepare("SELECT COUNT(*) n FROM issues_purge_bypass").first()).n, 0);
+});
+
+test("C5 flow stamps are write-once, review bounce is counted, and flow reads isolate workspaces", async () => {
+  const f = await fixture();
+  await f.api.createIssue(f.human, input("flow"));
+  await f.api.createIssue(f.other, { ...input("flow"), title: "Other workspace" });
+  let issue = await f.api.getIssue(f.human, { issueId: "flow" });
+  assert.equal(issue.readyAt, null);
+  assert.equal(issue.claimedAt, null);
+  const advance = async (statusId, operationId) => {
+    await f.api.updateIssue(f.human, {
+      issueId: "flow",
+      expectedVersion: issue.version,
+      operationId,
+      statusId,
+    });
+    issue = await f.api.getIssue(f.human, { issueId: "flow" });
+  };
+  await advance("status_todo", "ready");
+  assert.equal(issue.readyAt, 1800000000);
+  await advance("status_in_progress", "claim");
+  assert.equal(issue.claimedAt, 1800000000);
+  await advance("status_in_review", "review");
+  assert.equal(issue.inReviewAt, 1800000000);
+  await advance("status_in_progress", "bounce");
+  assert.equal(issue.reviewBounceCount, 1);
+  await advance("status_done", "done");
+  assert.equal(issue.completedAt, 1800000000);
+  assert.equal(issue.readyAt, 1800000000);
+  assert.equal(issue.claimedAt, 1800000000);
+  assert.equal(issue.inReviewAt, 1800000000);
+  const history = await f.api.getHistory(f.human, "flow");
+  assert.equal(
+    JSON.parse(history.find((h) => h.action === "update").detail).statusId,
+    "status_todo",
+  );
+  const w1 = await f.api.flowIssueRows(f.human, "p1", 1800000000, null);
+  const w2 = await f.api.flowIssueRows(f.other, "p1", 1800000000, null);
+  assert.equal(w1.length, 1);
+  assert.equal(w2.length, 1);
+  assert.equal(w2[0].readyAt, null);
+  assert.equal(await f.api.countDoneBefore(f.human, "p1", 1800000000, 1800000001), 1);
+  assert.equal(await f.api.countDoneBefore(f.other, "p1", 1800000000, 1800000001), 0);
+});
+
+test("C5 0006 backfills transition history through frozen scopes and clears bypass", async () => {
+  const db = await mf.getD1Database(`ISSUES${counter++}`);
+  await platform.migrate(db, []);
+  for (const migration of platform.catalogs.issues.migrations.slice(0, 5))
+    await db.batch([
+      ...migration.statements.map((sql) => db.prepare(sql)),
+      db
+        .prepare("INSERT INTO platform_schema_versions(owner,version,checksum) VALUES(?,?,?)")
+        .bind("issues", migration.version, migration.checksum),
+    ]);
+  for (const ws of ["w1", "w2"]) {
+    await db
+      .prepare(
+        "INSERT INTO issues_issues(workspace_id,id,project_id,number,title,description,priority,state,version,status,status_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+      )
+      .bind(
+        ws,
+        "old",
+        "p1",
+        1,
+        "Old",
+        "",
+        "medium",
+        "in_progress",
+        2,
+        "in_progress",
+        "status_in_progress",
+      )
+      .run();
+    await db
+      .prepare(
+        "INSERT INTO issues_history(workspace_id,issue_id,version,action,actor_id,actor_kind,occurred_at,detail) VALUES(?,?,?,?,?,?,?,?)",
+      )
+      .bind(
+        ws,
+        "old",
+        2,
+        "transition",
+        "human",
+        "human",
+        ws === "w1" ? 12 : 22,
+        '{"from":"todo","to":"in_progress"}',
+      )
+      .run();
+  }
+  await db
+    .prepare(
+      "INSERT INTO issues_frozen_scopes(workspace_id,project_id,state) VALUES('w1','p1','frozen')",
+    )
+    .run();
+  await platform.migrate(db, ["issues"]);
+  for (const [ws, at] of [
+    ["w1", 12],
+    ["w2", 22],
+  ]) {
+    const row = await db
+      .prepare(
+        "SELECT ready_at,claimed_at,in_review_at,review_bounce_count FROM issues_issues WHERE workspace_id=?",
+      )
+      .bind(ws)
+      .first();
+    assert.deepEqual(row, {
+      ready_at: at,
+      claimed_at: at,
+      in_review_at: null,
+      review_bounce_count: 0,
+    });
+  }
+  assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM issues_purge_bypass").first()).n, 0);
 });

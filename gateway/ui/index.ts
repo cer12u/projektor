@@ -428,6 +428,7 @@ export async function handleUi(
       !workspaceMatch &&
       path !== "/api/projects" &&
       !projectMatch &&
+      !/^\/api\/projects\/[^/]+\/flow-metrics$/.test(path) &&
       !path.startsWith("/api/sprints") &&
       !path.startsWith("/api/files") &&
       !path.startsWith("/api/issues") &&
@@ -1055,6 +1056,21 @@ export async function handleUi(
       const p = await services.projects.getProject(scope, created.id);
       return json({ id: p.id, name: p.name, key: p.key, slug: p.slug }, 201);
     }
+    const flowMatch = path.match(/^\/api\/projects\/([^/]+)\/flow-metrics$/);
+    if (flowMatch && request.method === "GET") {
+      const project = await resolveProject(services, scope, decodeURIComponent(flowMatch[1]));
+      const since = url.searchParams.get("since"),
+        until = url.searchParams.get("until");
+      const granularity = url.searchParams.get("granularity");
+      return json(
+        await services.insights.getFlowMetrics(scope, {
+          projectId: project.id,
+          since: since ? Number(since) : undefined,
+          until: until ? Number(until) : undefined,
+          granularity: granularity === null ? undefined : (granularity as "day" | "week"),
+        }),
+      );
+    }
     if (projectMatch && request.method === "GET") {
       const p = await resolveProject(services, scope, decodeURIComponent(projectMatch[1]));
       return json(projectResponse(p, scope.workspaceId, await capFor(services, scope, p.id)));
@@ -1327,11 +1343,11 @@ export async function handleUi(
           ),
           rollup: rollup[current.id],
           links,
-          ready_at: null,
-          claimed_at: null,
-          done_at: null,
-          in_review_at: null,
-          review_bounce_count: 0,
+          ready_at: current.readyAt,
+          claimed_at: current.claimedAt,
+          done_at: current.completedAt,
+          in_review_at: current.inReviewAt,
+          review_bounce_count: current.reviewBounceCount,
           dor_ready: false,
           dor_missing: [],
           resolution_history: [],

@@ -1,5 +1,24 @@
 # Issues — Step 04
 
+## Flow timestamps (UI restoration C5)
+
+Migration `0006_flow_timestamps.sql` adds `ready_at`, `claimed_at`,
+`in_review_at` and `review_bounce_count` to the owned issue row. Ready is stamped
+when an issue first enters an open status past backlog; claimed is stamped when
+it first enters the in-progress category; review entry is stamped on the first
+review step. These three times are retained on later transitions. Leaving review
+for a non-done status increments the bounce count. The status change, timestamps,
+history, receipt and event share the command's guarded batch. An `updateIssue`
+history detail now includes `statusId` when supplied.
+
+The migration infers ready and claimed times only from older `transition` and
+`status_category_changed` history records with a `to` category. It cannot infer
+review entry or bounces from those records. Backfill includes frozen scopes via
+the existing purge bypass and clears the bypass in the same migration batch.
+`flowIssueRows`, `countDoneBefore` and paged `humanCommentCounts` are authorized,
+workspace-scoped reads for Insights; the latter binds no more than 100 IDs per
+page.
+
 Issues owns issue rows, per-project counters, comments, versioned history, receipts,
 outbox events, guards, and the FTS5 index. Its only dependencies are Access and
 Projects public APIs. Tests migrate only Issues storage.
