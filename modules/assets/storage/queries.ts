@@ -1,7 +1,9 @@
 export const queries = {
   maintenanceUnattributed:
     "SELECT (SELECT COUNT(*) FROM assets_receipts WHERE workspace_id=? AND project_id IS NULL)+(SELECT COUNT(*) FROM assets_events WHERE workspace_id=? AND project_id IS NULL) AS n",
-  blob: "SELECT id,project_id,size,content_type,filename,sha256,version,state FROM assets_blobs WHERE workspace_id=? AND id=?",
+  blob: "SELECT id,project_id,size,content_type,filename,sha256,version,state,kind,url,title,created_at FROM assets_blobs WHERE workspace_id=? AND id=?",
+  createLinkAsset:
+    "INSERT INTO assets_blobs(workspace_id,id,project_id,size,content_type,filename,sha256,version,state,created_at,kind,url,title) VALUES(?,?,?,0,'',?,'',1,'ready',?,'link',?,?)",
   begin:
     "INSERT INTO assets_blobs(workspace_id,id,project_id,size,content_type,filename,sha256,version,state,created_at) VALUES(?,?,?,?,?,?,?,1,'pending',?)",
   complete:
@@ -12,8 +14,10 @@ export const queries = {
   insertLink:
     "INSERT INTO assets_links(workspace_id,id,asset_id,target_kind,target_id) VALUES(?,?,?,?,?)",
   link: "SELECT id,asset_id,target_kind,target_id FROM assets_links WHERE workspace_id=? AND id=? AND asset_id=?",
+  linkById:
+    "SELECT l.id,l.asset_id,l.target_kind,l.target_id,b.filename,b.kind,b.url,b.title,b.size,b.content_type,b.created_at FROM assets_links l JOIN assets_blobs b ON b.workspace_id=l.workspace_id AND b.id=l.asset_id WHERE l.workspace_id=? AND l.id=?",
   deleteLink: "DELETE FROM assets_links WHERE workspace_id=? AND id=? AND asset_id=?",
-  list: "SELECT l.id,l.asset_id,l.target_kind,l.target_id,b.filename FROM assets_links l JOIN assets_blobs b ON b.workspace_id=l.workspace_id AND b.id=l.asset_id WHERE l.workspace_id=? AND l.target_kind=? AND l.target_id=? AND l.id>? ORDER BY l.id LIMIT ?",
+  list: "SELECT l.id,l.asset_id,l.target_kind,l.target_id,b.filename,b.kind,b.url,b.title,b.size,b.content_type,b.created_at FROM assets_links l JOIN assets_blobs b ON b.workspace_id=l.workspace_id AND b.id=l.asset_id WHERE l.workspace_id=? AND l.target_kind=? AND l.target_id=? AND l.id>? ORDER BY l.id LIMIT ?",
   linksForBlob:
     "SELECT id,target_kind,target_id FROM assets_links WHERE workspace_id=? AND asset_id=? AND id>? ORDER BY id LIMIT ?",
   gcAdd:

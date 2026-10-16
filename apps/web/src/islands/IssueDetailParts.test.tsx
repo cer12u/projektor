@@ -33,6 +33,8 @@ ${"x".repeat(200)}
 
 const ISSUE: IssueData = {
 	id: "i1",
+	project_id: "p1",
+	sprint_id: null,
 	number: 1,
 	title: "Issue with wide content",
 	body: WIDE_TABLE_BODY,

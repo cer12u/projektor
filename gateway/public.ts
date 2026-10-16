@@ -263,10 +263,14 @@ export async function handleHttp(request: Request, services: Services): Promise<
       if (request.method !== "GET") throw new PlatformError("not_found", "Unknown route");
       const scope = await admit(request, services, w, "read", requestId, "rest");
       const result = await services.assets.downloadAsset(scope, assetId);
+      if (result.metadata.kind === "link" && result.metadata.url)
+        return Response.redirect(result.metadata.url, 302);
+      if (!result.body) throw new PlatformError("not_found", "Object missing");
+      const body = result.body;
       const stream = new ReadableStream<Uint8Array>({
         async pull(controller) {
           try {
-            const part = await result.body.read();
+            const part = await body.read();
             if (part === null) controller.close();
             else controller.enqueue(new Uint8Array(part));
           } catch (error) {
@@ -274,7 +278,7 @@ export async function handleHttp(request: Request, services: Services): Promise<
           }
         },
         async cancel() {
-          await result.body.cancel();
+          await body.cancel();
         },
       });
       return new Response(stream, {

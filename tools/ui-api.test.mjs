@@ -71,7 +71,8 @@ async function request(
     headers,
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
-  return { status: response.status, body: await response.json(), response };
+  const text = await response.text();
+  return { status: response.status, body: text ? JSON.parse(text) : null, response };
 }
 before(async () => {
   fs.mkdirSync(".tmp/ui-assets/projects/view", { recursive: true });
@@ -453,7 +454,8 @@ test("issue UI API contracts, refs, filters, comments, links and workspace isola
   assert.equal(filtered.body.items[0].body, "");
   assert.equal(filtered.body.items[0].rollup.total, 0);
   assert.equal((await request("/api/issues?assignee=me", { workspace: "w1" })).body.total, 0);
-  for (const param of ["sprintId=x", "cfKey=a", "needsAudit=true"]) {
+  assert.equal((await request("/api/issues?sprintId=x", { workspace: "w1" })).status, 404);
+  for (const param of ["cfKey=a", "needsAudit=true"]) {
     assert.equal((await request(`/api/issues?${param}`, { workspace: "w1" })).status, 501);
   }
   const actorId = (await request("/auth/me")).body.user.id;
@@ -670,4 +672,119 @@ test("concurrent issue PATCH translates the stale CAS to HTTP 409", async () => 
   assert.deepEqual(await responses.find((response) => response.status === 409).json(), {
     error: "Conflict",
   });
+});
+
+test("sprints and files UI API preserve shapes and isolate workspaces", async () => {
+  const project = await request("/api/projects", {
+    method: "POST",
+    workspace: "w1",
+    body: { name: "Sprint Files", key: "SPF" },
+  });
+  assert.equal(project.status, 201);
+  const projectId = project.body.id;
+  const issue = await request("/api/issues", {
+    method: "POST",
+    workspace: "w1",
+    body: { projectId, title: "Attachment issue" },
+  });
+  assert.equal(issue.status, 201);
+  const created = await request("/api/sprints", {
+    method: "POST",
+    workspace: "w1",
+    body: { projectId, name: "October", goal: "Deliver", startDate: 100, endDate: 200 },
+  });
+  assert.equal(created.status, 201);
+  const id = created.body.id;
+  const list = await request(`/api/sprints?projectId=${projectId}`, { workspace: "w1" });
+  assert.equal(list.body.items[0].goal, "Deliver");
+  assert.equal(list.body.items[0].status, "planned");
+  assert.equal((await request(`/api/sprints/${id}`, { workspace: "w2" })).status, 404);
+  assert.equal(
+    (
+      await request(`/api/sprints/${id}`, {
+        method: "PATCH",
+        workspace: "w1",
+        body: { status: "active" },
+      })
+    ).status,
+    200,
+  );
+  const assigned = await request(`/api/issues/${issue.body.id}`, {
+    method: "PATCH",
+    workspace: "w1",
+    body: { sprintId: id },
+  });
+  assert.equal(assigned.status, 200);
+  assert.equal(
+    (await request(`/api/issues/${issue.body.id}`, { workspace: "w1" })).body.sprint_id,
+    id,
+  );
+  const bySprint = await request(`/api/issues?sprintId=${id}`, { workspace: "w1" });
+  assert.equal(bySprint.body.items[0].id, issue.body.id);
+  assert.equal(bySprint.body.items[0].sprint_id, id);
+  assert.equal(
+    (await request(`/api/issues?sprintId=${id}&priority=high`, { workspace: "w1" })).status,
+    501,
+  );
+  const link = await request("/api/files/links", {
+    method: "POST",
+    workspace: "w1",
+    body: {
+      kind: "url",
+      entityType: "issue",
+      entityId: issue.body.id,
+      url: "https://example.test/doc",
+      label: "Docs",
+    },
+  });
+  assert.equal(link.status, 201);
+  assert.equal(
+    (await request(`/api/files?issueId=${issue.body.id}`, { workspace: "w1" })).body[0].kind,
+    "url",
+  );
+  const redirect = await mf.dispatchFetch(`http://localhost/api/files/${link.body.id}`, {
+    headers: { cookie: `CF_Authorization=${alice}`, "x-workspace-slug": "w1" },
+    redirect: "manual",
+  });
+  assert.equal(redirect.status, 302);
+  assert.equal(redirect.headers.get("location"), "https://example.test/doc");
+  assert.equal((await request(`/api/files/${link.body.id}`, { workspace: "w2" })).status, 404);
+  const upload = async (size) => {
+    const form = new FormData();
+    form.set("file", new File([new Uint8Array(size)], "data.txt", { type: "text/plain" }));
+    form.set("entityType", "issue");
+    form.set("entityId", issue.body.id);
+    const payload = new Request("http://localhost/api/files", { method: "POST", body: form });
+    return mf.dispatchFetch("http://localhost/api/files", {
+      method: "POST",
+      headers: {
+        cookie: `CF_Authorization=${alice}`,
+        "x-workspace-slug": "w1",
+        origin: "http://localhost",
+        "content-type": payload.headers.get("content-type"),
+      },
+      body: await payload.arrayBuffer(),
+    });
+  };
+  assert.equal((await upload(10 * 1024 * 1024 + 1)).status, 400);
+  const uploaded = await upload(3);
+  assert.equal(uploaded.status, 201, await uploaded.clone().text());
+  const file = await uploaded.json();
+  assert.equal(
+    (await request(`/api/files?issueId=${issue.body.id}`, { workspace: "w1" })).body.length,
+    2,
+  );
+  const download = await mf.dispatchFetch(`http://localhost/api/files/${file.id}`, {
+    headers: { cookie: `CF_Authorization=${alice}`, "x-workspace-slug": "w1" },
+  });
+  assert.equal(download.status, 200);
+  assert.equal((await download.arrayBuffer()).byteLength, 3);
+  assert.equal(
+    (await request(`/api/files/${file.id}`, { method: "DELETE", workspace: "w1" })).status,
+    204,
+  );
+  assert.equal(
+    (await request(`/api/files?issueId=${issue.body.id}`, { workspace: "w1" })).body.length,
+    1,
+  );
 });

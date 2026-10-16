@@ -100,3 +100,12 @@ deployment. Verify the ledger and database backup, then set
 `CF_APPROVED_SCHEMA_SHA256` to the SHA-256 of the new `dist/migrations.json`
 as described in [GitHub deployment](github-cloudflare.md). Deploy code after
 the schema hash is approved.
+
+For C4a, apply Planning `0004_sprint_details.sql` and
+`0005_one_active.sql`, and Assets `0005_link_assets.sql`, to the approved
+production D1 through the operator migration path before deploying this code.
+Verify the `platform_schema_versions` receipts for all three files. Then build
+the merged commit, calculate `sha256sum dist/migrations.json`, and update
+`CF_APPROVED_SCHEMA_SHA256` to that exact digest before the code deploy gate.
+The Planning timestamp backfill skips frozen scopes, whose legacy sprint
+timestamps remain zero.

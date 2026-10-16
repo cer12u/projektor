@@ -164,6 +164,42 @@ async function completed(f, s) {
   await f.api.putUpload(s, "b1", bytes("hello"));
   await f.api.completeUpload(s, { operationId: "complete", assetId: "b1", expectedVersion: 1 });
 }
+test("URL assets use one command, preserve receipt and never create an R2 object", async () => {
+  const f = await fixture(),
+    a = f.scope(),
+    b = f.scope("w2");
+  const input = {
+    operationId: "url-op",
+    assetId: "url1",
+    url: "https://example.test/doc",
+    title: "Doc",
+    target: { kind: "issue", id: "i1" },
+  };
+  await assert.rejects(
+    f.api.createLinkAsset(a, { ...input, url: "javascript:alert(1)" }),
+    error("validation"),
+  );
+  assert.deepEqual(await f.api.createLinkAsset(a, input), { id: "url1", version: 1 });
+  assert.deepEqual(await f.api.createLinkAsset(a, input), { id: "url1", version: 1 });
+  await assert.rejects(f.api.createLinkAsset(a, { ...input, title: "Other" }), error("conflict"));
+  const list = await f.api.listAssets(a, input.target);
+  assert.equal(list.items[0].kind, "link");
+  assert.equal(list.items[0].url, input.url);
+  assert.equal((await f.api.downloadAsset(a, "url1")).body, null);
+  assert.equal(await f.bucket.get("assets/w1/url1"), null);
+  assert.equal((await f.api.listAssets(b, input.target)).items.length, 0);
+  await f.api.unlinkAsset(a, {
+    operationId: "unlink-url",
+    assetId: "url1",
+    linkId: "url1",
+    expectedVersion: 1,
+  });
+  await f.api.drainGc();
+  assert.equal(
+    (await f.db.prepare("SELECT COUNT(*) n FROM assets_blobs WHERE id='url1'").first()).n,
+    0,
+  );
+});
 test("begin, R2 verification, link, list and download across two tenants", async () => {
   const f = await fixture(),
     a = f.scope(),
@@ -179,6 +215,8 @@ test("begin, R2 verification, link, list and download across two tenants", async
   });
   assert.deepEqual(r, { id: "b1", version: 3 });
   assert.equal((await f.api.listAssets(a, { kind: "issue", id: "i1" })).items.length, 1);
+  assert.equal((await f.api.getLink(a, "l1")).assetId, "b1");
+  await assert.rejects(f.api.getLink(b, "l1"), error("not_found"));
   const stream = (await f.api.downloadAsset(a, "b1")).body;
   assert.equal(new TextDecoder().decode(await stream.read()), "hello");
   assert.equal(await stream.read(), null);

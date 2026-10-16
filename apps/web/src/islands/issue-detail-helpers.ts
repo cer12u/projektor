@@ -28,6 +28,8 @@ export interface Attachment {
 
 export interface IssueData {
 	id: string;
+	project_id: string;
+	sprint_id: string | null;
 	number: number;
 	title: string;
 	body: string | null;

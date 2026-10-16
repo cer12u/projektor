@@ -9,6 +9,17 @@ in UTC, and `pnpm test:web` runs the headless C1 project-flow test. Web TypeScri
 is checked with its own TypeScript 6 compiler; Astro build compiles `.astro`
 files. Browser source may import only within `apps/web` and npm packages.
 
+## UI restoration C4a
+
+The issue detail sidebar adds a sprint selector because the original detail
+page had no assignment control, while C4a requires an issue to be moved from
+that page. The existing sprint banner edits planned/active/completed status.
+When a sprint is selected, the issue list sends only the sprint filter to the
+UI API; its project context remains in the page but is redundant in that query.
+The Sprints page still creates sprints through the original form. Attachments
+keep the original multipart and URL link forms. The new headless
+`sprints-files` browser project covers these flows.
+
 ## Historical Step 07 Web
 
 The rest of this document records the retired modular Web implementation and

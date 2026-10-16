@@ -14,6 +14,7 @@ import type { WikiApi } from "../../wiki/public";
 import type {
   AssetEvent,
   AssetEventReader,
+  AssetLink,
   AssetMetadata,
   AssetResult,
   AssetsApi,
@@ -91,6 +92,25 @@ export function createAssets(d: Dependencies): {
     sha256: string(r, "sha256"),
     version: number(r, "version"),
     ready: r.state === "ready",
+    kind: string(r, "kind") as AssetMetadata["kind"],
+    url: r.url === null ? null : string(r, "url"),
+    title: r.title === null ? null : string(r, "title"),
+    createdAt: number(r, "created_at"),
+  });
+  const linkMetadata = (r: Row): AssetLink => ({
+    id: string(r, "id"),
+    assetId: string(r, "asset_id"),
+    filename: string(r, "filename"),
+    kind: string(r, "kind") as AssetMetadata["kind"],
+    url: r.url === null ? null : string(r, "url"),
+    title: r.title === null ? null : string(r, "title"),
+    size: number(r, "size"),
+    contentType: string(r, "content_type"),
+    createdAt: number(r, "created_at"),
+    target: {
+      kind: string(r, "target_kind") as AssetTarget["kind"],
+      id: string(r, "target_id"),
+    },
   });
   async function blob(
     scope: RequestScope,
@@ -296,6 +316,36 @@ export function createAssets(d: Dependencies): {
         { name: "gcRemove", values: [w(scope), assetId] },
       ]);
     },
+    async createLinkAsset(scope, input) {
+      const op = id(input.operationId),
+        assetId = id(input.assetId);
+      let url: URL;
+      try {
+        url = new URL(input.url);
+      } catch {
+        return fail("validation", "Invalid URL");
+      }
+      if (!["http:", "https:"].includes(url.protocol) || input.url.length > 2048)
+        fail("validation", "Invalid URL");
+      const title = input.title ?? null;
+      if (title !== null && (typeof title !== "string" || title.length > 255))
+        fail("validation", "Invalid title");
+      await access.authorize(scope, "write");
+      const projectId = await target(scope, input.target, "write");
+      const fp = await fingerprint("createLinkAsset", [assetId, input.url, title, input.target]);
+      const saved = await replay(scope, op, fp);
+      if (saved) return saved;
+      return commit(scope, op, fp, assetId, 1, "AssetLinked", [
+        ...guarded(scope, {
+          name: "createLinkAsset",
+          values: [w(scope), assetId, projectId, title ?? "", clock.now(), input.url, title],
+        }),
+        {
+          name: "insertLink",
+          values: [w(scope), assetId, assetId, input.target.kind, input.target.id],
+        },
+      ]);
+    },
     async unlinkAsset(scope, input) {
       const op = id(input.operationId),
         assetId = id(input.assetId),
@@ -324,6 +374,16 @@ export function createAssets(d: Dependencies): {
     async getMetadata(scope, assetId) {
       return metadata(await blob(scope, assetId));
     },
+    async getLink(scope, linkId) {
+      await access.authorize(scope, "read");
+      const row = await one("linkById", [w(scope), id(linkId)]);
+      if (!row) fail("not_found", "Link not found");
+      await target(scope, {
+        kind: string(row, "target_kind") as AssetTarget["kind"],
+        id: string(row, "target_id"),
+      });
+      return linkMetadata(row);
+    },
     async listAssets(scope, t, cursor = "", limit = 50) {
       await access.authorize(scope, "read");
       await target(scope, t);
@@ -333,15 +393,7 @@ export function createAssets(d: Dependencies): {
         await store.run("list", [w(scope), t.kind, t.id, cursor ? id(cursor) : "", limit + 1])
       ).rows;
       return {
-        items: rows.slice(0, limit).map((r) => ({
-          id: string(r, "id"),
-          assetId: string(r, "asset_id"),
-          filename: string(r, "filename"),
-          target: {
-            kind: string(r, "target_kind") as AssetTarget["kind"],
-            id: string(r, "target_id"),
-          },
-        })),
+        items: rows.slice(0, limit).map(linkMetadata),
         nextCursor: rows.length > limit ? string(rows[limit - 1], "id") : null,
       };
     },
@@ -369,6 +421,7 @@ export function createAssets(d: Dependencies): {
         cursor = string(links[links.length - 1], "id");
       }
       if (!visible) fail("forbidden", "No visible link");
+      if (r.kind === "link") return { metadata: metadata(r), body: null };
       const body = await bucketFor(w(scope)).open(key(w(scope), assetId));
       if (!body) fail("not_found", "Object missing");
       return { metadata: metadata(r), body };
@@ -416,6 +469,15 @@ export function createAssets(d: Dependencies): {
         const r = await one("blob", [ws, assetId]);
         if (!r) {
           await store.run("gcRemove", [ws, assetId]);
+          done++;
+          continue;
+        }
+        if (r.kind === "link") {
+          await store.batch([
+            { name: "gcDeleteHistory", values: [ws, assetId] },
+            { name: "gcRemove", values: [ws, assetId] },
+            { name: "gcDeleteBlob", values: [ws, assetId, ws, assetId] },
+          ]);
           done++;
           continue;
         }

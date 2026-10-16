@@ -9,6 +9,8 @@ const BEFORE_MIDNIGHT = Date.parse("2026-10-06T14:59:00Z") / 1000;
 const AFTER_MIDNIGHT = Date.parse("2026-10-06T15:05:00Z") / 1000;
 const ISSUE: IssueData = {
 	id: "i1",
+	project_id: "p1",
+	sprint_id: null,
 	number: 1,
 	title: "Completed task",
 	body: null,
