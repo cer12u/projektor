@@ -1964,7 +1964,7 @@ function SprintField({ issue, issueId, workspaceSlug, fetchIssue }: {
 	useEffect(() => {
 		apiFetch<{ items: Array<{ id: string; name: string; status: string }> }>(
 			`/api/sprints?projectId=${encodeURIComponent(issue.project_id)}`, { workspaceSlug }
-		).then((result) => setSprints(result.items)).catch(() => setSprints([]));
+		).then((result) => setSprints(Array.isArray(result?.items) ? result.items : [])).catch(() => setSprints([]));
 	}, [issue.project_id, workspaceSlug]);
 	return <>
 		<select aria-label="Change sprint" value={issue.sprint_id ?? ""} disabled={saving}
