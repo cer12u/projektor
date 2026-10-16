@@ -96,6 +96,13 @@ is version 1; first invitation has expectedVersion 0). `inviteMember`, `changeRo
 `archiveWorkspace` return `{id, version}`. `getMembership` and `getCredential`
 provide versions; credential queries are manager-only and omit hash and secret.
 `getPrincipalSummary` requires active same-workspace membership of the target.
+The UI settings adapter uses `listCredentials(scope, cursor, limit)` for owner/admin
+metadata listing. It returns name and creation time along with the version and
+scope, and never returns the hash or secret. Migration 0006 adds these two
+credential columns and derives existing creation times from `CredentialIssued`
+events. Rows without a matching event retain the zero default. The adapter
+creates a dedicated machine principal for each token; an omitted expiry is
+represented internally by the maximum safe Unix timestamp and shown as null.
 `listWorkspaces` returns up to 100 active memberships in workspace-ID order;
 pagination beyond that is deferred until the product needs it.
 

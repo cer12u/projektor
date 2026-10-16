@@ -151,6 +151,35 @@ async function machine(f, scope, mode = "write", id = "key") {
     scope: await f.api.requireMembership(principal, scope.workspaceId, "machine"),
   };
 }
+test("credential metadata listing is admin-only, paginated and tenant scoped", async () => {
+  const f = await fixture();
+  const { scope } = await f.owner();
+  const other = await f.owner("w2");
+  const p = await f.api.provisionMachine(scope, {
+    principalId: "named",
+    role: "member",
+    operationId: "named-machine",
+  });
+  await f.api.issueCredential(scope, {
+    principalId: p.id,
+    credentialId: "named-key",
+    secret,
+    scope: "write",
+    expiresAt: f.state.now + 100,
+    name: "Named token",
+    operationId: "named-issue",
+  });
+  const page = await f.api.listCredentials(scope, undefined, 1);
+  assert.equal(page.items.length, 1);
+  assert.equal(page.items[0].name, "Named token");
+  assert.equal(page.items[0].createdAt, f.state.now);
+  assert.equal(JSON.stringify(page).includes(secret), false);
+  assert.deepEqual((await f.api.listCredentials(other.scope)).items, []);
+  const member = await f.human("member");
+  await f.api.inviteMember(scope, invite("member"));
+  const memberScope = await f.api.requireMembership(member, "w1", "member");
+  await assert.rejects(f.api.listCredentials(memberScope), code("forbidden"));
+});
 test("rules: identifiers, roles, versions and issuer-separated identities without DB", async () => {
   const r = platform.accessRules;
   for (const bad of ["", "a.b", "../w"]) assert.throws(() => r.identifier(bad), code("validation"));
@@ -1955,4 +1984,70 @@ test("profile migration leaves existing global principals nullable", async () =>
     await db.prepare("SELECT email,display_name FROM access_principals WHERE id='old'").first(),
     { email: null, display_name: null },
   );
+});
+
+test("credential metadata migration backfills frozen scopes and clears bypass", async () => {
+  const db = await mf.getD1Database(`DB${index++}`);
+  const apply = async (file) => {
+    const sql = fs.readFileSync(`modules/access/storage/migrations/${file}`, "utf8");
+    for (const statement of sql.split(/;\s*\n/))
+      if (statement.trim()) await db.prepare(statement).run();
+  };
+  for (const file of [
+    "0001_access.sql",
+    "0002_oauth.sql",
+    "0003_oauth_forms.sql",
+    "0004_maintenance.sql",
+    "0005_profile.sql",
+  ])
+    await apply(file);
+  await db
+    .prepare(
+      "INSERT INTO access_principals(id,kind,issuer,subject) VALUES('m','machine','machine:w1','m')",
+    )
+    .run();
+  for (const workspace of ["w1", "w2"]) {
+    await db
+      .prepare("INSERT INTO access_workspaces(workspace_id,name,version) VALUES(?,?,1)")
+      .bind(workspace, workspace)
+      .run();
+    await db
+      .prepare(
+        "INSERT INTO access_memberships(workspace_id,principal_id,role,active,version) VALUES(?,'m','member',1,1)",
+      )
+      .bind(workspace)
+      .run();
+    await db
+      .prepare(
+        "INSERT INTO access_credentials(workspace_id,id,principal_id,token_hash,scope,expires_at,version) VALUES(?,'key','m',?,'read',2000000000,1)",
+      )
+      .bind(workspace, workspace)
+      .run();
+    await db
+      .prepare(
+        "INSERT INTO access_events(workspace_id,sequence,event_id,aggregate_id,aggregate_version,type,occurred_at,actor_id) VALUES(?,1,?,'key',1,'CredentialIssued',123456,'m')",
+      )
+      .bind(workspace, `${workspace}-event`)
+      .run();
+  }
+  await db
+    .prepare(
+      "INSERT INTO access_frozen_scopes(workspace_id,project_id,state) VALUES('w1','','frozen')",
+    )
+    .run();
+  await apply("0006_credential_metadata.sql");
+  assert.deepEqual(
+    (
+      await db
+        .prepare(
+          "SELECT workspace_id,created_at,name FROM access_credentials ORDER BY workspace_id",
+        )
+        .all()
+    ).results,
+    [
+      { workspace_id: "w1", created_at: 123456, name: "" },
+      { workspace_id: "w2", created_at: 123456, name: "" },
+    ],
+  );
+  assert.equal((await db.prepare("SELECT COUNT(*) AS n FROM access_purge_bypass").first()).n, 0);
 });

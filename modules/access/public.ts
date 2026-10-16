@@ -85,6 +85,10 @@ export interface Credential extends CommandResult {
   readonly expiresAt: number;
   readonly revoked: boolean;
 }
+export interface CredentialItem extends Credential {
+  readonly name: string;
+  readonly createdAt: number;
+}
 export type EventType =
   | "WorkspaceCreated"
   | "MembershipChanged"
@@ -146,6 +150,11 @@ export interface AccessApi extends OAuthApi {
   ): Promise<AccessPage<MemberItem>>;
   getMembership(scope: RequestScope, principalId: string): Promise<Membership>;
   getCredential(scope: RequestScope, credentialId: string): Promise<Credential>;
+  listCredentials(
+    scope: RequestScope,
+    cursor?: string,
+    limit?: number,
+  ): Promise<AccessPage<CredentialItem>>;
   bootstrap(
     operator: OperatorCapability,
     principal: AuthenticatedPrincipal,
@@ -184,6 +193,7 @@ export interface AccessApi extends OAuthApi {
       readonly secret: string;
       readonly scope: Permission;
       readonly expiresAt: number;
+      readonly name?: string;
     },
   ): Promise<CommandResult>;
   revokeCredential(

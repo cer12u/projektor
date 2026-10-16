@@ -116,3 +116,11 @@ the approved production D1 before deploying code. Verify its
 `platform_schema_versions` receipt and that `wiki_purge_bypass` has no remaining
 rows. Build the merged commit, calculate `sha256sum dist/migrations.json`, and
 set `CF_APPROVED_SCHEMA_SHA256` to that exact digest before the code deploy gate.
+
+For C4c, apply Access `0006_credential_metadata.sql` through the operator
+migration path on the approved production D1 before deploying code. Verify its
+`platform_schema_versions` receipt, confirm legacy `access_credentials.created_at`
+matches each `CredentialIssued` event time where available, and confirm
+`access_purge_bypass` has no remaining rows. Build the merged commit, calculate
+`sha256sum dist/migrations.json`, and set `CF_APPROVED_SCHEMA_SHA256` to that
+digest before the code deploy gate.

@@ -323,11 +323,14 @@ export function createIntegrations(d: Dependencies): {
       const r = await receipt(s, input.operationId, input);
       if (r.old) return { id: r.old, secret: null };
       const secret = await vault.inboundSecret(`${s.workspaceId}:${input.sourceId}`);
+      const guard = ids.next();
       await store.batch([
         {
           name: "addSource",
           values: [s.workspaceId, input.sourceId, input.projectId, input.name, await sha(secret)],
         },
+        { name: "guard", values: [s.workspaceId, guard] },
+        { name: "clearGuard", values: [s.workspaceId, guard] },
         {
           name: "putReceipt",
           values: [
