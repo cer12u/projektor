@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { expect, test } from "@playwright/test";
+import { expectUiWrite } from "./write-response.mjs";
 
 test("due date and estimate appear across detail, list, board and sprint", async ({
   page,
@@ -53,11 +54,15 @@ test("due date and estimate appear across detail, list, board and sprint", async
   ).toBe(200);
   await page.goto(`/projects/${key}/issues/${first.number}/earlier-due-issue`);
   await expect(page.getByRole("heading", { name: "Earlier due issue" })).toBeVisible();
-  await page.getByLabel("Due date").fill(past);
+  await expectUiWrite(page, "PATCH", `/api/issues/${first.id}`, () =>
+    page.getByLabel("Due date").fill(past),
+  );
   await expect(page.getByLabel("Due date")).toHaveValue(past);
   await page.getByTitle("Edit story points").click();
   await page.locator('input[type="number"]').last().fill("5");
-  await page.locator('input[type="number"]').last().press("Enter");
+  await expectUiWrite(page, "PATCH", `/api/issues/${first.id}`, () =>
+    page.getByRole("heading", { name: "Earlier due issue" }).click(),
+  );
   await expect(page.getByText("5 pts")).toBeVisible();
   const sprintResponse = await request.post("/api/sprints", {
     headers,
@@ -71,7 +76,9 @@ test("due date and estimate appear across detail, list, board and sprint", async
     ).status(),
   ).toBe(200);
   await page.reload();
-  await page.getByLabel("Change sprint").selectOption(sprint.id);
+  await expectUiWrite(page, "PATCH", `/api/issues/${first.id}`, () =>
+    page.getByLabel("Change sprint").selectOption(sprint.id),
+  );
   await page.goto(`/issues?project=${key}`);
   await page.getByRole("combobox", { name: "Sort by" }).click();
   await page.getByRole("option", { name: "Due date" }).click();
@@ -97,7 +104,9 @@ test("due date and estimate appear across detail, list, board and sprint", async
   ).toBeVisible();
   await page.goto(`/sprints?projectId=${project.id}`);
   await page.getByRole("button", { name: "Complete sprint" }).click();
-  await page.getByRole("button", { name: "Yes, complete" }).click();
+  await expectUiWrite(page, "PATCH", `/api/sprints/${sprint.id}`, () =>
+    page.getByRole("button", { name: "Yes, complete" }).click(),
+  );
   await expect(page.getByText("Story points:")).toBeVisible();
   await expect(page.getByText("0/5").first()).toBeVisible();
 });

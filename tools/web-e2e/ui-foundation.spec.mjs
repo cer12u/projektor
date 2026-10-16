@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { expect, test } from "@playwright/test";
+import { expectUiWrite } from "./write-response.mjs";
 
 test("original project UI loads, creates a project, and opens its slug route", async ({
   page,
@@ -20,7 +21,9 @@ test("original project UI loads, creates a project, and opens its slug route", a
   await page.getByRole("button", { name: "+ New project" }).click();
   await page.getByRole("textbox", { name: "Name" }).fill(name);
   await page.getByRole("textbox", { name: "Key" }).fill(key);
-  await page.getByRole("button", { name: "Create project" }).click();
+  await expectUiWrite(page, "POST", "/api/projects", () =>
+    page.getByRole("button", { name: "Create project" }).click(),
+  );
   const card = page.getByRole("link", { name });
   await expect(card).toBeVisible();
   await expect(card).toHaveAttribute("href", `/projects/view/${key.toLowerCase()}`);

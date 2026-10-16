@@ -1,5 +1,6 @@
 import { createHmac, randomUUID } from "node:crypto";
 import { expect, test } from "@playwright/test";
+import { expectUiWrite } from "./write-response.mjs";
 
 test("settings token and signed feedback flow", async ({ page, request, context }) => {
   test.setTimeout(90000);
@@ -16,13 +17,17 @@ test("settings token and signed feedback flow", async ({ page, request, context 
   await expect(page.getByText("/mcp/", { exact: false }).first()).toBeVisible();
   await page.getByRole("button", { name: "+ New token" }).click();
   await page.getByRole("textbox", { name: "Name *" }).fill("E2E Agent");
-  await page.getByRole("button", { name: "Create token" }).click();
+  await expectUiWrite(page, "POST", "/api/workspaces/web1/tokens", () =>
+    page.getByRole("button", { name: "Create token" }).click(),
+  );
   await expect(page.getByText("Token created:", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Done" }).click();
   await expect(page.getByRole("table").getByText("E2E Agent")).toBeVisible();
   const tokenRow = page.getByRole("row").filter({ hasText: "E2E Agent" });
   await tokenRow.getByRole("button", { name: "Revoke" }).click();
-  await tokenRow.getByRole("button", { name: "Yes" }).click();
+  await expectUiWrite(page, "DELETE", /^\/api\/workspaces\/web1\/tokens\/[^/]+$/, () =>
+    tokenRow.getByRole("button", { name: "Yes" }).click(),
+  );
   await expect(page.getByRole("table").getByText("E2E Agent")).toHaveCount(0);
 
   await page.goto("/");
@@ -31,7 +36,9 @@ test("settings token and signed feedback flow", async ({ page, request, context 
   await page
     .getByRole("textbox", { name: "Key" })
     .fill(`FB${randomUUID().slice(0, 8).toUpperCase()}`);
-  await page.getByRole("button", { name: "Create project" }).click();
+  await expectUiWrite(page, "POST", "/api/projects", () =>
+    page.getByRole("button", { name: "Create project" }).click(),
+  );
   await page.getByRole("link", { name: new RegExp(projectName) }).click();
   await expect(page).toHaveURL(/projectId=/);
   const projectId = new URL(page.url()).searchParams.get("projectId");
@@ -39,7 +46,9 @@ test("settings token and signed feedback flow", async ({ page, request, context 
   await page.goto(`/feedback?projectId=${projectId}`);
   await page.getByRole("button", { name: "+ New source" }).click();
   await page.getByRole("textbox", { name: "Name *" }).fill(sourceName);
-  await page.getByRole("button", { name: "Create source" }).click();
+  await expectUiWrite(page, "POST", `/api/projects/${projectId}/feedback-sources`, () =>
+    page.getByRole("button", { name: "Create source" }).click(),
+  );
   const secret = await page.getByRole("dialog").locator("code").textContent();
   expect(secret).toMatch(/^[0-9a-f]{64}$/);
   await page.getByRole("button", { name: "Done" }).click();
@@ -65,6 +74,11 @@ test("settings token and signed feedback flow", async ({ page, request, context 
   expect(incoming.ok()).toBeTruthy();
   await page.getByRole("link", { name: new RegExp(sourceName) }).click();
   await expect(page.getByRole("table").getByText("Feedback E2E body")).toBeVisible();
-  await page.getByRole("button", { name: "Convert to issue" }).first().click();
+  await expectUiWrite(
+    page,
+    "POST",
+    new RegExp(`^/api/projects/${projectId}/feedback/[^/]+/convert-to-issue$`),
+    () => page.getByRole("button", { name: "Convert to issue" }).first().click(),
+  );
   await expect(page.getByRole("table").getByText("actioned")).toBeVisible();
 });
