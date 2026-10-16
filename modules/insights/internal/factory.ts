@@ -25,6 +25,7 @@ import type {
   SubscriptionResult,
 } from "../public";
 import type { queries } from "../storage/queries";
+import { computeFlowMetrics, validateFlowMetrics } from "./flow-metrics";
 
 type Name = keyof typeof queries;
 type Statement = Call<Name>;
@@ -59,7 +60,16 @@ interface Dependencies {
   readonly store: ModuleStore<"insights", Name>;
   readonly access: Pick<AccessApi, "authorize">;
   readonly projects: Pick<ProjectsApi, "authorizeProject" | "getProject" | "listVisibleProjects">;
-  readonly issues: Pick<IssuesApi, "authorizeIssue" | "getHistory" | "listIssues">;
+  readonly issues: Pick<
+    IssuesApi,
+    | "authorizeIssue"
+    | "getHistory"
+    | "listIssues"
+    | "flowIssueRows"
+    | "countDoneBefore"
+    | "humanCommentCounts"
+    | "listTaskTypes"
+  >;
   readonly wiki: Pick<WikiApi, "authorizePage">;
   readonly coordination: Pick<CoordinationApi, "listLeases" | "projectSessions">;
   readonly planning: Pick<PlanningApi, "listSprints">;
@@ -448,6 +458,49 @@ export function createInsights(d: Dependencies): {
     } while (rows.length === 100);
   }
   const api: InsightsApi = {
+    async getFlowMetrics(s, input) {
+      await access.authorize(s, "read");
+      const projectId = id(input.projectId);
+      await projects.authorizeProject(s, projectId);
+      const now = Math.floor(clock.now());
+      validateFlowMetrics(input, now);
+      const createdUntil = input.until ?? now;
+      const doneBefore = input.since === undefined ? null : input.since - (input.since % 86400);
+      const loaded = await issues.flowIssueRows(s, projectId, createdUntil, doneBefore);
+      const done = loaded.filter(
+        (i) =>
+          i.doneAt !== null &&
+          (input.since === undefined || i.doneAt >= input.since) &&
+          (input.until === undefined || i.doneAt <= input.until),
+      );
+      const comments = await issues.humanCommentCounts(
+        s,
+        projectId,
+        done.map((i) => i.id),
+      );
+      const doneBeforeWindow =
+        doneBefore === null
+          ? 0
+          : await issues.countDoneBefore(s, projectId, createdUntil, doneBefore);
+      const bugTypeTracked = (await issues.listTaskTypes(s)).some((t) => t.key === "bug");
+      return computeFlowMetrics(
+        input,
+        {
+          loaded,
+          comments,
+          leaseSeconds: {},
+          bugTypeTracked,
+          doneBeforeWindow,
+          factoryHealth: {
+            leaseExpiries: 0,
+            abandonedClaims: 0,
+            gateRejections: 0,
+            wipCapPressure: 0,
+          },
+        },
+        now,
+      );
+    },
     async getSubscription(s, issueId) {
       await authorized(s);
       const iid = id(issueId);

@@ -313,6 +313,10 @@ export function createIssues(deps: Dependencies): {
     createdAt: number(row, "created_at"),
     updatedAt: number(row, "updated_at"),
     completedAt: row.completed_at === null ? null : number(row, "completed_at"),
+    readyAt: row.ready_at === null ? null : number(row, "ready_at"),
+    claimedAt: row.claimed_at === null ? null : number(row, "claimed_at"),
+    inReviewAt: row.in_review_at === null ? null : number(row, "in_review_at"),
+    reviewBounceCount: number(row, "review_bounce_count"),
     assigneeId: row.assignee_id === null ? null : string(row, "assignee_id"),
     version: number(row, "version"),
     archived: row.archived === 1,
@@ -582,6 +586,29 @@ export function createIssues(deps: Dependencies): {
     if (value === null) return null;
     return body(value, 128, true);
   }
+  function flowValues(
+    current: Pick<
+      Issue,
+      "status" | "statusCategory" | "readyAt" | "claimedAt" | "inReviewAt" | "reviewBounceCount"
+    > | null,
+    next: { key: string; category: IssueState; review: boolean },
+    at: number,
+    wasReview = current?.status === "in_review",
+  ) {
+    const ready =
+      next.key !== "backlog" && next.category !== "done" && next.category !== "cancelled";
+    const claimed = next.category === "in_progress" || next.review;
+    const enteringReview = next.review && !wasReview;
+    const leavingReview = wasReview && !next.review && next.category !== "done";
+    return {
+      readyAt: current?.readyAt ?? (ready ? at : null),
+      claimedAt:
+        current?.claimedAt ??
+        (claimed && (current === null || current.statusCategory !== "in_progress") ? at : null),
+      inReviewAt: current?.inReviewAt ?? (enteringReview ? at : null),
+      reviewBounceCount: (current?.reviewBounceCount ?? 0) + (leavingReview ? 1 : 0),
+    };
+  }
   async function statusSync(
     scope: RequestScope,
     statusId: string,
@@ -596,10 +623,33 @@ export function createIssues(deps: Dependencies): {
         at = clock.now();
       if (oldCategory === category) continue;
       const completedAt = category === "done" ? at : null;
+      const flow = flowValues(
+        {
+          status: string(row, "status"),
+          statusCategory: oldCategory,
+          readyAt: row.ready_at === null ? null : number(row, "ready_at"),
+          claimedAt: row.claimed_at === null ? null : number(row, "claimed_at"),
+          inReviewAt: row.in_review_at === null ? null : number(row, "in_review_at"),
+          reviewBounceCount: number(row, "review_bounce_count"),
+        },
+        { key: string(row, "status"), category, review: string(row, "status") === "in_review" },
+        at,
+      );
       calls.push(
         ...guarded(scope, {
           name: "syncStatusCategory",
-          values: [category, completedAt, at, w(scope), issueId, nextVersion - 1],
+          values: [
+            category,
+            completedAt,
+            flow.readyAt,
+            flow.claimedAt,
+            flow.inReviewAt,
+            flow.reviewBounceCount,
+            at,
+            w(scope),
+            issueId,
+            nextVersion - 1,
+          ],
         }),
       );
       calls.push({
@@ -953,6 +1003,11 @@ export function createIssues(deps: Dependencies): {
       const saved = await replay(scope, input.operationId, fp);
       if (saved) return saved;
       const createdAt = clock.now();
+      const flow = flowValues(
+        null,
+        { key: statusKey, category, review: definition.isReviewStep },
+        createdAt,
+      );
       return commit(
         scope,
         input.operationId,
@@ -993,6 +1048,10 @@ export function createIssues(deps: Dependencies): {
               createdAt,
               createdAt,
               assigneeId,
+              flow.readyAt,
+              flow.claimedAt,
+              flow.inReviewAt,
+              flow.reviewBounceCount,
               w(scope),
               projectId,
             ],
@@ -1093,6 +1152,13 @@ export function createIssues(deps: Dependencies): {
       ] as const)
         if (key in input) changed.push(key);
       const now = clock.now();
+      const currentStatus = await requiredStatus(scope, current.statusId);
+      const flow = flowValues(
+        current,
+        { key: definition.key, category: definition.category, review: definition.isReviewStep },
+        now,
+        currentStatus.isReviewStep,
+      );
       const completedAt =
         definition.category === "done"
           ? current.state === "done"
@@ -1121,7 +1187,9 @@ export function createIssues(deps: Dependencies): {
         current.id,
         expected + 1,
         "update",
-        JSON.stringify({ changed }),
+        JSON.stringify(
+          input.statusId === undefined ? { changed } : { changed, statusId: definition.id },
+        ),
         guarded(scope, {
           name: "updateIssue",
           values: [
@@ -1137,6 +1205,10 @@ export function createIssues(deps: Dependencies): {
             JSON.stringify(labels),
             assigneeId,
             completedAt,
+            flow.readyAt,
+            flow.claimedAt,
+            flow.inReviewAt,
+            flow.reviewBounceCount,
             now,
             w(scope),
             current.id,
@@ -1156,6 +1228,7 @@ export function createIssues(deps: Dependencies): {
       if (current.archived) fail("not_found", "Issue not found");
       if (!canTransition(current.state, target)) fail("conflict", "Transition not allowed");
       const now = clock.now();
+      const flow = flowValues(current, { key: target, category: target, review: false }, now);
       return commit(
         scope,
         input.operationId,
@@ -1171,6 +1244,10 @@ export function createIssues(deps: Dependencies): {
             target,
             `status_${target}`,
             target === "done" ? (current.completedAt ?? now) : null,
+            flow.readyAt,
+            flow.claimedAt,
+            flow.inReviewAt,
+            flow.reviewBounceCount,
             now,
             w(scope),
             current.id,
@@ -1863,6 +1940,45 @@ export function createIssues(deps: Dependencies): {
               limit,
             ]))
       ).rows.map((row) => fromRow(row, project.key));
+    },
+    async flowIssueRows(scope, projectId, createdUntil, doneBefore) {
+      await projects.authorizeProject(scope, id(projectId));
+      return (
+        await store.run("flowIssueRows", [
+          w(scope),
+          projectId,
+          createdUntil,
+          doneBefore,
+          doneBefore,
+        ])
+      ).rows.map((row) => ({
+        id: string(row, "id"),
+        createdAt: number(row, "created_at"),
+        readyAt: row.ready_at === null ? null : number(row, "ready_at"),
+        claimedAt: row.claimed_at === null ? null : number(row, "claimed_at"),
+        doneAt: row.done_at === null ? null : number(row, "done_at"),
+        inReviewAt: row.in_review_at === null ? null : number(row, "in_review_at"),
+        reviewBounceCount: number(row, "review_bounce_count"),
+        status: string(row, "status"),
+        typeKey: row.type_key === null ? null : string(row, "type_key"),
+      }));
+    },
+    async countDoneBefore(scope, projectId, createdUntil, doneBefore) {
+      await projects.authorizeProject(scope, id(projectId));
+      const row = await one("countDoneBefore", [w(scope), projectId, createdUntil, doneBefore]);
+      return row ? number(row, "n") : 0;
+    },
+    async humanCommentCounts(scope, projectId, issueIds) {
+      await projects.authorizeProject(scope, id(projectId));
+      const result: Record<string, number> = {};
+      for (let start = 0; start < issueIds.length; start += 100) {
+        const page = issueIds.slice(start, start + 100).map(id);
+        for (const row of (
+          await store.run("humanCommentCounts", [w(scope), projectId, JSON.stringify(page)])
+        ).rows)
+          result[string(row, "issue_id")] = number(row, "n");
+      }
+      return result;
     },
     async getHistory(scope, issueId) {
       await issue(scope, issueId);

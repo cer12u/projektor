@@ -1,5 +1,22 @@
 # Insights (Step 11)
 
+## Flow metrics (UI restoration C5)
+
+`getFlowMetrics` authorizes a project read and computes the original UI's flow
+response from Issues public read queries at request time. It does not wait for
+projection catch-up or add Insights storage. The default weekly series spans the
+current ISO week and five preceding weeks; WIP uses daily samples over 30 days.
+Day windows are capped at 366 days and week windows at five years. Buckets,
+distributions, CFD, aging WIP and issue counts use the issue's recorded transition
+times. The UI API translates `GET /api/projects/:id/flow-metrics` and returns
+validation failures as 400 and inaccessible projects as 404.
+
+Coordination currently retains the current lease and file claim rows but no
+acquire/release interval history or WIP-cap denial log. Lease-held seconds,
+lease expiries, abandoned claims and WIP-cap pressure therefore report the
+original zero defaults. Gate rejection events are also unavailable and report
+zero. Adding historical measures requires an owned, durable Coordination source.
+
 Insights consumes the capability-gated `readEvents` APIs of Projects, Issues, Wiki, Coordination, Planning and Assets. Each owner has a workspace-local sequence cursor. A D1 batch inserts activity rows and advances the corresponding cursor with a CAS guard. Replays use `(workspace_id, source, sequence)` and `(workspace_id, source, event_id)` uniqueness. A missing sequence or unsupported schema version aborts that owner’s batch without acknowledging any of its events. The scheduled Worker handler enumerates every active workspace through Access’s composition-only, keyset-paged `background.listActiveWorkspaceIds` capability and consumes up to 100 events per owner per workspace each tick; an authorized read seeds a workspace and performs a bounded catch-up of 30 events per owner. The lag fields show the last committed sequence and time, or `null` before any event was consumed.
 
 Activity stores event identifiers, type, actor, optional client ID and time; it stores no issue/wiki body. Before returning an item, Insights resolves its target through the source owner's public query and the caller's current scope. Archived or newly inaccessible targets are omitted. Project filters are applied after authorization. The keyset cursor orders by event time, source and sequence. Project metrics are calculated from currently visible Issues state and history, plus Coordination's live lease/session queries; the `insights_metrics` row is only a snapshot of the latest calculation. It is never used to authorize or answer a read. Completion counts include transitions to `done` in the preceding 7 and 30 days, grouped by actor and the Issues history client ID.

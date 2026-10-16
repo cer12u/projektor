@@ -1050,3 +1050,108 @@ test("settings token and feedback core preserve UI shapes and workspace isolatio
     501,
   );
 });
+
+test("C5 flow metrics UI API shape, window validation, viewer access and workspace isolation", async () => {
+  const project = await request("/api/projects", {
+    method: "POST",
+    workspace: "w1",
+    body: { name: "Flow", key: "FLOW" },
+  });
+  assert.equal(project.status, 201);
+  const id = project.body.id;
+  const a = await request("/api/issues", {
+    method: "POST",
+    workspace: "w1",
+    body: { projectId: id, title: "Flow done" },
+  });
+  const b = await request("/api/issues", {
+    method: "POST",
+    workspace: "w1",
+    body: { projectId: id, title: "Flow active" },
+  });
+  assert.equal(a.status, 201);
+  assert.equal(b.status, 201);
+  for (const [issueId, statuses] of [
+    [a.body.id, ["status_todo", "status_in_progress", "status_done"]],
+    [b.body.id, ["status_in_progress"]],
+  ])
+    for (const statusId of statuses)
+      assert.equal(
+        (
+          await request(`/api/issues/${issueId}`, {
+            method: "PATCH",
+            workspace: "w1",
+            body: { statusId },
+          })
+        ).status,
+        200,
+      );
+  const active = await request(`/api/issues/${b.body.id}`, { workspace: "w1" });
+  assert.equal(typeof active.body.ready_at, "number");
+  assert.equal(typeof active.body.claimed_at, "number");
+  const path = `/api/projects/${id}/flow-metrics`;
+  const metrics = await request(path, { workspace: "w1" });
+  assert.equal(metrics.status, 200);
+  assert.deepEqual(
+    Object.keys(metrics.body).sort(),
+    [
+      "agingWip",
+      "arrivalVsCompletionOverTime",
+      "autonomyRatio",
+      "bugShareOverTime",
+      "bugTypeTracked",
+      "cfdOverTime",
+      "cycleTime",
+      "factoryHealth",
+      "flowEfficiency",
+      "humanInterventions",
+      "leadTime",
+      "leadTimeExcluded",
+      "reviewLatency",
+      "reviewLatencyOverTime",
+      "throughputOverTime",
+      "timeInProgress",
+      "wipOverTime",
+    ].sort(),
+  );
+  assert.equal(metrics.body.leadTime.count, 1);
+  assert.equal(metrics.body.cycleTime.count, 1);
+  assert.equal(
+    metrics.body.agingWip.some((x) => x.id === b.body.id),
+    true,
+  );
+  assert.equal(metrics.body.factoryHealth.gateRejections, 0);
+  assert.equal((await request(`${path}?since=0&granularity=day`, { workspace: "w1" })).status, 400);
+  assert.equal((await request(`${path}?granularity=month`, { workspace: "w1" })).status, 400);
+  assert.equal((await request(path, { workspace: "w2" })).status, 404);
+  assert.equal(
+    (await request("/api/projects/missing/flow-metrics", { workspace: "w1" })).status,
+    404,
+  );
+  const owner = await access.authenticate({ kind: "human", assertion: alice });
+  const ownerScope = await access.requireMembership(owner, "w1", "flow-viewer", "write");
+  const viewer = await sign("flow-viewer");
+  await access.inviteMember(ownerScope, {
+    issuer,
+    subject: "flow-viewer",
+    role: "viewer",
+    expectedVersion: 0,
+    operationId: "flow-viewer",
+  });
+  const viewerPrincipal = await access.authenticate({ kind: "human", assertion: viewer });
+  const projects = platform.createProjects({
+    store: platform.createModuleStore(db, "projects"),
+    access,
+    clock: platform.systemClock,
+    ids: platform.randomIds,
+    eventConsumer: "insights",
+  }).api;
+  await projects.grantProjectRole(ownerScope, {
+    projectId: id,
+    principalId: (await access.me(viewerPrincipal)).principal.id,
+    role: "viewer",
+    expectedVersion: 1,
+    operationId: "flow-project-viewer",
+  });
+  assert.equal((await request(path, { token: viewer, workspace: "w1" })).status, 200);
+});
