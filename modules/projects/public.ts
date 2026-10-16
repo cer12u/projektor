@@ -103,6 +103,7 @@ export interface ProjectsApi {
   ): Promise<ProjectResult>;
   getProject(scope: RequestScope, projectId: string): Promise<Project>;
   getProjectBySlug(scope: RequestScope, slug: string): Promise<Project>;
+  getProjectByKey(scope: RequestScope, key: string): Promise<Project>;
   /** Authorized historical read for dependent owners; archived projects remain read-only. */
   getProjectIncludingArchived(scope: RequestScope, projectId: string): Promise<Project>;
   listVisibleProjects(scope: RequestScope, cursor?: string, limit?: number): Promise<ProjectPage>;

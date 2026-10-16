@@ -16,18 +16,20 @@ export async function waitForReady(send, url, secret, options = {}) {
   }
 }
 
-export async function firstRemoteMigration(send, url, init, options = {}) {
+export async function retryRemoteTransition(send, url, init, statuses, options = {}) {
   const now = options.now ?? Date.now;
   const sleep = options.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
-  const deadline = now() + 60_000;
+  const deadline = options.deadline ?? now() + 60_000;
   for (;;) {
     const response = await send(url, init);
-    if (response.status !== 403) {
-      if (response.status < 200 || response.status >= 300)
-        throw new Error(`/__smoke/migrate: HTTP ${response.status}`);
-      return response;
-    }
-    if (now() >= deadline) throw new Error("/__smoke/migrate: HTTP 403");
+    if (!statuses.includes(response.status) || now() >= deadline) return response;
     await sleep(3000);
   }
+}
+
+export async function firstRemoteMigration(send, url, init, options = {}) {
+  const response = await retryRemoteTransition(send, url, init, [403], options);
+  if (response.status < 200 || response.status >= 300)
+    throw new Error(`/__smoke/migrate: HTTP ${response.status}`);
+  return response;
 }

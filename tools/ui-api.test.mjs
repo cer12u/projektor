@@ -443,6 +443,12 @@ test("issue UI API contracts, refs, filters, comments, links and workspace isola
   assert.equal(list.body.total, 2);
   assert.ok(list.body.nextCursor);
   assert.equal(Object.hasOwn(list.body.items[0], "body"), false);
+  const summary = await request("/api/issues?limit=1&fields=summary", { workspace: "w1" });
+  assert.equal(summary.status, 200);
+  assert.equal(summary.body.items[0].id, list.body.items[0].id);
+  assert.equal(Object.hasOwn(summary.body.items[0], "workspace_id"), false);
+  assert.equal(Object.hasOwn(summary.body.items[0], "status_id"), true);
+  assert.equal((await request("/api/issues?fields=unknown", { workspace: "w1" })).status, 400);
   const page2 = await request(
     `/api/issues?limit=1&cursor=${encodeURIComponent(list.body.nextCursor)}`,
     { workspace: "w1" },

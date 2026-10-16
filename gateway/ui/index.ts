@@ -210,8 +210,7 @@ const sourceShape = (
 async function issueRef(services: Services, scope: RequestScope, ref: string): Promise<Issue> {
   const match = ref.match(/^([A-Za-z][A-Za-z0-9]*)-([1-9][0-9]*)$/);
   if (!match) return services.issues.getIssue(scope, { issueId: ref });
-  const project = (await visibleProjects(services, scope)).find((item) => item.key === match[1]);
-  if (!project) throw new PlatformError("not_found", "Issue not found");
+  const project = await services.projects.getProjectByKey(scope, match[1]);
   return services.issues.getIssue(scope, { projectId: project.id, number: Number(match[2]) });
 }
 const taskStatus = (value: TaskStatus) => ({
@@ -283,6 +282,56 @@ function issueShape(
       issue.estimate === null ? [] : [{ key: "story_points", value: String(issue.estimate) }],
     url: project ? `/projects/${project.key}/issues/${issue.number}/${slug}` : null,
     ...(body ? { body: issue.description } : {}),
+  };
+}
+function boardIssueShape(value: ReturnType<typeof issueShape>) {
+  const {
+    id,
+    number,
+    title,
+    priority,
+    assignee_id,
+    assignee_name,
+    parent_id,
+    project_id,
+    project_key,
+    project_name,
+    type_key,
+    type_name,
+    status_id,
+    status_key,
+    status_name,
+    status_category,
+    sprint_id,
+    updated_at,
+    created_at,
+    customFields,
+    due_date,
+    estimate,
+  } = value;
+  return {
+    id,
+    number,
+    title,
+    priority,
+    assignee_id,
+    assignee_name,
+    parent_id,
+    project_id,
+    project_key,
+    project_name,
+    type_key,
+    type_name,
+    status_id,
+    status_key,
+    status_name,
+    status_category,
+    sprint_id,
+    updated_at,
+    created_at,
+    customFields,
+    due_date,
+    estimate,
   };
 }
 const linkShape = (link: IssueLink) => {
@@ -479,6 +528,14 @@ export async function handleUi(
       requestId,
       request.method === "GET" ? "read" : "write",
     );
+    const admission = Object.freeze({ scope, role: scope.role, workspace });
+    let visibleSnapshot: Promise<readonly Project[]> | undefined;
+    let memberSnapshot: Promise<Map<string, MemberItem>> | undefined;
+    const requestProjects = () =>
+      (visibleSnapshot ??= visibleProjects(services, admission.scope).then((items) =>
+        Object.freeze(items),
+      ));
+    const requestMembers = () => (memberSnapshot ??= members(services, admission.scope));
     const settings = path.match(
       /^\/api\/workspaces\/([^/]+)\/(tokens|connectors|mcp-info)(?:\/([^/]+))?$/,
     );
@@ -813,7 +870,7 @@ export async function handleUi(
           });
         }
         const revisions = await services.wiki.listRevisions(scope, page.id, undefined, 100);
-        const people = await members(services, scope);
+        const people = await requestMembers();
         return json(revisions.revisions.map((revision) => wikiRevisionShape(revision, people)));
       }
       if (wikiMatch && request.method === "GET") return json(wikiDetailShape(page));
@@ -1045,7 +1102,7 @@ export async function handleUi(
       });
     }
     if (path === "/api/projects" && request.method === "GET") {
-      const projects = await visibleProjects(services, scope);
+      const projects = await requestProjects();
       const counts = new Map<string, { open: number; backlog: number }>();
       for (let i = 0; i < projects.length; i += 100) {
         for (const item of await services.issues.countIssuesByProject(
@@ -1143,7 +1200,7 @@ export async function handleUi(
       if (!query) return bad("Invalid query");
       const limit = Number(url.searchParams.get("limit") ?? 20);
       if (!Number.isInteger(limit) || limit < 1 || limit > 50) bad("Invalid limit");
-      const projects = await visibleProjects(services, scope);
+      const projects = await requestProjects();
       const requested = url.searchParams.get("projectId");
       const selected = requested
         ? projects.filter((p) => p.id === requested || p.key === requested || p.slug === requested)
@@ -1157,21 +1214,13 @@ export async function handleUi(
       const labelsMode = url.searchParams.get("labelsMode");
       if (labelsMode !== null && labelsMode !== "all" && labelsMode !== "any")
         bad("Invalid labels mode");
-      const hits = (
-        await Promise.all(
-          selected.map((p) =>
-            services.issues.searchIssues(scope, {
-              projectId: p.id,
-              text: query,
-              limit,
-              labels: labels.length ? labels : undefined,
-              labelsMode: labelsMode === "any" ? "any" : "all",
-            }),
-          ),
-        )
-      )
-        .flat()
-        .slice(0, limit);
+      const hits = await services.issues.searchVisibleIssues(scope, {
+        text: query,
+        projectIds: selected.map((p) => p.id),
+        limit,
+        labels: labels.length ? labels : undefined,
+        labelsMode: labelsMode === "any" ? "any" : "all",
+      });
       return json(
         hits.map((issue) => {
           const p = projects.find((item) => item.id === issue.projectId);
@@ -1190,6 +1239,7 @@ export async function handleUi(
     }
     if (path === "/api/issues" && request.method === "GET") {
       const q = url.searchParams;
+      if (q.has("fields") && q.get("fields") !== "summary") bad("Invalid fields");
       if (q.has("cfKey") || q.has("cfOp") || q.has("cfValue") || flag(q.get("needsAudit")))
         return unsupported();
       if (q.has("sprintId")) {
@@ -1203,8 +1253,8 @@ export async function handleUi(
           cursor: q.get("cursor") ?? undefined,
           limit: Number(q.get("limit") ?? 30),
         });
-        const projects = await visibleProjects(services, scope);
-        const people = await members(services, scope);
+        const projects = await requestProjects();
+        const people = await requestMembers();
         const statuses = await services.issues.listTaskStatuses(scope);
         const types = await services.issues.listTaskTypes(scope);
         return json({
@@ -1234,7 +1284,7 @@ export async function handleUi(
           : q.get("status")
             ? statuses.filter((item) => item.key === q.get("status")).map((item) => item.id)
             : undefined);
-      const projects = await visibleProjects(services, scope);
+      const projects = await requestProjects();
       const projectParam = q.get("project");
       const project = projectParam
         ? projects.find(
@@ -1243,6 +1293,7 @@ export async function handleUi(
         : undefined;
       if (projectParam && !project) throw new PlatformError("not_found", "Project not found");
       const filters: IssueFilters = {
+        summary: !flag(q.get("includeBody")),
         projectId: project?.id,
         statusIds,
         category: (q.get("category") as IssueFilters["category"]) || undefined,
@@ -1276,23 +1327,27 @@ export async function handleUi(
         cursor: q.get("cursor") ?? undefined,
         limit: Number(q.get("limit") ?? 30),
       };
-      const page = await services.issues.queryIssues(scope, filters);
-      const total = q.has("cursor") ? null : await services.issues.countIssues(scope, filters);
-      const people = await members(services, scope);
-      const types = await services.issues.listTaskTypes(scope);
-      const sprintIds = await services.planning.sprintsForIssues(
-        scope,
-        page.issues.map((issue) => issue.id),
-      );
-      const rollups = flag(q.get("includeRollups"))
-        ? await services.issues.childRollups(
-            scope,
-            page.issues.map((issue) => issue.id),
-          )
-        : null;
+      const [page, total, people, types] = await Promise.all([
+        services.issues.queryIssues(scope, filters),
+        q.has("cursor") ? Promise.resolve(null) : services.issues.countIssues(scope, filters),
+        requestMembers(),
+        services.issues.listTaskTypes(scope),
+      ]);
+      const [sprintIds, rollups] = await Promise.all([
+        services.planning.sprintsForIssues(
+          scope,
+          page.issues.map((issue) => issue.id),
+        ),
+        flag(q.get("includeRollups"))
+          ? services.issues.childRollups(
+              scope,
+              page.issues.map((issue) => issue.id),
+            )
+          : Promise.resolve(null),
+      ]);
       return json({
-        items: page.issues.map((issue) => ({
-          ...issueShape(
+        items: page.issues.map((issue) => {
+          const shaped = issueShape(
             issue,
             scope.workspaceId,
             projects.find((p) => p.id === issue.projectId),
@@ -1301,9 +1356,12 @@ export async function handleUi(
             types,
             flag(q.get("includeBody")),
             sprintIds[issue.id] ?? null,
-          ),
-          ...(rollups ? { rollup: rollups[issue.id] } : {}),
-        })),
+          );
+          return {
+            ...(q.get("fields") === "summary" ? boardIssueShape(shaped) : shaped),
+            ...(rollups ? { rollup: rollups[issue.id] } : {}),
+          };
+        }),
         nextCursor: page.nextCursor,
         total,
       });
@@ -1371,13 +1429,16 @@ export async function handleUi(
       const section = issueMatch[2],
         childId = issueMatch[3];
       if (!section && request.method === "GET") {
-        const projects = await visibleProjects(services, scope);
-        const people = await members(services, scope);
-        const statuses = await services.issues.listTaskStatuses(scope),
-          types = await services.issues.listTaskTypes(scope);
-        const sprintIds = await services.planning.sprintsForIssues(scope, [current.id]);
-        const rollup = await services.issues.childRollups(scope, [current.id]);
-        const links = (await services.issues.listIssueLinks(scope, current.id)).map(linkShape);
+        const [projects, people, statuses, types, sprintIds, rollup, rawLinks] = await Promise.all([
+          requestProjects(),
+          requestMembers(),
+          services.issues.listTaskStatuses(scope),
+          services.issues.listTaskTypes(scope),
+          services.planning.sprintsForIssues(scope, [current.id]),
+          services.issues.childRollups(scope, [current.id]),
+          services.issues.listIssueLinks(scope, current.id),
+        ]);
+        const links = rawLinks.map(linkShape);
         return json({
           ...issueShape(
             current,
@@ -1468,7 +1529,7 @@ export async function handleUi(
       }
       if (section === "comments") {
         if (request.method === "GET" && !childId) {
-          const people = await members(services, scope);
+          const people = await requestMembers();
           return json(
             (await services.issues.listComments(scope, current.id)).map((comment) => ({
               id: comment.id,

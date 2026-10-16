@@ -62,6 +62,9 @@ async function fixture() {
     reads = [],
     writes = [];
   const issues = {
+    async authorizeIssuesByIds(s, ids) {
+      for (const issueId of ids) await this.getIssueIncludingArchived(s, issueId);
+    },
     async authorizeIssue(s, id) {
       calls++;
       await fake.access.authorize(s);
@@ -195,6 +198,14 @@ test("sprint details, transitions, retry, CAS, active uniqueness and tenant look
   });
   assert.deepEqual(await f.api.sprintsForIssues(a, ["i1"]), { i1: "s1" });
   assert.deepEqual(await f.api.sprintsForIssues(b, ["i1"]), { i1: null });
+  await assert.rejects(
+    f.api.sprintsForIssues(
+      a,
+      Array.from({ length: 101 }, (_, i) => `i${i}`),
+    ),
+    code("validation"),
+  );
+  await assert.rejects(f.api.sprintsForIssues(a, ["i1", "missing"]), code("not_found"));
   await f.api.updateSprint(a, {
     operationId: "complete",
     sprintId: "s1",
@@ -272,8 +283,10 @@ test("rules, CAS, retry, membership uniqueness and historical reads", async () =
   );
   f.archiveIssue();
   assert.equal((await api.getSprintItems(editor, "s1")).items[0].archived, true);
+  assert.deepEqual(await api.sprintsForIssues(editor, ["i1"]), { i1: "s1" });
   f.archiveProject();
   assert.equal((await api.getSprintItems(editor, "s1")).sprint.archived, true);
+  assert.deepEqual(await api.sprintsForIssues(editor, ["i1"]), { i1: "s1" });
   await assert.rejects(
     api.scheduleIssue(editor, {
       operationId: "archived",

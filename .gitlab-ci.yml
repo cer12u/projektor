@@ -66,6 +66,7 @@ build:
   stage: build
   script:
     - pnpm build
+    - pnpm perf:probe --check
   artifacts:
     paths: [dist/]
     expire_in: 7 days

@@ -2,6 +2,8 @@ export const queries = {
   project:
     "SELECT id, project_key, name, description, slug, created_at, updated_at, version, archived FROM projects_projects WHERE workspace_id=? AND id=?",
   projectBySlug: "SELECT id FROM projects_projects WHERE workspace_id=? AND slug=?",
+  projectByKey:
+    "SELECT p.id,p.project_key,p.name,p.description,p.slug,p.created_at,p.updated_at,p.version,p.archived,g.role AS grant_role FROM projects_projects p LEFT JOIN projects_grants g ON g.workspace_id=p.workspace_id AND g.project_id=p.id AND g.principal_id=? AND g.active=1 WHERE p.workspace_id=? AND p.project_key=? COLLATE NOCASE AND p.archived=0 AND (?=1 OR g.principal_id IS NOT NULL)",
   grant:
     "SELECT role, active FROM projects_grants WHERE workspace_id=? AND project_id=? AND principal_id=?",
   visible:

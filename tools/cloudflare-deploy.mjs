@@ -13,6 +13,11 @@ import os from "node:os";
 import path from "node:path";
 
 const env = process.env;
+const deployOptions = env.CF_DEPLOY_CONFIG ? JSON.parse(env.CF_DEPLOY_CONFIG) : {};
+assert(
+  deployOptions.placement === undefined || deployOptions.placement === "smart",
+  "Invalid placement",
+);
 const required = [
   "CLOUDFLARE_API_TOKEN",
   "CLOUDFLARE_ACCOUNT_ID",
@@ -153,6 +158,7 @@ try {
     name: env.CF_PROD_WORKER,
     main: path.resolve("dist/worker.js"),
     compatibility_date: base.compatibility_date,
+    ...(deployOptions.placement === "smart" ? { placement: { mode: "smart" } } : {}),
     workers_dev: false,
     preview_urls: false,
     assets: { ...base.assets, directory: path.resolve("dist/assets") },

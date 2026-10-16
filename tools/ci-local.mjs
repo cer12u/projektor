@@ -28,7 +28,10 @@ const jobs = [
   ],
   [["pnpm", "test:web:unit"]],
   [["pnpm", "test:web"]],
-  [["pnpm", "build"]],
+  [
+    ["pnpm", "build"],
+    ["pnpm", "perf:probe", "--check"],
+  ],
   [
     ["pnpm", "check:artifact"],
     ["pnpm", "test:smoke"],

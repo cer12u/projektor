@@ -148,3 +148,12 @@ on the approved production D1 before deploying code. Verify its
 index, with no backfill or freeze bypass. Build the merged commit, calculate
 `sha256sum dist/migrations.json`, and set `CF_APPROVED_SCHEMA_SHA256` to that
 exact digest before the code deploy gate.
+
+For C8b, apply Planning `0006_issue_lookup.sql` and Issues
+`0009_default_list_index.sql` through the operator migration path on the
+approved production D1 before deploying code. Both add indexes only; neither
+backfills rows or needs a freeze bypass. Verify both
+`platform_schema_versions` receipts and the presence of
+`planning_issue_lookup` and `issues_project_default_order`. Build the merged
+commit, calculate `sha256sum dist/migrations.json`, and set
+`CF_APPROVED_SCHEMA_SHA256` to that exact digest before the code deploy gate.

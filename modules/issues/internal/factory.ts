@@ -14,6 +14,7 @@ import type {
   IssueComment,
   IssueEvent,
   IssueEventReader,
+  IssueFilters,
   IssueHistory,
   IssueLink,
   IssuePriority,
@@ -302,10 +303,9 @@ export function createIssues(deps: Dependencies): {
   async function seedCalls(scope: RequestScope): Promise<Statement[]> {
     const ws = w(scope);
     const calls: Statement[] = [];
-    if (!(await one("statusRows", [ws])))
-      calls.push({ name: "seedStatuses", values: Array(6).fill(ws) });
-    if (!(await one("typeRows", [ws])))
-      calls.push({ name: "seedTypes", values: Array(4).fill(ws) });
+    const presence = await one("seedPresence", [ws, ws]);
+    if (presence?.statuses !== 1) calls.push({ name: "seedStatuses", values: Array(6).fill(ws) });
+    if (presence?.types !== 1) calls.push({ name: "seedTypes", values: Array(4).fill(ws) });
     return calls;
   }
   const fromRow = (row: Row, projectKey: string): Issue => ({
@@ -354,6 +354,48 @@ export function createIssues(deps: Dependencies): {
         : await projects.authorizeProject(scope, string(row, "project_id"), permission);
     if (!allowArchived && row.archived === 1) fail("not_found", "Issue not found");
     return fromRow(row, project.key);
+  }
+  async function authorizeIssuesByIds(
+    scope: RequestScope,
+    ids: readonly string[],
+    includeArchived = false,
+  ): Promise<void> {
+    if (!Array.isArray(ids) || ids.length > 100) fail("validation", "Invalid IDs");
+    const checked = ids.map(id);
+    const rows = (await store.run("parentsByIds", [JSON.stringify(checked), w(scope)])).rows;
+    const found = new Map(rows.map((row) => [string(row, "id"), row]));
+    if (checked.some((value) => !found.has(value))) fail("not_found", "Issue not found");
+    const projectIds = [...new Set(rows.map((row) => string(row, "project_id")))];
+    for (const projectId of projectIds) {
+      if (includeArchived) await projects.getProjectIncludingArchived(scope, projectId);
+      else await projects.authorizeProject(scope, projectId);
+    }
+    if (!includeArchived && rows.some((row) => row.archived === 1))
+      fail("not_found", "Issue not found");
+  }
+  function defaultIssueList(filters: IssueFilters): boolean {
+    return (
+      filters.sort === undefined &&
+      filters.statusIds === undefined &&
+      filters.category === undefined &&
+      filters.priorities === undefined &&
+      filters.assigneeId === undefined &&
+      filters.parentId === undefined &&
+      !filters.noParent &&
+      filters.typeId === undefined &&
+      filters.excludeTypeIds === undefined &&
+      (!filters.labels || filters.labels.length === 0) &&
+      filters.completedAfter === undefined &&
+      filters.completedBefore === undefined &&
+      filters.updatedAfter === undefined &&
+      filters.updatedBefore === undefined &&
+      filters.dueBefore === undefined &&
+      filters.dueAfter === undefined &&
+      !filters.overdue &&
+      filters.hasDueDate === undefined &&
+      filters.issueIds === undefined &&
+      !filters.includeArchived
+    );
   }
   async function validateParent(
     scope: RequestScope,
@@ -1570,8 +1612,12 @@ export function createIssues(deps: Dependencies): {
       const source = await issue(scope, issueId);
       const rows = (await store.run("listLinks", [source.id, w(scope), source.id, source.id])).rows;
       const result: IssueLink[] = [];
+      const visible = new Map<string, Awaited<ReturnType<ProjectsApi["authorizeProject"]>>>();
+      for (const projectId of new Set(rows.map((row) => string(row, "other_project_id"))))
+        visible.set(projectId, await projects.authorizeProject(scope, projectId));
       for (const row of rows) {
-        const project = await projects.authorizeProject(scope, string(row, "other_project_id"));
+        const project = visible.get(string(row, "other_project_id"));
+        if (!project) fail("unknown", "Missing authorized project");
         const outbound = string(row, "source_issue_id") === source.id;
         const stored = string(row, "type");
         const type = outbound
@@ -1782,58 +1828,92 @@ export function createIssues(deps: Dependencies): {
         cursorAt,
         cursorId,
       ];
-      const rows = (
-        await store.run(filters.sort === "due_date" ? "queryIssuesDueDate" : "queryIssues", [
-          w(scope),
-          JSON.stringify(visible),
-          projectId,
-          projectId,
-          statusIds,
-          statusIds,
-          category,
-          category,
-          priorities,
-          priorities,
-          assigneeMode,
-          assigneeMode,
-          assigneeMode,
-          assigneeId,
-          parentId,
-          parentId,
-          filters.noParent === true ? 1 : 0,
-          typeId,
-          typeId,
-          exclusions,
-          exclusions,
-          labels,
-          filters.labelsMode ?? "all",
-          labels,
-          labels,
-          labels,
-          labels,
-          completedAfter,
-          completedAfter,
-          completedBefore,
-          completedBefore,
-          updatedAfter,
-          updatedAfter,
-          updatedBefore,
-          updatedBefore,
-          issueIds,
-          issueIds,
-          filters.includeArchived === true ? 1 : 0,
-          dueBefore,
-          dueBefore,
-          dueAfter,
-          dueAfter,
-          filters.overdue === true ? 1 : 0,
-          today,
-          filters.hasDueDate === undefined ? null : filters.hasDueDate ? 1 : 0,
-          filters.hasDueDate === true ? 1 : 0,
-          ...(filters.sort === "due_date" ? dueCursor : [cursorAt, cursorAt, cursorAt, cursorId]),
-          limit + 1,
-        ])
-      ).rows;
+      const rows = defaultIssueList(filters)
+        ? (
+            await store.run(
+              filters.projectId === undefined
+                ? filters.summary
+                  ? "queryIssuesWorkspaceDefaultSummary"
+                  : "queryIssuesWorkspaceDefault"
+                : filters.summary
+                  ? "queryIssuesProjectDefaultSummary"
+                  : "queryIssuesProjectDefault",
+              filters.projectId === undefined
+                ? [
+                    w(scope),
+                    JSON.stringify(visible),
+                    cursorAt,
+                    cursorAt,
+                    cursorAt,
+                    cursorId,
+                    limit + 1,
+                  ]
+                : [w(scope), projectId, cursorAt, cursorAt, cursorAt, cursorId, limit + 1],
+            )
+          ).rows
+        : (
+            await store.run(
+              filters.sort === "due_date"
+                ? filters.summary
+                  ? "queryIssuesDueDateSummary"
+                  : "queryIssuesDueDate"
+                : filters.summary
+                  ? "queryIssuesSummary"
+                  : "queryIssues",
+              [
+                w(scope),
+                JSON.stringify(visible),
+                projectId,
+                projectId,
+                statusIds,
+                statusIds,
+                category,
+                category,
+                priorities,
+                priorities,
+                assigneeMode,
+                assigneeMode,
+                assigneeMode,
+                assigneeId,
+                parentId,
+                parentId,
+                filters.noParent === true ? 1 : 0,
+                typeId,
+                typeId,
+                exclusions,
+                exclusions,
+                labels,
+                filters.labelsMode ?? "all",
+                labels,
+                labels,
+                labels,
+                labels,
+                completedAfter,
+                completedAfter,
+                completedBefore,
+                completedBefore,
+                updatedAfter,
+                updatedAfter,
+                updatedBefore,
+                updatedBefore,
+                issueIds,
+                issueIds,
+                filters.includeArchived === true ? 1 : 0,
+                dueBefore,
+                dueBefore,
+                dueAfter,
+                dueAfter,
+                filters.overdue === true ? 1 : 0,
+                today,
+                filters.hasDueDate === undefined ? null : filters.hasDueDate ? 1 : 0,
+                filters.hasDueDate === true ? 1 : 0,
+                ...(filters.sort === "due_date"
+                  ? dueCursor
+                  : [cursorAt, cursorAt, cursorAt, cursorId]),
+                limit + 1,
+              ],
+            )
+          ).rows;
       const selected = rows.slice(0, limit);
       const keys = new Map<string, string>();
       for (const row of selected) {
@@ -1904,6 +1984,17 @@ export function createIssues(deps: Dependencies): {
         ? calendarDate(filters.today ?? new Date(clock.now()).toISOString().slice(0, 10))
         : null;
       const projectId = filters.projectId ?? null;
+      if (defaultIssueList(filters)) {
+        const rows = (
+          await store.run(
+            filters.projectId === undefined
+              ? "countIssuesWorkspaceDefault"
+              : "countIssuesProjectDefault",
+            [w(scope), filters.projectId === undefined ? JSON.stringify(visible) : projectId],
+          )
+        ).rows;
+        return number(rows[0], "n");
+      }
       const rows = (
         await store.run("countIssues", [
           w(scope),
@@ -1983,11 +2074,12 @@ export function createIssues(deps: Dependencies): {
         return item ? [item] : [];
       });
     },
+    authorizeIssuesByIds,
     async childRollups(scope, parentIds) {
       if (!Array.isArray(parentIds) || parentIds.length > 100)
         fail("validation", "Invalid parent IDs");
       const checked = parentIds.map(id);
-      for (const parentId of checked) await issue(scope, parentId);
+      await authorizeIssuesByIds(scope, checked);
       const rows = (await store.run("childCounts", [w(scope), JSON.stringify(checked)])).rows;
       const result: Record<string, ChildRollup> = {};
       for (const parentId of checked)
@@ -2045,6 +2137,65 @@ export function createIssues(deps: Dependencies): {
               limit,
             ]))
       ).rows.map((row) => fromRow(row, project.key));
+    },
+    async searchVisibleIssues(scope, input) {
+      object(input);
+      const text = body(input.text, 256);
+      const terms = searchTerms(text);
+      if (!terms.length || terms.length > 12) fail("validation", "Expected 1–12 search terms");
+      if (!Number.isSafeInteger(input.limit) || input.limit < 1 || input.limit > 100)
+        fail("validation", "Invalid limit");
+      if (
+        input.labelsMode !== undefined &&
+        input.labelsMode !== "all" &&
+        input.labelsMode !== "any"
+      )
+        fail("validation", "Invalid labels mode");
+      let selected: string[] = [];
+      if (input.projectIds === undefined) {
+        let cursor = "";
+        do {
+          const page = await projects.listVisibleProjects(scope, cursor, 100);
+          selected.push(...page.projects.map((project) => project.id));
+          cursor = page.nextCursor ?? "";
+        } while (cursor);
+      } else {
+        if (!Array.isArray(input.projectIds) || input.projectIds.length > 100)
+          fail("validation", "Invalid project IDs");
+        selected = input.projectIds.map(id);
+      }
+      const keys = new Map<string, string>();
+      for (const projectId of new Set(selected))
+        keys.set(projectId, (await projects.authorizeProject(scope, projectId)).key);
+      if (!selected.length) return [];
+      const labels =
+        input.labels === undefined ? null : JSON.stringify(validateLabels(input.labels));
+      const labelParams = [labels, input.labelsMode ?? "all", labels, labels, labels, labels];
+      const projectJson = JSON.stringify(selected);
+      const rows = terms.some((term) => Array.from(term).length < 3)
+        ? (
+            await store.run("searchVisibleShort", [
+              ...Array.from({ length: 12 }, (_, index) =>
+                terms[index] === undefined ? null : searchPattern(terms[index]),
+              ),
+              w(scope),
+              projectJson,
+              ...labelParams,
+              input.limit,
+            ])
+          ).rows
+        : (
+            await store.run("searchVisible", [
+              searchExpression(terms),
+              w(scope),
+              projectJson,
+              w(scope),
+              projectJson,
+              ...labelParams,
+              input.limit,
+            ])
+          ).rows;
+      return rows.map((row) => fromRow(row, keys.get(string(row, "project_id")) ?? ""));
     },
     async flowIssueRows(scope, projectId, createdUntil, doneBefore) {
       await projects.authorizeProject(scope, id(projectId));

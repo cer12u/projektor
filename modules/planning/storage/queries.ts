@@ -6,6 +6,8 @@ export const queries = {
     "SELECT id FROM planning_sprints WHERE workspace_id=? AND project_id=? AND id<>? AND status='active' LIMIT 1",
   issueSprint:
     "SELECT issue_id,sprint_id FROM planning_items WHERE workspace_id=? AND issue_id=? AND present=1 ORDER BY sprint_id LIMIT 1",
+  issueSprintsByIds:
+    "SELECT issue_id,MIN(sprint_id) AS sprint_id FROM planning_items WHERE workspace_id=? AND issue_id IN (WITH RECURSIVE seq(n,js) AS (SELECT 0,? UNION ALL SELECT n+1,js FROM seq WHERE n+1<json_array_length(js)) SELECT json_extract(js,'$['||n||']') FROM seq WHERE n<json_array_length(js)) AND present=1 GROUP BY issue_id",
   items:
     "SELECT issue_id FROM planning_items WHERE workspace_id=? AND sprint_id=? AND present=1 AND issue_id>? ORDER BY issue_id LIMIT ?",
   create:

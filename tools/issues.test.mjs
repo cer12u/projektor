@@ -1045,7 +1045,7 @@ test("trigram upgrade rebuilds existing indexed rows and preserves unknown attri
         .prepare("SELECT COUNT(*) n FROM platform_schema_versions WHERE owner='issues'")
         .first()
     ).n,
-    8,
+    9,
   );
 });
 
@@ -1447,6 +1447,137 @@ test("C2 queryIssues applies each filter before equal-time cursor paging", async
   await assert.rejects(f.api.countIssuesByProject(f.human, ["p2"]), code("not_found"));
   assert.equal(await f.api.countIssues(f.other, {}), 0);
   assert.deepEqual(await f.api.countIssuesByProject(f.other, ["p1"]), []);
+});
+
+test("bulk issue authorization and child rollups preserve tenant, hidden and archived behavior", async () => {
+  const f = await fixture();
+  await f.api.createIssue(f.human, input("bulk-a"));
+  await f.api.createIssue(f.human, input("bulk-b", "bulk-b-create", "p2"));
+  await f.api.createIssue(f.other, input("bulk-other"));
+  await f.api.authorizeIssuesByIds(f.human, ["bulk-a", "bulk-b"]);
+  await assert.rejects(
+    f.api.authorizeIssuesByIds(f.human, ["bulk-a", "bulk-other"]),
+    code("not_found"),
+  );
+  await assert.rejects(
+    f.api.authorizeIssuesByIds(
+      f.human,
+      Array.from({ length: 101 }, (_, i) => `x${i}`),
+    ),
+    code("validation"),
+  );
+  f.state.denied.add("w1:human:p2");
+  await assert.rejects(f.api.authorizeIssuesByIds(f.human, ["bulk-b"]), code("not_found"));
+  await assert.rejects(f.api.childRollups(f.human, ["bulk-b"]), code("not_found"));
+  f.state.denied.delete("w1:human:p2");
+  await f.api.archiveIssue(f.human, {
+    issueId: "bulk-a",
+    operationId: "bulk-archive",
+    expectedVersion: 1,
+  });
+  await assert.rejects(f.api.childRollups(f.human, ["bulk-a"]), code("not_found"));
+  await f.api.authorizeIssuesByIds(f.human, ["bulk-a"], true);
+  assert.deepEqual((await f.api.childRollups(f.human, ["bulk-b"]))["bulk-b"].total, 0);
+});
+
+test("seed read batching preserves an operation receipt on retry", async () => {
+  const f = await fixture();
+  const command = input("batch-retry", "batch-retry-op");
+  const first = await f.api.createIssue(f.human, command);
+  assert.deepEqual(await f.api.createIssue(f.human, command), first);
+  assert.deepEqual(await f.api.readOperation(f.human, command.operationId), first);
+  assert.equal((await f.api.getIssue(f.human, { issueId: command.issueId })).version, 1);
+});
+
+test("single visible search returns the authorized union in global date order", async () => {
+  const f = await fixture();
+  for (const [id, projectId] of [
+    ["s1", "p1"],
+    ["s2", "p2"],
+    ["s3", "p1"],
+  ])
+    await f.api.createIssue(f.human, {
+      ...input(id, `create-${id}`, projectId),
+      title: "Findable title",
+    });
+  for (const query of ["Findable", "Fi"]) {
+    const expected = (
+      await Promise.all(
+        ["p1", "p2"].map((projectId) =>
+          f.api.searchIssues(f.human, { projectId, text: query, limit: 100 }),
+        ),
+      )
+    )
+      .flat()
+      .sort((a, b) => b.createdAt - a.createdAt || a.id.localeCompare(b.id))
+      .map((item) => item.id);
+    assert.deepEqual(
+      (
+        await f.api.searchVisibleIssues(f.human, {
+          text: query,
+          projectIds: ["p1", "p2"],
+          limit: 100,
+        })
+      ).map((item) => item.id),
+      expected,
+    );
+  }
+  f.state.denied.add("w1:human:p2");
+  await assert.rejects(
+    f.api.searchVisibleIssues(f.human, { text: "Findable", projectIds: ["p1", "p2"], limit: 100 }),
+    code("not_found"),
+  );
+  assert.equal(
+    (
+      await f.api.searchVisibleIssues(f.other, {
+        text: "Findable",
+        projectIds: ["p1"],
+        limit: 100,
+      })
+    ).length,
+    0,
+  );
+});
+
+test("default list SQL matches general filtering over 300 shuffled issues and both cursor orders", async () => {
+  const f = await fixture();
+  let seed = 17;
+  for (let i = 0; i < 300; i++) {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    await f.api.createIssue(f.human, {
+      ...input(
+        `bulk-${String(seed).padStart(10, "0")}-${i}`,
+        `bulk-create-${i}`,
+        i % 2 ? "p1" : "p2",
+      ),
+      dueDate: `2026-10-${String(1 + (i % 28)).padStart(2, "0")}`,
+    });
+  }
+  for (const projectId of [undefined, "p1"]) {
+    for (const sort of [undefined, "due_date"]) {
+      const base = { projectId, sort, limit: 37 };
+      const pagesFor = async (extra) => {
+        let cursor;
+        const pages = [];
+        do {
+          const page = await f.api.queryIssues(f.human, {
+            ...base,
+            ...extra,
+            ...(cursor ? { cursor } : {}),
+          });
+          pages.push(page);
+          cursor = page.nextCursor;
+        } while (cursor);
+        return pages;
+      };
+      assert.deepEqual(await pagesFor({}), await pagesFor({ statusIds: ["status_backlog"] }));
+      assert.equal(
+        await f.api.countIssues(f.human, base),
+        await f.api.countIssues(f.human, { ...base, statusIds: ["status_backlog"] }),
+      );
+    }
+  }
+  assert.equal(await f.api.countIssues(f.other, {}), 0);
 });
 
 test("C2 0004 backfills frozen and live workspaces without weakening FKs or freeze checks", async () => {

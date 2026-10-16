@@ -66,6 +66,7 @@ export function useIssueFetching(
 		try {
 			const qs = buildFilterParams();
 			qs.set("limit", String(pageSize));
+			if (view === "board") qs.set("fields", "summary");
 			const data = await apiFetch<{
 				items: Issue[];
 				nextCursor: string | number | null;
@@ -130,6 +131,7 @@ export function useIssueFetching(
 		try {
 			const qs = buildFilterParams();
 			qs.set("limit", String(pageSize));
+			if (view === "board") qs.set("fields", "summary");
 			qs.set("cursor", String(nextCursor));
 			const data = await apiFetch<{
 				items: Issue[];
