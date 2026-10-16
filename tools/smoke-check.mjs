@@ -1,23 +1,26 @@
 import assert from "node:assert/strict";
 import { createHmac, randomBytes } from "node:crypto";
 import { Miniflare } from "miniflare";
+import { firstRemoteMigration } from "./smoke-retry.mjs";
 
-export async function checkSmoke(send, origin, smokeSecret) {
+export async function checkSmoke(send, origin, smokeSecret, remote = false) {
   const workspaceId = `smoke_${randomBytes(12).toString("hex")}`;
   const credentialSecret = randomBytes(32).toString("hex");
   const bearer = `pt1.${workspaceId}.smoke.${credentialSecret}`;
-  const request = async (path, method = "GET", value, headers = {}) => {
-    const response = await send(`${origin}${path}`, {
+  const request = async (path, method = "GET", value, headers = {}, retryFirst = false) => {
+    const url = `${origin}${path}`;
+    const init = {
       method,
       headers: { ...headers, ...(value ? { "content-type": "application/json" } : {}) },
       ...(value ? { body: JSON.stringify(value) } : {}),
-    });
+    };
+    const response = await (retryFirst ? firstRemoteMigration(send, url, init) : send(url, init));
     // Remote error bodies can contain credentials. Keep diagnostics to path/status.
     if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
     return response.json();
   };
-  const smoke = (path, value = {}) =>
-    request(`/__smoke/${path}`, "POST", value, { "x-smoke-secret": smokeSecret });
+  const smoke = (path, value = {}, retryFirst = false) =>
+    request(`/__smoke/${path}`, "POST", value, { "x-smoke-secret": smokeSecret }, retryFirst);
   const api = (name, value, method = "POST") => {
     const path = `/api/w/${workspaceId}/${name.replace(".", "/")}`;
     if (method === "GET") {
@@ -26,7 +29,7 @@ export async function checkSmoke(send, origin, smokeSecret) {
     }
     return request(path, "POST", value, { authorization: `Bearer ${bearer}` });
   };
-  const first = await smoke("migrate");
+  const first = await smoke("migrate", {}, remote);
   const second = await smoke("migrate");
   assert.equal(second.migrations, first.migrations, "migration ledger changed on retry");
   assert(first.migrations > 0);
@@ -136,7 +139,7 @@ if (process.argv[1]?.endsWith("smoke-check.mjs")) {
       const secret = process.env.SMOKE_SECRET;
       if (!origin || !secret || !/^https:\/\/.+\.workers\.dev$/.test(origin))
         throw new Error("SMOKE_ORIGIN workers.dev URL and SMOKE_SECRET are required");
-      const result = await checkSmoke(fetch, origin, secret);
+      const result = await checkSmoke(fetch, origin, secret, true);
       console.log(
         `Cloudflare smoke passed: ${result.migrations} migrations; workspace ${result.workspaceId}`,
       );

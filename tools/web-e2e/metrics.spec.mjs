@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { expect, test } from "@playwright/test";
 
 test("flow charts render on metrics and project pages after issue transitions", async ({
@@ -19,7 +20,10 @@ test("flow charts render on metrics and project pages after issue transitions", 
   };
   const projectResponse = await request.post("/api/projects", {
     headers,
-    data: { name: "Flow E2E", key: "FLOWE2E" },
+    data: {
+      name: `Flow E2E ${randomBytes(4).toString("hex")}`,
+      key: `FL${randomBytes(4).toString("hex").toUpperCase()}`,
+    },
   });
   expect(projectResponse.status()).toBe(201);
   const project = await projectResponse.json();

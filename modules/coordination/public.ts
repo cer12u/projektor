@@ -61,7 +61,7 @@ export interface CoordinationEvent {
   readonly source: "coordination";
   readonly schemaVersion: 1 | 2;
   readonly workspaceId: string;
-  readonly type: "LeaseChanged" | "ProgressReported" | "FileClaimForced";
+  readonly type: "LeaseChanged" | "ProgressReported" | "FileClaimForced" | "WipCapDenied";
   readonly subjectId: string;
   readonly actorId: string;
   readonly payload: { readonly actorId: string; readonly clientId: string | null };
@@ -205,6 +205,21 @@ export interface CoordinationApi {
     cursor: number,
     limit: number,
   ): Promise<readonly CoordinationEvent[]>;
+  leaseHeldSeconds(
+    scope: RequestScope,
+    projectId: string,
+    issues: readonly { readonly id: string; readonly doneAt: number }[],
+  ): Promise<{ readonly [issueId: string]: number }>;
+  flowWindowCounts(
+    scope: RequestScope,
+    projectId: string,
+    since: number,
+    until: number,
+  ): Promise<{
+    readonly leaseExpiries: number;
+    readonly abandonedClaims: number;
+    readonly wipCapPressure: number;
+  }>;
 }
 
 /** Composition-only maintenance capability. */

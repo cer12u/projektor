@@ -99,7 +99,23 @@ async function fixture() {
     },
   };
   const authorizations = [];
+  let flowRows = [];
+  let flowLeaseSeconds = {};
+  let flowCounts = { leaseExpiries: 0, abandonedClaims: 0, wipCapPressure: 0 };
   const issueApi = {
+    async flowIssueRows(s, projectId) {
+      await projects.authorizeProject(s, projectId);
+      return flowRows;
+    },
+    async countDoneBefore() {
+      return 0;
+    },
+    async humanCommentCounts() {
+      return {};
+    },
+    async listTaskTypes() {
+      return [];
+    },
     async authorizeIssue(s, id) {
       authorizations.push(id);
       if (typeof id !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(id))
@@ -153,6 +169,12 @@ async function fixture() {
       async projectSessions() {
         return { items: [], nextCursor: null };
       },
+      async leaseHeldSeconds() {
+        return flowLeaseSeconds;
+      },
+      async flowWindowCounts() {
+        return flowCounts;
+      },
     },
     planning: {
       async listSprints(s, projectId) {
@@ -201,6 +223,11 @@ async function fixture() {
     history,
     authorizations,
     issues,
+    setFlow: (rows, leaseSeconds, counts) => {
+      flowRows = rows;
+      flowLeaseSeconds = leaseSeconds;
+      flowCounts = counts;
+    },
     add,
     loseResponse: () => (loseResponse = true),
     breakBatch: () => (breakBatch = true),
@@ -745,6 +772,42 @@ test("C5 flow metrics pure computation preserves original distribution and bucke
   assert.equal(result.bugShareOverTime.find((b) => b.total === 1).bugSharePercent, 1);
   assert.equal(result.agingWip[0].id, "open");
   assert.equal(result.cfdOverTime.at(-1).done, 1);
+});
+
+test("C6 flow metrics uses Coordination lease and factory history", async () => {
+  const f = await fixture();
+  const since = 1900000;
+  f.setFlow(
+    [
+      {
+        id: "i1",
+        createdAt: since,
+        readyAt: since + 5,
+        claimedAt: since + 10,
+        inReviewAt: null,
+        doneAt: since + 30,
+        reviewBounceCount: 0,
+        status: "done",
+        typeKey: null,
+      },
+    ],
+    { i1: 10 },
+    { leaseExpiries: 2, abandonedClaims: 1, wipCapPressure: 3 },
+  );
+  const result = await f.api.getFlowMetrics(f.scope(), {
+    projectId: "p1",
+    since,
+    until: 2000000,
+    granularity: "day",
+  });
+  assert.equal(result.autonomyRatio.avg, 0.5);
+  assert.equal(result.flowEfficiency.avg, 0.4);
+  assert.deepEqual(result.factoryHealth, {
+    leaseExpiries: 2,
+    abandonedClaims: 1,
+    gateRejections: 0,
+    wipCapPressure: 3,
+  });
 });
 
 test("C5 flow window validation caps day/week spans", async () => {

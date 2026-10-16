@@ -313,6 +313,7 @@ export function createIssues(deps: Dependencies): {
     createdAt: number(row, "created_at"),
     updatedAt: number(row, "updated_at"),
     completedAt: row.completed_at === null ? null : number(row, "completed_at"),
+    doneAt: row.done_at === null ? null : number(row, "done_at"),
     readyAt: row.ready_at === null ? null : number(row, "ready_at"),
     claimedAt: row.claimed_at === null ? null : number(row, "claimed_at"),
     inReviewAt: row.in_review_at === null ? null : number(row, "in_review_at"),
@@ -623,6 +624,8 @@ export function createIssues(deps: Dependencies): {
         at = clock.now();
       if (oldCategory === category) continue;
       const completedAt = category === "done" ? at : null;
+      const doneAt =
+        category === "done" ? (row.done_at === null ? at : number(row, "done_at")) : null;
       const flow = flowValues(
         {
           status: string(row, "status"),
@@ -641,6 +644,7 @@ export function createIssues(deps: Dependencies): {
           values: [
             category,
             completedAt,
+            doneAt,
             flow.readyAt,
             flow.claimedAt,
             flow.inReviewAt,
@@ -1048,6 +1052,8 @@ export function createIssues(deps: Dependencies): {
               createdAt,
               createdAt,
               assigneeId,
+              category === "done" ? createdAt : null,
+              category === "done" ? createdAt : null,
               flow.readyAt,
               flow.claimedAt,
               flow.inReviewAt,
@@ -1205,6 +1211,7 @@ export function createIssues(deps: Dependencies): {
             JSON.stringify(labels),
             assigneeId,
             completedAt,
+            current.doneAt === null && definition.category === "done" ? now : null,
             flow.readyAt,
             flow.claimedAt,
             flow.inReviewAt,
@@ -1244,6 +1251,7 @@ export function createIssues(deps: Dependencies): {
             target,
             `status_${target}`,
             target === "done" ? (current.completedAt ?? now) : null,
+            current.doneAt === null && target === "done" ? now : null,
             flow.readyAt,
             flow.claimedAt,
             flow.inReviewAt,

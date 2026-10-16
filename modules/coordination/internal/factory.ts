@@ -248,6 +248,74 @@ export function createCoordination(d: Dependencies): {
     await issue(scope, issueId, "write");
     return lease;
   }
+  async function recordCapDenial(
+    scope: RequestScope,
+    projectId: string,
+    issueId: string,
+    op: string,
+    fingerprint: string,
+    at: number,
+  ) {
+    const frozen = async () =>
+      Boolean(
+        (await one("maintenanceMarker", [w(scope), ""])) ||
+          (await one("maintenanceMarker", [w(scope), projectId])),
+      );
+    if (await frozen()) return;
+    try {
+      await store.batch([
+        ...guarded(scope, {
+          name: "recordWipDenial",
+          values: [
+            w(scope),
+            projectId,
+            issueId,
+            actor(scope),
+            at,
+            w(scope),
+            projectId,
+            issueId,
+            actor(scope),
+            w(scope),
+            projectId,
+          ],
+        }),
+        {
+          name: "receipt",
+          values: [
+            w(scope),
+            actor(scope),
+            op,
+            fingerprint,
+            JSON.stringify({ denied: true, issueId, projectId }),
+          ],
+        },
+        {
+          name: "event",
+          values: [
+            w(scope),
+            w(scope),
+            ids.next(),
+            "WipCapDenied",
+            issueId,
+            actor(scope),
+            null,
+            at,
+            scope.clientId ?? null,
+            issueId,
+            projectId,
+            w(scope),
+            issueId,
+          ],
+        },
+      ]);
+    } catch {
+      if (await frozen()) return;
+      const saved = await replay(scope, op, fingerprint);
+      if (saved) return;
+      fail("unknown", "Operation outcome unknown; retry same operation ID");
+    }
+  }
   const api: CoordinationApi = {
     async startSession(scope, input) {
       await authorized(scope, true);
@@ -305,6 +373,8 @@ export function createCoordination(d: Dependencies): {
         result = { ...sessionRow(r), expiresAt: now, live: false };
       return commit(scope, input.operationId, fingerprint, result, [
         ...guarded(scope, { name: "end", values: [now, w(scope), sid, actor(scope), now] }),
+        { name: "closeSessionFileClaimSpans", values: [now, w(scope), sid] },
+        { name: "closeSessionLeaseSpans", values: [now, w(scope), sid] },
         { name: "dropSessionClaims", values: [w(scope), sid] },
         { name: "releaseSessionLeases", values: [now, w(scope), sid] },
       ]);
@@ -317,12 +387,24 @@ export function createCoordination(d: Dependencies): {
         projectId = id(target.projectId);
       const fingerprint = await fp("acquire", input.operationId, [sid, iid]);
       const saved = await replay(scope, input.operationId, fingerprint);
-      if (saved) return saved as Lease;
+      if (saved) {
+        if (typeof saved === "object" && "denied" in saved && saved.denied === true)
+          fail("conflict", "Coordination contention or stale version");
+        return saved as Lease;
+      }
       const now = clock.now(),
         old = await one("lease", [w(scope), iid]);
       const previous = old ? leaseRow(old) : null;
       if (previous && previous.sessionId !== null && previous.expiresAt > now)
         fail("conflict", `Lease held by ${previous.sessionId}`);
+      const [activeCount, limit] = await Promise.all([
+        one("activeLeaseCount", [w(scope), projectId, now]),
+        one("limit", [w(scope), projectId]),
+      ]);
+      if (num(activeCount ?? { n: 0 }, "n") >= (limit ? num(limit, "cap") : 3)) {
+        await recordCapDenial(scope, projectId, iid, input.operationId, fingerprint, now);
+        fail("conflict", "Coordination contention or stale version");
+      }
       const result: Lease = {
         issueId: iid,
         projectId,
@@ -362,9 +444,37 @@ export function createCoordination(d: Dependencies): {
               projectId,
             ],
           };
-      return commit(scope, input.operationId, fingerprint, result, guarded(scope, call), [
-        { type: "LeaseChanged", subject: iid, other: previous?.sessionId },
-      ]);
+      const calls: Statement[] = [
+        ...guarded(scope, call),
+        ...(previous?.sessionId
+          ? [
+              {
+                name: "closeLeaseSpan" as const,
+                values: [previous.expiresAt, "expired", w(scope), iid, previous.fencingToken],
+              },
+            ]
+          : []),
+        { name: "openLeaseSpan", values: [now, w(scope), iid, result.fencingToken] },
+      ];
+      try {
+        return await commit(scope, input.operationId, fingerprint, result, calls, [
+          { type: "LeaseChanged", subject: iid, other: previous?.sessionId },
+        ]);
+      } catch (error) {
+        if (error instanceof PlatformError && error.code === "conflict") {
+          const current = await one("activeLeaseCount", [w(scope), projectId, clock.now()]);
+          if (current && num(current, "n") >= (limit ? num(limit, "cap") : 3))
+            await recordCapDenial(
+              scope,
+              projectId,
+              iid,
+              input.operationId,
+              fingerprint,
+              clock.now(),
+            );
+        }
+        throw error;
+      }
     },
     async renewLease(scope, input) {
       const sid = id(input.sessionId),
@@ -405,7 +515,10 @@ export function createCoordination(d: Dependencies): {
         input.operationId,
         fingerprint,
         { ...old, sessionId: null, expiresAt: now, releaseReason: "released" },
-        guarded(scope, { name: "release", values: [now, w(scope), iid, sid, token, now] }),
+        [
+          ...guarded(scope, { name: "release", values: [now, w(scope), iid, sid, token, now] }),
+          { name: "closeLeaseSpan", values: [now, "released", w(scope), iid, token] },
+        ],
         [{ type: "LeaseChanged", subject: iid }],
       );
     },
@@ -575,8 +688,8 @@ export function createCoordination(d: Dependencies): {
       );
       if (contention.length && !forced)
         fail("conflict", `Files held: ${JSON.stringify(contention)}`);
-      const calls: Statement[] = normalized.flatMap((p, index) =>
-        guarded(scope, {
+      const calls: Statement[] = normalized.flatMap((p, index) => [
+        ...guarded(scope, {
           name: "putClaim",
           values: [
             w(scope),
@@ -599,7 +712,25 @@ export function createCoordination(d: Dependencies): {
             previous[index] ? field(previous[index], "session_id") : null,
           ],
         }),
-      );
+        ...(previous[index] &&
+        (field(previous[index], "session_id") !== sid ||
+          num(previous[index], "expires_at") <= clock.now())
+          ? [
+              {
+                name: "closeFileClaimSpan" as const,
+                values: [
+                  Math.min(clock.now(), num(previous[index], "expires_at")),
+                  num(previous[index], "expires_at") <= clock.now() ? "expired" : "forced",
+                  w(scope),
+                  repository,
+                  p,
+                  field(previous[index], "session_id"),
+                ],
+              },
+            ]
+          : []),
+        { name: "openFileClaimSpan", values: [clock.now(), w(scope), repository, p, sid] },
+      ]);
       const result = normalized.map((p) => ({
         repo: repository,
         path: p,
@@ -643,9 +774,13 @@ export function createCoordination(d: Dependencies): {
         input.operationId,
         fingerprint,
         normalized,
-        normalized.flatMap((p) =>
-          guarded(scope, { name: "dropClaim", values: [w(scope), repository, p, sid] }),
-        ),
+        normalized.flatMap((p) => [
+          ...guarded(scope, { name: "dropClaim", values: [w(scope), repository, p, sid] }),
+          {
+            name: "closeFileClaimSpan",
+            values: [clock.now(), "released", w(scope), repository, p, sid],
+          },
+        ]),
       );
     },
     async reportProgress(scope, input) {
@@ -805,6 +940,49 @@ export function createCoordination(d: Dependencies): {
         occurredAt: num(r, "occurred_at"),
         cursor: num(r, "sequence"),
       }));
+    },
+    async leaseHeldSeconds(scope, projectId, issues) {
+      const pid = id(projectId);
+      await projects.authorizeProject(scope, pid);
+      const done = new Map(issues.map((issue) => [id(issue.id), integer(issue.doneAt)]));
+      const rows = (
+        await store.run("leaseHeldSeconds", [w(scope), pid, JSON.stringify([...done.keys()])])
+      ).rows;
+      const held: Record<string, number> = {};
+      for (const row of rows) {
+        const issueId = field(row, "issue_id");
+        const finish = row.released_at === null ? done.get(issueId) : num(row, "released_at");
+        if (finish !== undefined)
+          held[issueId] = (held[issueId] ?? 0) + Math.max(0, finish - num(row, "claimed_at"));
+      }
+      return held;
+    },
+    async flowWindowCounts(scope, projectId, since, until) {
+      const pid = id(projectId);
+      await projects.authorizeProject(scope, pid);
+      const rows = (
+        await store.run("flowWindowCounts", [
+          w(scope),
+          pid,
+          integer(since),
+          integer(until),
+          w(scope),
+          pid,
+          integer(since),
+          integer(until),
+          w(scope),
+          pid,
+          integer(since),
+          integer(until),
+        ])
+      ).rows;
+      const row = rows[0];
+      if (!row) fail("unknown", "Flow counts missing");
+      return {
+        leaseExpiries: num(row, "lease_expiries"),
+        abandonedClaims: num(row, "abandoned_claims"),
+        wipCapPressure: num(row, "wip_cap_pressure"),
+      };
     },
   };
   return { api: Object.freeze(api), eventReader: reader, maintenance: createMaintenance(store) };

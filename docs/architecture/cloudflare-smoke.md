@@ -42,6 +42,13 @@ machine bearer directly into the verify D1, and the REST/MCP checks then use the
 normal authentication and authorization path. This bypass is never deployed as
 the normal Worker.
 
+After deploy, readiness requires five consecutive authenticated GET probes to
+`/__smoke/migrate` returning 405, spaced three seconds apart within 120 seconds.
+The first remote migration POST retries only HTTP 403 every three seconds for up
+to 60 seconds, because an edge may briefly serve the prior Worker secret. A 500,
+network error or any later failed call stops immediately. Diagnostics omit secret
+values and response bodies.
+
 The smoke runs all module migrations in owner order twice and compares the
 ledger count. It checks a D1 batch rollback on a mid-batch constraint error,
 100 accepted bind values and the adapter's 101-bind rejection, R2 put/get/delete,
