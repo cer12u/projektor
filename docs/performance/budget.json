@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "method": "Warm D1 round trips per complete page request set or individual write; 10% headroom rounded up.",
+  "measuredWarm": {
+    "projects list": 18,
+    "project landing": 39,
+    "issue list": 86,
+    "board": 280,
+    "issue detail": 78,
+    "My Issues": 116,
+    "sprint page": 123,
+    "wiki page": 33,
+    "metrics page": 21,
+    "issue search": 16,
+    "MCP tools/list": 12,
+    "MCP issue read": 17,
+    "PATCH issue": 24,
+    "add comment": 18,
+    "create issue": 18
+  },
+  "roundTrips": {
+    "projects list": 20,
+    "project landing": 43,
+    "issue list": 95,
+    "board": 308,
+    "issue detail": 86,
+    "My Issues": 128,
+    "sprint page": 136,
+    "wiki page": 37,
+    "metrics page": 24,
+    "issue search": 18,
+    "MCP tools/list": 14,
+    "MCP issue read": 19,
+    "PATCH issue": 27,
+    "add comment": 20,
+    "create issue": 20
+  }
+}

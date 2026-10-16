@@ -888,9 +888,12 @@ test("UI project fields, slug lookup and update command are tenant-local, retria
   });
   assert.deepEqual(created, { id: "p1", version: 1 });
   assert.equal((await f.api.getProjectBySlug(f.owner, "shared")).description, "first");
+  assert.equal((await f.api.getProjectByKey(f.owner, "ONE")).id, "p1");
   assert.equal((await f.api.getProject(f.owner, "p1")).createdAt, 1000);
   await f.api.createProject(w2, { ...create("p2", "TWO"), slug: "shared" });
   assert.equal((await f.api.getProjectBySlug(w2, "shared")).id, "p2");
+  assert.equal((await f.api.getProjectByKey(w2, "TWO")).id, "p2");
+  await assert.rejects(f.api.getProjectByKey(w2, "ONE"), code("not_found"));
   await assert.rejects(f.api.getProjectBySlug(f.owner, "missing"), code("not_found"));
   await assert.rejects(f.api.getProjectBySlug(w2, "one"), code("not_found"));
   f.state.now = 1010;

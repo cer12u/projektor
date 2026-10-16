@@ -305,6 +305,7 @@
           "issues_check_issues_insert",
           "issues_check_issues_update",
           "issues_created_order",
+          "issues_project_default_order",
           "issues_parent",
           "issues_status",
           "issues_freeze_task_statuses_insert",
@@ -530,6 +531,7 @@
         ],
         "objects": [
           "planning_open_issue",
+          "planning_issue_lookup",
           "planning_one_active_sprint",
           "planning_check_sprints_insert",
           "planning_check_sprints_update",

@@ -25,6 +25,11 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const dist = join(dirname(fileURLToPath(import.meta.url)), '..', 'dist');
+const astroAssets = join(dist, '_astro');
+for (const name of readdirSync(astroAssets)) {
+  if (!/\.[A-Za-z0-9_-]{8}\.[A-Za-z0-9]+$/.test(name) || !statSync(join(astroAssets, name)).isFile())
+    throw new Error(`Unhashed Astro asset: ${name}`);
+}
 
 const htmlFiles = (dir) =>
   readdirSync(dir).flatMap((entry) => {
@@ -63,7 +68,7 @@ const policy = [
   "style-src 'self' 'unsafe-inline'",
 ].join('; ');
 
-writeFileSync(join(dist, '_headers'), `/*\n  Content-Security-Policy: ${policy}\n`, 'utf8');
+writeFileSync(join(dist, '_headers'), `/*\n  Content-Security-Policy: ${policy}\n\n/_astro/*\n  Cache-Control: public, max-age=31536000, immutable\n`, 'utf8');
 
 console.log(`gen-csp-headers: ${hashes.size} inline-script hashes across ${pages.length} pages`);
 if (hashes.size === 0) {

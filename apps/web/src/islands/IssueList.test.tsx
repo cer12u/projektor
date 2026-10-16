@@ -933,6 +933,9 @@ describe("issues page loading (PROJ-862)", () => {
 		render(<IssueList />);
 		await waitFor(() => expect(screen.getByText("Board issue 149")).toBeTruthy());
 		expect(screen.getByText("Board issue 0")).toBeTruthy();
+		const issueUrls = mock.mock.calls.map(([url]) => String(url)).filter((url) => url.includes("/api/issues?"));
+		expect(issueUrls).toHaveLength(2);
+		expect(issueUrls.every((url) => new URL(url, "http://x").searchParams.get("fields") === "summary")).toBe(true);
 	});
 
 	it("renders only one of the desktop table / mobile cards", async () => {

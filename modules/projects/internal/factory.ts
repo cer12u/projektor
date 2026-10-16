@@ -435,6 +435,28 @@ export function createProjects(deps: Dependencies): {
       if (!row) missing();
       return authorizeProject(live, str(row, "id"));
     },
+    async getProjectByKey(scope, projectKey) {
+      const live = await access.authorize(scope, "read");
+      const row = await one("projectByKey", [
+        actor(live),
+        workspace(live),
+        key(projectKey),
+        privileged(live) ? 1 : 0,
+      ]);
+      if (!row) missing();
+      return {
+        id: str(row, "id"),
+        key: str(row, "project_key"),
+        name: str(row, "name"),
+        description: str(row, "description"),
+        slug: str(row, "slug"),
+        createdAt: num(row, "created_at"),
+        updatedAt: num(row, "updated_at"),
+        version: num(row, "version"),
+        archived: false,
+        role: privileged(live) ? "manager" : role(row.grant_role),
+      };
+    },
     getProjectIncludingArchived: (scope, projectId) =>
       authorizeProject(scope, projectId, "read", true),
     async listVisibleProjects(scope, cursor = "", limit = 50) {

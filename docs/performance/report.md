@@ -1,5 +1,43 @@
 # Cloudflare performance investigation (C8a)
 
+## C8b before and after
+
+Local Miniflare warm measurements on the same fixture; D1 rows read are lower bounds because `first()` omits metadata. The budget ceilings add 10% to the measured D1 round trips and round up.
+
+| Page or operation | D1 trips before → after | Rows read before → after | Response KiB before → after | Target trips |
+|---|---:|---:|---:|---:|
+| projects list | 18 → 18 | 2,050 → 2,050 | 1.8 → 1.8 | — |
+| project landing | 155 → 39 | 47,240 → 865 | 37.2 → 37.2 | 25 |
+| issue list | 192 → 86 | 214,731 → 8,482 | 27.0 → 26.9 | 25 |
+| board | 1834 → 280 | 142,480 → 10,379 | 324.1 → 209.7 | 80 |
+| issue detail | 78 → 78 | 439 → 385 | 4.2 → 4.2 | 30 |
+| My Issues | 1224 → 116 | 93,209 → 65,697 | 245.0 → 245.0 | 40 |
+| sprint page | 123 → 123 | 2,282 → 2,460 | 19.0 → 19.0 | 30 |
+| wiki page | 33 → 33 | 2,273 → 2,273 | 14.8 → 14.8 | — |
+| metrics page | 21 → 21 | 440 → 440 | 3.4 → 3.4 | — |
+| issue search | 20 → 16 | 14,027 → 6,049 | 4.4 → 4.4 | 6 |
+| MCP tools/list | 12 → 12 | 16 → 16 | 32.5 → 32.5 | — |
+| MCP issue read | 17 → 17 | 21 → 21 | 0.1 → 0.1 | — |
+| PATCH issue | 25 → 24 | 101 → 83 | 0.0 → 0.0 | 12 |
+| add comment | 19 → 18 | 59 → 41 | 0.0 → 0.0 | 12 |
+| create issue | 19 → 18 | 86 → 68 | 0.1 → 0.1 | 12 |
+
+All measured response statuses matched the pre-change probe; the Wiki templates request remains the planned 501. The new index and bulk sprint lookup cut board round trips by 1,554 and My Issues by 1,108. The opt-in board projection reduced its response set by about 114 KiB. Issue detail retained 78 trips while its rows read fell from 439 to 385 after the bulk ID lookup was made to use the `(workspace_id,id)` primary key.
+
+The numeric targets remain unmet for project landing, issue list, board, My Issues, issue detail, sprint page, search and all three writes. These page sets contain multiple HTTP requests, each with fresh workspace admission and module authorization; the board and My Issues also fetch every page. The sprint page uses `getSprintItems` rather than the issue-to-sprint lookup changed here, so its 123 trips did not fall. Search still authorizes each of five projects through Projects, yielding 16 trips. The write paths retain UI version reads, module admission, receipt replay, CAS and the atomic write; the safe seed-presence query removes one trip per write, leaving 24/18/18. Further reduction needs a bounded bulk authorization or command contract with equivalent revocation and retry behavior.
+
+## C8b implementation notes
+
+Remote smoke retries 403 for every secret-gated smoke call during edge version propagation; bearer API probes retry only 403/404 in the first 60 seconds after readiness. Hashed Astro files are verified at build time and receive an immutable browser cache header.
+
+The issue list now uses dedicated workspace and project SQL for the created-date default shape, with an owner index on `(workspace_id,project_id,archived,created_at DESC,id DESC)`. On a 2,000-row, five-project SQLite fixture with bound project values, `EXPLAIN QUERY PLAN` changed from `SEARCH issues_issues USING INDEX issues_created_order (workspace_id=?)` to `SEARCH issues_issues USING INDEX issues_project_default_order (workspace_id=? AND project_id=? AND archived=?)`. The due-date candidate `(workspace_id,project_id,due_date,created_at,id)` was not added: with the actual catalog SQL and bound project values the planner retained `issues_project_number` and `USE TEMP B-TREE FOR ORDER BY` both before and after creating the candidate. The `(due_date IS NULL)` sort expression also prevents a direct match to that candidate's order. `parentsByIds` uses an ID-first CTE joined to the Issues primary key; an `IN` formulation had caused SQLite to scan the new project index across the workspace. `projectByKey` uses `projects_key_unique` with the active grant joined in the same authorized read.
+
+Visible issue search now uses one authorized cross-project query. FTS results are ordered by FTS rank, then `created_at DESC`, then `id`; short-token results have equal rank and use the latter two keys. This deliberately replaces the old project-by-project concatenation order. `fields=summary` is used only by the board and returns exactly the fields declared in `board-utils.ts`. The default issue-list response is unchanged. List SQL reads an empty description projection when the response omits `body`.
+
+The write-path change is limited to Issues' independent status/type seed-presence reads, now one static owner query. The admission checks, receipt lookup, CAS, guard, and atomic write batch retain their order. The UI pre-read is required to pass `expectedVersion`, while the module repeats admission and receipt checks to protect retries and concurrent changes. The target of 12 D1 round trips cannot be reached safely with this bounded change; further reduction needs a separately specified command/read contract and targeted retry/CAS proof. The measured counts appear in the table above.
+
+Feedback paging remains pending an explicit UI page contract. Read replication needs a session/bookmark consistency design before a trial. Code splitting remains a lower-priority cold-start experiment. Smart Placement is configurable but off by default; the owner trial procedure and D1 latency/TTFB measurements are in [GitHub to Cloudflare](../github-cloudflare.md).
+
 ## Method and limits
 
 Run `pnpm build && pnpm perf:probe`. The probe builds an instrumented copy of the built Worker, migrates Miniflare D1, and seeds **one workspace, five projects, 2,000 issues (two labels each), 100 comments, 50 links, one R2 file, ten sprints (100 issue assignments), 200 wiki pages, and three members (286 issues assigned to the owner)** through existing commands. It persists this fixture while it measures page request sets, then creates a new isolate per cold page set. `docs/performance/baseline.json` retains each request's status and counters. The page sets follow `apps/web/src/islands/issue-list/useIssueFetching.ts:48-108`, `IssueDetail.tsx:114-320`, `ProjectLanding.tsx:88-101`, `SprintManager.tsx:285-286`, `WikiPage.tsx:2319-2460`, and `MetricsDashboard.tsx:193`. The board set pages through all 400 project issues, as the UI does. The read sets are measured before write probes change the fixture. Requests within a set run sequentially in the probe; the browser may overlap independent calls, so a set's local wall time is the **maximum request** and is not a browser page-load measurement. Wiki templates intentionally returns 501.

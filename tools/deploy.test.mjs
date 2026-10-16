@@ -47,7 +47,7 @@ test("migrate Worker is secret-gated and applies every production owner idempote
 
 // Run the real deploy script with only process execution and fetch replaced, so no
 // account or network is touched. `health` decides whether the new version answers.
-async function orchestrate(health) {
+async function orchestrate(health, placement) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "deploy-test-"));
   const built = await build({
     entryPoints: ["tools/cloudflare-deploy.mjs"],
@@ -124,9 +124,13 @@ async function orchestrate(health) {
       PROD_INTEGRATIONS_KEY: secret,
       PROD_OAUTH_FORM_SECRET: formSecret,
       DEPLOY_HEALTH_TIMEOUT_MS: "1",
+      ...(placement === undefined ? {} : { CF_DEPLOY_CONFIG: JSON.stringify({ placement }) }),
     },
   });
-  const calls = fs.readFileSync(path.join(dir, "calls.log"), "utf8").trim().split("\n");
+  const callsFile = path.join(dir, "calls.log");
+  const calls = fs.existsSync(callsFile)
+    ? fs.readFileSync(callsFile, "utf8").trim().split("\n")
+    : [];
   const configs = Object.fromEntries(
     fs
       .readdirSync(dir)
@@ -166,6 +170,15 @@ test("deploy migrates through a temporary Worker, deploys generated config and c
   );
   assert(app.assets.run_worker_first.includes("/mcp/*"));
   assert.equal(read("prod-app-migrate").d1_databases[0].database_id, "d1");
+});
+
+test("legacy deploy emits opt-in Smart Placement and rejects other values", async () => {
+  const enabled = await orchestrate(true, "smart");
+  assert.equal(enabled.status, 0);
+  assert.deepEqual(enabled.read("prod-app").placement, { mode: "smart" });
+  const invalid = await orchestrate(true, "nearest");
+  assert.notEqual(invalid.status, 0);
+  assert.match(invalid.output, /Invalid placement/);
 });
 
 test(

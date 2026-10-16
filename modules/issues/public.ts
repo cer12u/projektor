@@ -108,6 +108,8 @@ export interface ChildRollup {
   readonly remaining: number;
 }
 export interface IssueFilters {
+  /** Omits description from the storage projection for list responses without body. */
+  readonly summary?: boolean;
   readonly projectId?: string;
   readonly statusIds?: readonly string[];
   readonly category?: IssueState;
@@ -282,6 +284,11 @@ export interface IssuesApi {
     projectIds: readonly string[],
   ): Promise<readonly { projectId: string; open: number; backlog: number }[]>;
   getIssuesByIds(scope: RequestScope, ids: readonly string[]): Promise<readonly Issue[]>;
+  authorizeIssuesByIds(
+    scope: RequestScope,
+    ids: readonly string[],
+    includeArchived?: boolean,
+  ): Promise<void>;
   childRollups(
     scope: RequestScope,
     parentIds: readonly string[],
@@ -397,6 +404,16 @@ export interface IssuesApi {
       readonly projectId: string;
       readonly text: string;
       readonly limit?: number;
+      readonly labels?: readonly string[];
+      readonly labelsMode?: "all" | "any";
+    },
+  ): Promise<readonly Issue[]>;
+  searchVisibleIssues(
+    scope: RequestScope,
+    input: {
+      readonly text: string;
+      readonly projectIds?: readonly string[];
+      readonly limit: number;
       readonly labels?: readonly string[];
       readonly labelsMode?: "all" | "any";
     },

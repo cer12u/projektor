@@ -124,6 +124,27 @@ test("smoke failures omit potentially secret-bearing remote response bodies", as
   );
 });
 
+test("remote smoke retries a 403 on the second migration call", async () => {
+  const statuses = [200, 403, 200];
+  let migrationCalls = 0;
+  await assert.rejects(
+    checkSmoke(
+      async (url) => {
+        if (String(url).endsWith("/__smoke/migrate")) {
+          migrationCalls++;
+          return new Response(JSON.stringify({ migrations: 1 }), { status: statuses.shift() });
+        }
+        return new Response("{}", { status: 500 });
+      },
+      "https://example.test",
+      "secret",
+      true,
+    ),
+    /\/__smoke\/bootstrap: HTTP 500/,
+  );
+  assert.equal(migrationCalls, 3);
+});
+
 test("smoke Worker gates probes and checks D1, migrations, R2 and signed feedback deduplication", async () => {
   const mf = new Miniflare({
     modules: true,

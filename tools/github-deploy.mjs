@@ -32,7 +32,7 @@ assert.deepEqual(
     "integrationsEnabled",
   ]
     .concat(
-      ["adminEmails", "defaultWorkspaceSlug", "defaultWorkspaceName"].filter((key) =>
+      ["adminEmails", "defaultWorkspaceSlug", "defaultWorkspaceName", "placement"].filter((key) =>
         Object.hasOwn(installation, key),
       ),
     )
@@ -56,6 +56,10 @@ if (installation.defaultWorkspaceName !== undefined)
   );
 assert.equal(typeof installation.oauthEnabled, "boolean");
 assert.equal(typeof installation.integrationsEnabled, "boolean");
+assert(
+  installation.placement === undefined || installation.placement === "smart",
+  "Invalid placement",
+);
 assert.match(installation.worker, /^[a-z0-9-]{1,63}$/);
 assert.match(installation.d1Id, /^[0-9a-f-]{36}$/);
 assert(
@@ -100,6 +104,7 @@ assert(
 );
 const config = {
   ...base,
+  ...(installation.placement === "smart" ? { placement: { mode: "smart" } } : {}),
   main: path.resolve("dist/worker.js"),
   workers_dev: false,
   preview_urls: false,

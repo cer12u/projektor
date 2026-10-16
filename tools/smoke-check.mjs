@@ -1,26 +1,35 @@
 import assert from "node:assert/strict";
 import { createHmac, randomBytes } from "node:crypto";
 import { Miniflare } from "miniflare";
-import { firstRemoteMigration } from "./smoke-retry.mjs";
+import { retryRemoteTransition } from "./smoke-retry.mjs";
 
 export async function checkSmoke(send, origin, smokeSecret, remote = false) {
+  const readinessEnd = Date.now() + 60_000;
   const workspaceId = `smoke_${randomBytes(12).toString("hex")}`;
   const credentialSecret = randomBytes(32).toString("hex");
   const bearer = `pt1.${workspaceId}.smoke.${credentialSecret}`;
-  const request = async (path, method = "GET", value, headers = {}, retryFirst = false) => {
+  const request = async (path, method = "GET", value, headers = {}) => {
     const url = `${origin}${path}`;
     const init = {
       method,
       headers: { ...headers, ...(value ? { "content-type": "application/json" } : {}) },
       ...(value ? { body: JSON.stringify(value) } : {}),
     };
-    const response = await (retryFirst ? firstRemoteMigration(send, url, init) : send(url, init));
+    const response =
+      remote && path.startsWith("/__smoke/")
+        ? await retryRemoteTransition(send, url, init, [403])
+        : remote && path.startsWith("/api/w/") && Date.now() < readinessEnd
+          ? await retryRemoteTransition(send, url, init, [403, 404], {
+              now: Date.now,
+              deadline: readinessEnd,
+            })
+          : await send(url, init);
     // Remote error bodies can contain credentials. Keep diagnostics to path/status.
     if (!response.ok) throw new Error(`${path}: HTTP ${response.status}`);
     return response.json();
   };
-  const smoke = (path, value = {}, retryFirst = false) =>
-    request(`/__smoke/${path}`, "POST", value, { "x-smoke-secret": smokeSecret }, retryFirst);
+  const smoke = (path, value = {}) =>
+    request(`/__smoke/${path}`, "POST", value, { "x-smoke-secret": smokeSecret });
   const api = (name, value, method = "POST") => {
     const path = `/api/w/${workspaceId}/${name.replace(".", "/")}`;
     if (method === "GET") {
@@ -29,7 +38,7 @@ export async function checkSmoke(send, origin, smokeSecret, remote = false) {
     }
     return request(path, "POST", value, { authorization: `Bearer ${bearer}` });
   };
-  const first = await smoke("migrate", {}, remote);
+  const first = await smoke("migrate");
   const second = await smoke("migrate");
   assert.equal(second.migrations, first.migrations, "migration ledger changed on retry");
   assert(first.migrations > 0);

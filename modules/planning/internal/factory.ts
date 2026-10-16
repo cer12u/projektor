@@ -26,7 +26,10 @@ type Statement = Call<Name>;
 interface Dependencies {
   readonly store: ModuleStore<"planning", Name>;
   readonly access: Pick<AccessApi, "authorize">;
-  readonly issues: Pick<IssuesApi, "authorizeIssue" | "getIssueIncludingArchived">;
+  readonly issues: Pick<
+    IssuesApi,
+    "authorizeIssue" | "getIssueIncludingArchived" | "authorizeIssuesByIds"
+  >;
   readonly projects: Pick<ProjectsApi, "authorizeProject" | "getProjectIncludingArchived">;
   readonly clock: Clock;
   readonly ids: IdGenerator;
@@ -255,13 +258,13 @@ export function createPlanning(d: Dependencies): {
     },
     async sprintsForIssues(s, issueIds) {
       await access.authorize(s, "read");
-      if (issueIds.length > 100) fail("validation", "Too many issues");
+      if (!Array.isArray(issueIds) || issueIds.length > 100) fail("validation", "Too many issues");
       const result: Record<string, string | null> = {};
-      for (const issueId of issueIds) {
-        const issue = await issues.getIssueIncludingArchived(s, id(issueId));
-        const row = await one("issueSprint", [ws(s), issue.id]);
-        result[issue.id] = row ? str(row, "sprint_id") : null;
-      }
+      const checked = issueIds.map(id);
+      await issues.authorizeIssuesByIds(s, checked, true);
+      for (const issueId of checked) result[issueId] = null;
+      const rows = (await store.run("issueSprintsByIds", [ws(s), JSON.stringify(checked)])).rows;
+      for (const row of rows) result[str(row, "issue_id")] = str(row, "sprint_id");
       return result;
     },
     async scheduleIssue(s, input) {

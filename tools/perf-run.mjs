@@ -268,7 +268,7 @@ const groups = {
   ],
   board: [
     "/api/projects",
-    `/api/issues?project=${p}&limit=100`,
+    `/api/issues?project=${p}&limit=100&fields=summary`,
     "/api/task-statuses",
     "/api/task-types",
     `/api/issues?project=${p}&typeId=type_epic&limit=100`,
@@ -322,7 +322,7 @@ async function measure(name, calls, instance, phase) {
   }
   if (name === "board")
     for (let page = 0; boardCursor != null && page < 50; page++) {
-      const pathname = `/api/issues?project=${p}&cursor=${encodeURIComponent(boardCursor)}`;
+      const pathname = `/api/issues?project=${p}&fields=summary&cursor=${encodeURIComponent(boardCursor)}`;
       const result = await request(pathname, "GET", undefined, instance);
       rows.push({ path: pathname, method: "GET", status: result.status, ...result.metric });
       boardCursor = result.value.nextCursor;
@@ -392,7 +392,26 @@ const baseline = {
   note: "Miniflare wall time minus union of D1 wait intervals approximates CPU; first() omits rows_read metadata. Sequential waves approximate a dependency chain, not a traced async DAG.",
   results,
 };
-fs.writeFileSync("docs/performance/baseline.json", `${JSON.stringify(baseline, null, 2)}\n`);
+if (process.argv.includes("--check")) {
+  const budget = JSON.parse(fs.readFileSync("docs/performance/budget.json", "utf8"));
+  const approved = JSON.parse(fs.readFileSync("docs/performance/baseline.json", "utf8"));
+  for (const result of results.filter((item) => item.phase === "warm")) {
+    const ceiling = budget.roundTrips[result.name];
+    if (!Number.isSafeInteger(ceiling) || result.roundTrips > ceiling)
+      throw new Error(`Performance budget: ${result.name} ${result.roundTrips} > ${ceiling}`);
+    const expected = approved.results.find(
+      (item) => item.phase === "warm" && item.name === result.name,
+    );
+    if (
+      !expected ||
+      result.calls.length !== expected.calls.length ||
+      result.calls.some((call, index) => call.status !== expected.calls[index].status)
+    )
+      throw new Error(`Performance response status changed: ${result.name}`);
+  }
+} else {
+  fs.writeFileSync("docs/performance/baseline.json", `${JSON.stringify(baseline, null, 2)}\n`);
+}
 console.table(
   results.map(
     ({

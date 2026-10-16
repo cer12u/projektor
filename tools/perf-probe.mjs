@@ -12,4 +12,6 @@ await build({
   format: "esm",
   platform: "node",
 });
-execFileSync(process.execPath, [".tmp/perf-run.mjs"], { stdio: "inherit" });
+execFileSync(process.execPath, [".tmp/perf-run.mjs", ...process.argv.slice(2)], {
+  stdio: "inherit",
+});

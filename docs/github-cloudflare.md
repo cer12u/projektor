@@ -1,6 +1,6 @@
 # GitHub main to Cloudflare
 
-Actions verifies and deploys the same checked artifact on main pushes, serialized in the production environment. Deployment stays disabled until repository variable CF_PRODUCTION_READY is explicitly true. Pull requests and default manual verification never deploy. An explicit deploy_production manual input can perform the approved first cutover from main. Workflow permissions are contents: read. GitLab CI is unchanged.
+Actions verifies and deploys the same checked artifact on main pushes, serialized in the production environment. Deployment stays disabled until repository variable CF_PRODUCTION_READY is explicitly true. Pull requests and default manual verification never deploy. An explicit deploy_production manual input can perform the approved first cutover from main. Workflow permissions are contents: read. GitLab's build job also runs the local performance budget probe.
 
 ## Owner token input
 
@@ -25,7 +25,9 @@ Production environment variables:
 - CLOUDFLARE_ACCOUNT_ID: approved account.
 - CF_PRESERVED_D1_IDS: every preserved database ID, comma separated.
 - CF_APPROVED_SCHEMA_SHA256: fingerprint approved after new DB ledger verification.
-- CF_DEPLOY_CONFIG: JSON with worker, d1Id, d1Name, kvId, r2Name, origin (HTTPS, trailing slash), accessTeamDomain, accessAudience, rateIds (three distinct decimal strings), oauthEnabled and integrationsEnabled (booleans). Optional fields: `adminEmails` (string array), `defaultWorkspaceSlug` (workspace ID pattern), `defaultWorkspaceName` (nonempty string). Present optional fields become Worker vars `ADMIN_EMAILS`, `DEFAULT_WORKSPACE_SLUG`, and `DEFAULT_WORKSPACE_NAME`; empty admin lists do not enable bootstrap.
+- CF_DEPLOY_CONFIG: JSON with worker, d1Id, d1Name, kvId, r2Name, origin (HTTPS, trailing slash), accessTeamDomain, accessAudience, rateIds (three distinct decimal strings), oauthEnabled and integrationsEnabled (booleans). Optional fields: `adminEmails` (string array), `defaultWorkspaceSlug` (workspace ID pattern), `defaultWorkspaceName` (nonempty string), `placement` (`"smart"` only). Present optional workspace fields become Worker vars `ADMIN_EMAILS`, `DEFAULT_WORKSPACE_SLUG`, and `DEFAULT_WORKSPACE_NAME`; empty admin lists do not enable bootstrap. An absent `placement` leaves Smart Placement disabled.
+
+For an owner trial, record the current D1 query latency and authenticated UI/API TTFB (median and p95, especially issue list, board, and writes) from the same client locations and traffic period. Set `placement` to `"smart"` in the protected `CF_DEPLOY_CONFIG`, deploy through the normal approved main workflow, and allow at least 15 minutes plus traffic from multiple locations for placement analysis. Check Cloudflare's placement status and `cf-placement` response header, then repeat the D1 latency and TTFB measurements with the same paths and clients. Remove the field and redeploy if overall TTFB or write latency worsens. Static assets remain edge served. Read replication is a later experiment requiring explicit read consistency and bookmark design.
 
 Run node tools/github-deploy.mjs --check with the approved configuration before enabling the job. It validates commit/checksums, approved schema hash, preserved-DB refusal, feature secret names, protected HTTP boundary and local dry-run. Binding existence is independently verified during initial setup; upload validates the referenced resources. It does not create/migrate/delete resources or save secrets.
 
