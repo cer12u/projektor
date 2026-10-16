@@ -16,7 +16,7 @@ test("original issue pages create, edit, comment, link, board, My Issues and sea
   await page.getByRole("button", { name: "+ New project" }).click();
   await page.getByRole("textbox", { name: "Name" }).fill("Issue E2E");
   await page.getByRole("button", { name: "Create project" }).click();
-  await page.goto("/issues");
+  await page.goto("/issues?project=ISSUEE2E");
   await expect(page.getByRole("button", { name: "+ New issue" })).toBeVisible();
   await page.getByRole("button", { name: "+ New issue" }).click();
   await page.getByPlaceholder("Issue title").fill("E2E first issue");
@@ -72,7 +72,7 @@ test("original issue pages create, edit, comment, link, board, My Issues and sea
   expect(assign.ok()).toBeTruthy();
   await page.goto("/my-issues");
   await expect(page.getByRole("link", { name: "E2E edited issue" }).first()).toBeVisible();
-  await page.goto("/issues");
+  await page.goto("/issues?project=ISSUEE2E");
   await page.getByRole("button", { name: "+ New issue" }).click();
   await page.getByPlaceholder("Issue title").fill("E2E linked issue");
   await page.getByRole("button", { name: "Create issue", exact: true }).click();
@@ -82,7 +82,7 @@ test("original issue pages create, edit, comment, link, board, My Issues and sea
   await page.getByPlaceholder("PROJ-12").fill("ISSUEE2E-2");
   await page.getByRole("button", { name: "Add", exact: true }).click();
   await expect(page.getByRole("link", { name: /ISSUEE2E-2/ })).toBeVisible();
-  await page.goto("/issues");
+  await page.goto("/issues?project=ISSUEE2E");
   await page.getByRole("button", { name: "board", exact: true }).click();
   await expect(
     page.getByRole("region", { name: "In Progress column" }).getByText("E2E edited issue"),
