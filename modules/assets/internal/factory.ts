@@ -130,7 +130,11 @@ export function createAssets(d: Dependencies): {
   ): Promise<string> {
     id(t.id);
     if (t.kind === "issue") return (await issues.authorizeIssue(scope, t.id, mode)).projectId;
-    if (t.kind === "wiki") return (await wiki.authorizePage(scope, t.id, mode)).projectId;
+    if (t.kind === "wiki")
+      return (
+        (await wiki.authorizePage(scope, t.id, mode)).projectId ??
+        fail("validation", "Workspace wiki attachments are unavailable")
+      );
     fail("validation", "Invalid target");
   }
   async function replay(scope: RequestScope, op: string, fp: string): Promise<AssetResult | null> {

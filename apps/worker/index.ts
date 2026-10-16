@@ -131,6 +131,7 @@ function compose(env: Env) {
   const issues = issueModule.api;
   const wikiModule = createWiki({
     store: createModuleStore(env.DB, "wiki"),
+    access,
     projects,
     clock: systemClock,
     ids: randomIds,

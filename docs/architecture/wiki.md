@@ -1,4 +1,8 @@
-# Wiki — Step 05
+# Wiki — Step 05, extended in C4b
+
+The Step 05 contract below describes the original project-only implementation.
+The C4b section at the end supersedes it where the UI restoration expanded the
+scope.
 
 Wiki owns project pages, immutable revisions, operation receipts, events, guards,
 and the FTS5 index. Its only business dependency is `ProjectsApi.authorizeProject`.
@@ -69,3 +73,31 @@ D1 evidence.
 
 See [Lifecycle](lifecycle.md) for owner-local atomic freeze, bounded purge, retained
 markers, project attribution, REST-only owner access and recovery limits.
+
+## C4b UI restoration
+
+Wiki now accepts workspace pages as `project_id = ''` in storage and exposes that
+value as `null` in its public DTO. A workspace page requires live workspace
+membership to read and a live member, admin or owner role to write. Project pages
+still require project authorization. Slugs are unique per workspace, including
+archived pages. Pages carry parent, creator, updater and timestamps; the additive
+`0003_workspace_pages.sql` migration derives metadata from the earliest and latest
+revision and renames cross-project slug conflicts by age and ID. The old
+`wiki_project_slug` index stays in place. Parent changes require an active parent
+in the same workspace and project scope and reject cycles.
+
+`getPageBySlug` resolves a workspace-unique slug. List and search without a
+project filter include workspace pages and pages from currently visible projects.
+The static SQL receives the visible project IDs as one JSON array bind; IDs are
+validated alphanumeric/underscore/hyphen values, and the SQL searches quoted
+complete IDs in that array. The C4b UI API maps core list, create, view, edit,
+archive, revision and search requests. Every write still uses a fresh operation
+ID, CAS, a guard, a receipt, a revision and an event in one batch. The UI API
+reports CAS conflicts as HTTP 409.
+
+The original UI's tree, drafts, diff, templates, trash, watches,
+notifications, backlinks and export remain deferred with HTTP 501. Delete
+archives only the selected page; the original's cascade trash and undo are not
+available. Revisions use numeric page versions as response IDs rather than the
+original UUID revision IDs. Frontmatter, verification and freshness fields have
+no source yet and return their original empty defaults.

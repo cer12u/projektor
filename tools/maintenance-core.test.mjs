@@ -133,7 +133,8 @@ test("delayed public commands reject after freeze in four owners", async () => {
     },
     {
       owner: "wiki",
-      make: (store) => platform.createWiki({ store, projects: project, clock, ids }),
+      make: (store) =>
+        platform.createWiki({ store, access: auth.access, projects: project, clock, ids }),
       command: (api) =>
         api.createPage(scope, {
           operationId: "late",
@@ -304,7 +305,7 @@ for (const [owner, parent, child, parentInsert, childInsert] of [
     "wiki",
     "wiki_pages",
     "wiki_revisions",
-    "INSERT INTO wiki_pages(workspace_id,id,project_id,slug,title,body,version) VALUES(?, ?, ?, 'slug','Title','Text',1)",
+    "INSERT INTO wiki_pages(workspace_id,id,project_id,slug,title,body,version) VALUES(?1, ?2, ?3, ?2,'Title','Text',1)",
     "INSERT INTO wiki_revisions(workspace_id,page_id,version,action,title,body,actor_id,actor_kind,occurred_at) VALUES(?, ?, 1,'create','Title','Text','u','human',1)",
   ],
 ]) {

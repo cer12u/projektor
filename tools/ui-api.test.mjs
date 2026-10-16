@@ -788,3 +788,96 @@ test("sprints and files UI API preserve shapes and isolate workspaces", async ()
     1,
   );
 });
+
+test("wiki core UI API shapes, conflicts, workspace authorization and tenant isolation", async () => {
+  const created = await request("/api/wiki", {
+    method: "POST",
+    workspace: "w1",
+    body: { title: "Home", slug: "home", content: "Alpha body" },
+  });
+  assert.equal(created.status, 201);
+  assert.equal(created.body.projectId, null);
+  assert.equal((await request("/api/wiki?", { workspace: "w1" })).body[0].slug, "home");
+  const detail = await request("/api/wiki/home", { workspace: "w1" });
+  assert.equal(detail.body.content, "Alpha body");
+  assert.equal(detail.body.parent_id, null);
+  assert.equal(detail.body.type, null);
+  assert.deepEqual(detail.body.tags, []);
+  assert.equal((await request("/api/wiki/home", { workspace: "w2" })).status, 404);
+  const principal = await access.authenticate({ kind: "human", assertion: alice });
+  const owner = await access.requireMembership(principal, "w1", "wiki-viewer-setup", "write");
+  const wikiViewer = await sign("wiki-viewer");
+  await access.inviteMember(owner, {
+    issuer,
+    subject: "wiki-viewer",
+    role: "viewer",
+    expectedVersion: 0,
+    operationId: "wiki-viewer",
+  });
+  assert.equal(
+    (await request("/api/wiki/home", { token: wikiViewer, workspace: "w1" })).status,
+    200,
+  );
+  assert.equal(
+    (
+      await request("/api/wiki", {
+        token: wikiViewer,
+        workspace: "w1",
+        method: "POST",
+        body: { title: "Denied" },
+      })
+    ).status,
+    403,
+  );
+  const project = await request("/api/projects", {
+    method: "POST",
+    workspace: "w1",
+    body: { name: "Wiki Project", key: "WIKIP" },
+  });
+  const projectPage = await request("/api/wiki", {
+    method: "POST",
+    workspace: "w1",
+    body: { title: "Project page", slug: "project-page", projectId: project.body.id },
+  });
+  assert.equal(projectPage.status, 201);
+  assert.equal(
+    (await request("/api/wiki/project-page", { token: wikiViewer, workspace: "w1" })).status,
+    404,
+  );
+  assert.equal(
+    (await request("/api/wiki", { token: wikiViewer, workspace: "w1" })).body.some(
+      (item) => item.slug === "project-page",
+    ),
+    false,
+  );
+  assert.equal(
+    (await request("/api/wiki/search?q=Alpha", { workspace: "w1" })).body[0].id,
+    created.body.id,
+  );
+  const edited = await request("/api/wiki/home", {
+    method: "PUT",
+    workspace: "w1",
+    body: { title: "Home revised", content: "Beta body", baseRevisionId: detail.body.revisionId },
+  });
+  assert.equal(edited.status, 200);
+  const stale = await request("/api/wiki/home", {
+    method: "PUT",
+    workspace: "w1",
+    body: { title: "Stale", baseRevisionId: detail.body.revisionId },
+  });
+  assert.equal(stale.status, 409);
+  assert.deepEqual(stale.body, { error: "Conflict" });
+  const revisions = await request("/api/wiki/home/revisions", { workspace: "w1" });
+  assert.equal(revisions.body[0].title, "Home revised");
+  assert.equal(
+    (await request(`/api/wiki/home/revisions/${revisions.body[0].id}`, { workspace: "w1" })).body
+      .content,
+    "Beta body",
+  );
+  assert.equal((await request("/api/wiki/tree", { workspace: "w1" })).status, 501);
+  assert.equal(
+    (await request("/api/wiki/home", { method: "DELETE", workspace: "w1" })).status,
+    200,
+  );
+  assert.equal((await request("/api/wiki/home", { workspace: "w1" })).status, 404);
+});

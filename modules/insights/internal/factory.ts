@@ -261,7 +261,7 @@ export function createInsights(d: Dependencies): {
       }
       if (source === "wiki") {
         const page = await wiki.authorizePage(s, entityId);
-        return { projectId: page.projectId, title: page.title };
+        return { projectId: page.projectId ?? "", title: page.title };
       }
       if (source === "assets") {
         const asset = await assets.getMetadata(s, entityId);

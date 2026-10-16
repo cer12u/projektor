@@ -5,6 +5,7 @@ export default defineConfig({
     { name: "foundation", testMatch: "ui-foundation.spec.mjs" },
     { name: "issues", testMatch: "issues.spec.mjs", dependencies: ["foundation"] },
     { name: "sprints-files", testMatch: "sprints-files.spec.mjs", dependencies: ["foundation"] },
+    { name: "wiki", testMatch: "wiki.spec.mjs", dependencies: ["foundation"] },
   ],
   use: {
     baseURL: "http://127.0.0.1:8789",
