@@ -7,12 +7,21 @@ export interface Sprint {
   readonly name: string;
   readonly version: number;
   readonly closed: boolean;
+  readonly goal: string | null;
+  readonly status: "planned" | "active" | "completed";
+  readonly startDate: number | null;
+  readonly endDate: number | null;
+  readonly createdAt: number;
+  readonly updatedAt: number;
   readonly archived: boolean;
 }
 export interface SprintItem {
   readonly issueId: string;
   readonly issue: Issue | null;
   readonly archived: boolean;
+}
+export interface SprintAssignments {
+  readonly [issueId: string]: string | null;
 }
 export interface PlanningResult {
   readonly id: string;
@@ -59,8 +68,26 @@ export interface PlanningApi {
       readonly sprintId: string;
       readonly projectId: string;
       readonly name: string;
+      readonly goal?: string | null;
+      readonly startDate?: number | null;
+      readonly endDate?: number | null;
     },
   ): Promise<PlanningResult>;
+  updateSprint(
+    scope: RequestScope,
+    input: {
+      readonly operationId: string;
+      readonly sprintId: string;
+      readonly expectedVersion: number;
+      readonly name?: string;
+      readonly goal?: string | null;
+      readonly status?: "planned" | "active" | "completed";
+      readonly startDate?: number | null;
+      readonly endDate?: number | null;
+    },
+  ): Promise<PlanningResult>;
+  getSprint(scope: RequestScope, sprintId: string): Promise<Sprint>;
+  sprintsForIssues(scope: RequestScope, issueIds: readonly string[]): Promise<SprintAssignments>;
   scheduleIssue(
     scope: RequestScope,
     input: {

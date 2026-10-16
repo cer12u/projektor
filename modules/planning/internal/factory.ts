@@ -79,6 +79,12 @@ export function createPlanning(d: Dependencies): {
     name: str(r, "name"),
     version: num(r, "version"),
     closed: r.closed === 1,
+    goal: r.goal === null ? null : str(r, "goal"),
+    status: str(r, "status") as Sprint["status"],
+    startDate: r.start_date === null ? null : num(r, "start_date"),
+    endDate: r.end_date === null ? null : num(r, "end_date"),
+    createdAt: num(r, "created_at"),
+    updatedAt: num(r, "updated_at"),
     archived: false,
   });
   async function readSprint(s: RequestScope, sprintId: string, mode: "read" | "write" = "read") {
@@ -165,7 +171,16 @@ export function createPlanning(d: Dependencies): {
       if (!name || name.length > 120) fail("validation", "Invalid sprint name");
       await access.authorize(s, "write");
       await projects.authorizeProject(s, pid, "write");
-      const fp = await fingerprint("create", [sid, pid, name]);
+      const goal = input.goal ?? null;
+      const start = input.startDate ?? null;
+      const end = input.endDate ?? null;
+      if (
+        (goal !== null && (typeof goal !== "string" || goal.length > 2000)) ||
+        (start !== null && (!Number.isSafeInteger(start) || start < 0)) ||
+        (end !== null && (!Number.isSafeInteger(end) || end < 0))
+      )
+        fail("validation", "Invalid sprint fields");
+      const fp = await fingerprint("create", [sid, pid, name, goal, start, end]);
       const saved = await replay(s, op, fp);
       if (saved) return saved;
       return commit(
@@ -176,8 +191,78 @@ export function createPlanning(d: Dependencies): {
         1,
         "create",
         null,
-        guarded(s, { name: "create", values: [ws(s), sid, pid, name] }),
+        guarded(s, {
+          name: "create",
+          values: [ws(s), sid, pid, name, goal, start, end, clock.now(), clock.now()],
+        }),
       );
+    },
+    async updateSprint(s, input) {
+      const op = id(input.operationId),
+        sid = id(input.sprintId),
+        expected = version(input.expectedVersion);
+      await access.authorize(s, "write");
+      const fp = await fingerprint("update", [
+        sid,
+        expected,
+        input.name,
+        input.goal,
+        input.status,
+        input.startDate,
+        input.endDate,
+      ]);
+      const saved = await replay(s, op, fp);
+      if (saved) return saved;
+      const current = await readSprint(s, sid, "write");
+      if (current.version !== expected) fail("conflict", "Sprint version conflict");
+      const name = input.name === undefined ? current.name : input.name.trim();
+      const goal = input.goal === undefined ? current.goal : input.goal;
+      const status = input.status ?? current.status;
+      const start = input.startDate === undefined ? current.startDate : input.startDate;
+      const end = input.endDate === undefined ? current.endDate : input.endDate;
+      if (
+        !name ||
+        name.length > 120 ||
+        (goal !== null && (typeof goal !== "string" || goal.length > 2000)) ||
+        !["planned", "active", "completed"].includes(status) ||
+        (start !== null && (!Number.isSafeInteger(start) || start < 0)) ||
+        (end !== null && (!Number.isSafeInteger(end) || end < 0))
+      )
+        fail("validation", "Invalid sprint fields");
+      if (current.status === "completed" && status !== "completed")
+        fail("validation", "Completed sprint cannot reopen");
+      if (status === "completed" && current.status !== "active")
+        fail("validation", "Only active sprints can be completed");
+      if (
+        status === "active" &&
+        current.status !== "active" &&
+        (await one("activeSprint", [ws(s), current.projectId, sid]))
+      )
+        fail("conflict", "Project already has an active sprint");
+      const changes: Statement[] = [
+        ...guarded(s, {
+          name: "updateDetails",
+          values: [name, goal, status, status, start, end, clock.now(), ws(s), sid, expected],
+        }),
+      ];
+      if (status === "completed" && current.status !== "completed")
+        changes.push({ name: "closeItems", values: [ws(s), sid] });
+      return commit(s, op, fp, sid, expected + 1, "update", null, changes);
+    },
+    async getSprint(s, sprintId) {
+      await access.authorize(s, "read");
+      return readSprint(s, sprintId);
+    },
+    async sprintsForIssues(s, issueIds) {
+      await access.authorize(s, "read");
+      if (issueIds.length > 100) fail("validation", "Too many issues");
+      const result: Record<string, string | null> = {};
+      for (const issueId of issueIds) {
+        const issue = await issues.getIssueIncludingArchived(s, id(issueId));
+        const row = await one("issueSprint", [ws(s), issue.id]);
+        result[issue.id] = row ? str(row, "sprint_id") : null;
+      }
+      return result;
     },
     async scheduleIssue(s, input) {
       const op = id(input.operationId),

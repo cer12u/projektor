@@ -4,6 +4,7 @@ import type {
   RequestScope,
   Workspace,
 } from "../../modules/access/public";
+import type { AssetLink, AssetTarget } from "../../modules/assets/public";
 import type {
   Issue,
   IssueFilters,
@@ -12,6 +13,7 @@ import type {
   TaskStatus,
   TaskType,
 } from "../../modules/issues/public";
+import type { Sprint } from "../../modules/planning/public";
 import type { Project } from "../../modules/projects/public";
 import { PlatformError } from "../../platform/public";
 import type { Services } from "../catalog";
@@ -202,6 +204,7 @@ function issueShape(
   statuses: readonly TaskStatus[],
   types: readonly TaskType[],
   body: boolean,
+  sprintId: string | null = null,
 ) {
   const status = statuses.find((item) => item.id === issue.statusId);
   const type = types.find((item) => item.id === issue.typeId);
@@ -228,7 +231,7 @@ function issueShape(
     type_id: issue.typeId,
     type_key: type?.key ?? null,
     type_name: type?.name ?? null,
-    sprint_id: null,
+    sprint_id: sprintId,
     created_by_id: issue.createdById,
     author_kind: issue.createdByKind === "machine" ? "agent" : "human",
     created_at: issue.createdAt,
@@ -256,13 +259,62 @@ const linkShape = (link: IssueLink) => {
     createdAt: 0,
   };
 };
-const deferredIssueFields = [
-  "sprintId",
-  "customFields",
-  "completionReport",
-  "remainder",
-  "agentSessionId",
-];
+const deferredIssueFields = ["customFields", "completionReport", "remainder", "agentSessionId"];
+const sprintShape = (s: Sprint, workspaceId: string) => ({
+  id: s.id,
+  workspaceId,
+  projectId: s.projectId,
+  name: s.name,
+  goal: s.goal,
+  status: s.status,
+  startDate: s.startDate,
+  endDate: s.endDate,
+  createdAt: s.createdAt,
+  updatedAt: s.updatedAt,
+});
+const fileShape = (a: AssetLink) => ({
+  id: a.id,
+  kind: a.kind === "link" ? "url" : "file",
+  filename: a.filename,
+  contentType: a.contentType,
+  size: a.size,
+  url: a.url,
+  createdAt: a.createdAt,
+  wikiPage: null,
+});
+function fileTarget(kind: unknown, entityId: unknown): AssetTarget {
+  if (typeof entityId !== "string") bad("Invalid entityId");
+  if (kind === "issue") return { kind: "issue", id: entityId as string };
+  if (kind === "wiki_page") return { kind: "wiki", id: entityId as string };
+  return bad("Invalid entityType");
+}
+async function assignSprint(
+  services: Services,
+  scope: RequestScope,
+  issueId: string,
+  next: string | null,
+) {
+  const old = (await services.planning.sprintsForIssues(scope, [issueId]))[issueId] ?? null;
+  if (old === next) return;
+  if (old) {
+    const sprint = await services.planning.getSprint(scope, old);
+    await services.planning.unscheduleIssue(scope, {
+      operationId: crypto.randomUUID(),
+      sprintId: old,
+      issueId,
+      expectedVersion: sprint.version,
+    });
+  }
+  if (next) {
+    const sprint = await services.planning.getSprint(scope, next);
+    await services.planning.scheduleIssue(scope, {
+      operationId: crypto.randomUUID(),
+      sprintId: next,
+      issueId,
+      expectedVersion: sprint.version,
+    });
+  }
+}
 export async function handleUi(
   request: Request,
   services: Services,
@@ -308,6 +360,8 @@ export async function handleUi(
       !workspaceMatch &&
       path !== "/api/projects" &&
       !projectMatch &&
+      !path.startsWith("/api/sprints") &&
+      !path.startsWith("/api/files") &&
       !path.startsWith("/api/issues") &&
       path !== "/api/task-statuses" &&
       path !== "/api/task-types"
@@ -321,6 +375,175 @@ export async function handleUi(
       requestId,
       request.method === "GET" ? "read" : "write",
     );
+    const sprintMatch = path.match(/^\/api\/sprints\/([^/]+)$/);
+    if (path === "/api/sprints" && request.method === "GET") {
+      const projectId = url.searchParams.get("projectId");
+      if (!projectId) bad("Missing projectId");
+      return json({
+        items: (await services.planning.listSprints(scope, projectId as string)).map((s) =>
+          sprintShape(s, scope.workspaceId),
+        ),
+      });
+    }
+    if (path === "/api/sprints" && request.method === "POST") {
+      const body = await input(request);
+      if (typeof body.projectId !== "string" || typeof body.name !== "string")
+        bad("Invalid sprint");
+      const result = await services.planning.createSprint(scope, {
+        operationId: crypto.randomUUID(),
+        sprintId: crypto.randomUUID(),
+        projectId: body.projectId as string,
+        name: body.name as string,
+        goal: body.goal === null || typeof body.goal === "string" ? body.goal : undefined,
+        startDate:
+          body.startDate === null || typeof body.startDate === "number"
+            ? body.startDate
+            : undefined,
+        endDate:
+          body.endDate === null || typeof body.endDate === "number" ? body.endDate : undefined,
+      });
+      return json({ id: result.id }, 201);
+    }
+    if (sprintMatch && request.method === "GET")
+      return json(
+        sprintShape(await services.planning.getSprint(scope, sprintMatch[1]), scope.workspaceId),
+      );
+    if (sprintMatch && request.method === "PATCH") {
+      const body = await input(request);
+      const sprint = await services.planning.getSprint(scope, sprintMatch[1]);
+      await services.planning.updateSprint(scope, {
+        operationId: crypto.randomUUID(),
+        sprintId: sprint.id,
+        expectedVersion: sprint.version,
+        name: typeof body.name === "string" ? body.name : undefined,
+        goal: body.goal === null || typeof body.goal === "string" ? body.goal : undefined,
+        status: typeof body.status === "string" ? (body.status as Sprint["status"]) : undefined,
+        startDate:
+          body.startDate === null || typeof body.startDate === "number"
+            ? body.startDate
+            : undefined,
+        endDate:
+          body.endDate === null || typeof body.endDate === "number" ? body.endDate : undefined,
+      });
+      return json({ ok: true });
+    }
+    if (path.startsWith("/api/sprints")) return unsupported();
+    const fileMatch = path.match(/^\/api\/files\/([^/]+)$/);
+    if (path === "/api/files" && request.method === "GET") {
+      const entityType =
+        url.searchParams.get("entityType") ??
+        (url.searchParams.has("issueId") ? "issue" : "wiki_page");
+      const entityId =
+        url.searchParams.get("entityId") ??
+        url.searchParams.get("issueId") ??
+        url.searchParams.get("wikiPageId");
+      const target = fileTarget(entityType, entityId);
+      const items: AssetLink[] = [];
+      let cursor = "";
+      do {
+        const page = await services.assets.listAssets(scope, target, cursor, 100);
+        items.push(...page.items);
+        cursor = page.nextCursor ?? "";
+      } while (cursor);
+      return json(items.map(fileShape));
+    }
+    if (path === "/api/files/links" && request.method === "POST") {
+      const body = await input(request);
+      if (body.kind !== "url" || typeof body.url !== "string") return unsupported();
+      const result = await services.assets.createLinkAsset(scope, {
+        operationId: crypto.randomUUID(),
+        assetId: crypto.randomUUID(),
+        url: body.url as string,
+        title: typeof body.label === "string" ? body.label : null,
+        target: fileTarget(body.entityType, body.entityId),
+      });
+      return json({ id: result.id, kind: "url" }, 201);
+    }
+    if (path === "/api/files" && request.method === "POST") {
+      if (!request.headers.get("content-type")?.startsWith("multipart/form-data"))
+        bad("Expected multipart/form-data");
+      const form = await request.formData();
+      const file = form.get("file");
+      if (!(file instanceof File)) throw new PlatformError("validation", "Missing file field");
+      const target = fileTarget(form.get("entityType"), form.get("entityId"));
+      if (file.size > 10 * 1024 * 1024) bad("Upload too large");
+      const bytes = await file.arrayBuffer();
+      const digest = await crypto.subtle.digest("SHA-256", bytes);
+      const sha256 = [...new Uint8Array(digest)]
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+      const projectId =
+        target.kind === "issue"
+          ? (await services.issues.authorizeIssue(scope, target.id, "write")).projectId
+          : (await services.wiki.authorizePage(scope, target.id, "write")).projectId;
+      const assetId = crypto.randomUUID();
+      const contentType = file.type || "application/octet-stream";
+      await services.assets.beginUpload(scope, {
+        operationId: crypto.randomUUID(),
+        assetId,
+        projectId,
+        size: file.size,
+        contentType,
+        filename: file.name,
+        sha256,
+      });
+      await services.assets.putUpload(scope, assetId, bytes);
+      const ready = await services.assets.completeUpload(scope, {
+        operationId: crypto.randomUUID(),
+        assetId,
+        expectedVersion: 1,
+      });
+      await services.assets.linkAsset(scope, {
+        operationId: crypto.randomUUID(),
+        assetId,
+        expectedVersion: ready.version,
+        linkId: assetId,
+        target,
+      });
+      return json({ id: assetId, filename: file.name, contentType, size: file.size }, 201);
+    }
+    if (fileMatch && request.method === "GET") {
+      const link = await services.assets.getLink(scope, fileMatch[1]);
+      const asset = await services.assets.downloadAsset(scope, link.assetId);
+      if (asset.metadata.kind === "link" && asset.metadata.url)
+        return Response.redirect(asset.metadata.url, 302);
+      if (!asset.body) throw new PlatformError("not_found", "Object missing");
+      const reader = asset.body;
+      const inline = ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(
+        asset.metadata.contentType,
+      );
+      const filename = asset.metadata.filename.replace(/[\r\n"\\]/g, "_");
+      const stream = new ReadableStream<Uint8Array>({
+        async pull(controller) {
+          const part = await reader.read();
+          if (part === null) controller.close();
+          else controller.enqueue(new Uint8Array(part));
+        },
+        async cancel() {
+          await reader.cancel();
+        },
+      });
+      return new Response(stream, {
+        headers: {
+          "Content-Type": inline ? asset.metadata.contentType : "application/octet-stream",
+          "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${filename}"`,
+          "X-Content-Type-Options": "nosniff",
+          "Content-Security-Policy": "sandbox; default-src 'none'",
+        },
+      });
+    }
+    if (fileMatch && request.method === "DELETE") {
+      const link = await services.assets.getLink(scope, fileMatch[1]);
+      const asset = await services.assets.getMetadata(scope, link.assetId);
+      await services.assets.unlinkAsset(scope, {
+        operationId: crypto.randomUUID(),
+        assetId: asset.id,
+        linkId: link.id,
+        expectedVersion: asset.version,
+      });
+      return new Response(null, { status: 204 });
+    }
+    if (path.startsWith("/api/files")) return unsupported();
     if (workspaceMatch && request.method === "GET") {
       if (workspaceMatch[1] !== scope.workspaceId)
         throw new PlatformError("forbidden", "Access denied");
@@ -479,14 +702,42 @@ export async function handleUi(
     }
     if (path === "/api/issues" && request.method === "GET") {
       const q = url.searchParams;
-      if (
-        q.has("sprintId") ||
-        q.has("cfKey") ||
-        q.has("cfOp") ||
-        q.has("cfValue") ||
-        flag(q.get("needsAudit"))
-      )
+      if (q.has("cfKey") || q.has("cfOp") || q.has("cfValue") || flag(q.get("needsAudit")))
         return unsupported();
+      if (q.has("sprintId")) {
+        if (
+          [...q.keys()].some((key) => !["sprintId", "limit", "cursor", "includeBody"].includes(key))
+        )
+          return unsupported();
+        const sprintId = q.get("sprintId");
+        if (!sprintId) bad("Invalid sprintId");
+        const page = await services.planning.getSprintItems(scope, sprintId as string, {
+          cursor: q.get("cursor") ?? undefined,
+          limit: Number(q.get("limit") ?? 30),
+        });
+        const projects = await visibleProjects(services, scope);
+        const people = await members(services, scope);
+        const statuses = await services.issues.listTaskStatuses(scope);
+        const types = await services.issues.listTaskTypes(scope);
+        return json({
+          items: page.items
+            .filter((item) => item.issue !== null)
+            .map((item) =>
+              issueShape(
+                item.issue as Issue,
+                scope.workspaceId,
+                projects.find((p) => p.id === item.issue?.projectId),
+                people,
+                statuses,
+                types,
+                flag(q.get("includeBody")),
+                page.sprint.id,
+              ),
+            ),
+          nextCursor: page.nextCursor,
+          total: null,
+        });
+      }
       const statuses = await services.issues.listTaskStatuses(scope);
       const statusIds =
         comma(q.get("statusIds")) ??
@@ -535,6 +786,10 @@ export async function handleUi(
       const total = q.has("cursor") ? null : await services.issues.countIssues(scope, filters);
       const people = await members(services, scope);
       const types = await services.issues.listTaskTypes(scope);
+      const sprintIds = await services.planning.sprintsForIssues(
+        scope,
+        page.issues.map((issue) => issue.id),
+      );
       const rollups = flag(q.get("includeRollups"))
         ? await services.issues.childRollups(
             scope,
@@ -551,6 +806,7 @@ export async function handleUi(
             statuses,
             types,
             flag(q.get("includeBody")),
+            sprintIds[issue.id] ?? null,
           ),
           ...(rollups ? { rollup: rollups[issue.id] } : {}),
         })),
@@ -572,6 +828,7 @@ export async function handleUi(
         "labels",
         "parentId",
         "typeId",
+        "sprintId",
       ]);
       if (Object.keys(body).some((field) => !allowed.has(field))) bad("Invalid issue input");
       if (typeof body.projectId !== "string" || typeof body.title !== "string")
@@ -597,6 +854,10 @@ export async function handleUi(
         parentId: typeof body.parentId === "string" ? body.parentId : undefined,
         assigneeId: typeof body.assigneeId === "string" ? body.assigneeId : undefined,
       });
+      if (body.sprintId !== undefined) {
+        if (typeof body.sprintId !== "string") bad("Invalid sprintId");
+        await assignSprint(services, scope, created.id, body.sprintId as string);
+      }
       return json({ id: created.id, number: created.number }, 201);
     }
     const issueMatch = path.match(/^\/api\/issues\/([^/]+)(?:\/(comments|links)(?:\/([^/]+))?)?$/);
@@ -609,6 +870,7 @@ export async function handleUi(
         const people = await members(services, scope);
         const statuses = await services.issues.listTaskStatuses(scope),
           types = await services.issues.listTaskTypes(scope);
+        const sprintIds = await services.planning.sprintsForIssues(scope, [current.id]);
         const rollup = await services.issues.childRollups(scope, [current.id]);
         const links = (await services.issues.listIssueLinks(scope, current.id)).map(linkShape);
         return json({
@@ -620,6 +882,7 @@ export async function handleUi(
             statuses,
             types,
             true,
+            sprintIds[current.id] ?? null,
           ),
           rollup: rollup[current.id],
           links,
@@ -649,6 +912,7 @@ export async function handleUi(
           "labels",
           "parentId",
           "typeId",
+          "sprintId",
         ]);
         if (Object.keys(body).some((field) => !allowed.has(field))) return unsupported();
         const statuses = await services.issues.listTaskStatuses(scope);
@@ -659,23 +923,31 @@ export async function handleUi(
               ? statuses.find((s) => s.key === body.status)?.id
               : undefined;
         if (body.status && !statusId) bad("Invalid status");
-        await services.issues.updateIssue(scope, {
-          operationId: crypto.randomUUID(),
-          issueId: current.id,
-          expectedVersion: current.version,
-          title: typeof body.title === "string" ? body.title : undefined,
-          description: typeof body.body === "string" ? body.body : undefined,
-          statusId,
-          priority: body.priority === undefined ? undefined : priorityValue(body.priority),
-          assigneeId:
-            body.assigneeId === null || typeof body.assigneeId === "string"
-              ? body.assigneeId
-              : undefined,
-          labels: Array.isArray(body.labels) ? (body.labels as string[]) : undefined,
-          parentId:
-            body.parentId === null || typeof body.parentId === "string" ? body.parentId : undefined,
-          typeId: body.typeId === null || typeof body.typeId === "string" ? body.typeId : undefined,
-        });
+        if (Object.keys(body).some((key) => key !== "sprintId"))
+          await services.issues.updateIssue(scope, {
+            operationId: crypto.randomUUID(),
+            issueId: current.id,
+            expectedVersion: current.version,
+            title: typeof body.title === "string" ? body.title : undefined,
+            description: typeof body.body === "string" ? body.body : undefined,
+            statusId,
+            priority: body.priority === undefined ? undefined : priorityValue(body.priority),
+            assigneeId:
+              body.assigneeId === null || typeof body.assigneeId === "string"
+                ? body.assigneeId
+                : undefined,
+            labels: Array.isArray(body.labels) ? (body.labels as string[]) : undefined,
+            parentId:
+              body.parentId === null || typeof body.parentId === "string"
+                ? body.parentId
+                : undefined,
+            typeId:
+              body.typeId === null || typeof body.typeId === "string" ? body.typeId : undefined,
+          });
+        if (Object.hasOwn(body, "sprintId")) {
+          if (body.sprintId !== null && typeof body.sprintId !== "string") bad("Invalid sprintId");
+          await assignSprint(services, scope, current.id, body.sprintId as string | null);
+        }
         return json({ ok: true });
       }
       if (section === "comments") {

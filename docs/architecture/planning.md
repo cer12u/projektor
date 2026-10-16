@@ -32,3 +32,18 @@ New outbox events use schemaVersion 2 and `payload.clientId` from RequestScope (
 
 See [Lifecycle](lifecycle.md) for owner-local atomic freeze, bounded purge, retained
 markers, project attribution, REST-only owner access and recovery limits.
+
+## UI restoration C4a
+
+Additive migrations 0004 and 0005 add sprint goal, status, dates and timestamps,
+plus a unique active-sprint index per workspace and project. Existing closed
+sprints read as `completed`. History timestamps are backfilled only outside
+frozen scopes; frozen legacy rows retain zero timestamps. New updates keep
+`closed` equal to completed status. `updateSprint` uses the normal CAS, guard,
+receipt, history and event batch. A completed sprint cannot reopen, completion
+requires active status, and only one sprint may be active in a project.
+`sprintsForIssues` resolves at most 100 issue IDs for the UI list page and
+returns the current schedule without changing Issues storage. UI assignment
+executes separate Planning commands after an Issues write, so a failed Planning
+step can leave the Issues write applied, matching the original cross-table
+behavior. A move first unschedules the old sprint and then schedules the new one.

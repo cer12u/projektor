@@ -11,12 +11,22 @@ export interface AssetMetadata {
   readonly sha256: string;
   readonly version: number;
   readonly ready: boolean;
+  readonly kind: "file" | "link";
+  readonly url: string | null;
+  readonly title: string | null;
+  readonly createdAt: number;
 }
 export interface AssetLink {
   readonly id: string;
   readonly filename: string;
   readonly assetId: string;
   readonly target: AssetTarget;
+  readonly kind: "file" | "link";
+  readonly url: string | null;
+  readonly title: string | null;
+  readonly size: number;
+  readonly contentType: string;
+  readonly createdAt: number;
 }
 export interface AssetResult {
   readonly id: string;
@@ -71,6 +81,16 @@ export interface AssetsApi {
       readonly target: AssetTarget;
     },
   ): Promise<AssetResult>;
+  createLinkAsset(
+    scope: RequestScope,
+    input: {
+      readonly operationId: string;
+      readonly assetId: string;
+      readonly url: string;
+      readonly title?: string | null;
+      readonly target: AssetTarget;
+    },
+  ): Promise<AssetResult>;
   unlinkAsset(
     scope: RequestScope,
     input: {
@@ -81,6 +101,7 @@ export interface AssetsApi {
     },
   ): Promise<AssetResult>;
   getMetadata(scope: RequestScope, assetId: string): Promise<AssetMetadata>;
+  getLink(scope: RequestScope, linkId: string): Promise<AssetLink>;
   listAssets(
     scope: RequestScope,
     target: AssetTarget,
@@ -90,7 +111,7 @@ export interface AssetsApi {
   downloadAsset(
     scope: RequestScope,
     assetId: string,
-  ): Promise<{ readonly metadata: AssetMetadata; readonly body: ByteReader }>;
+  ): Promise<{ readonly metadata: AssetMetadata; readonly body: ByteReader | null }>;
   readOperation(scope: RequestScope, operationId: string): Promise<AssetResult | null>;
   readEvents(
     reader: AssetEventReader,

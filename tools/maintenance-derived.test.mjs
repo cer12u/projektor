@@ -56,13 +56,27 @@ test("Planning freezes delayed writes and purges one project in bounded chunks",
     clock: { now: () => 1 },
     ids: { next: () => "x" },
   });
-  for (let i = 0; i < 55; i++) await store.run("create", ["w1", `a${i}`, "p1", "A"]);
-  await store.run("create", ["w1", "b", "p2", "B"]);
-  await store.run("create", ["w2", "c", "p1", "C"]);
+  const createValues = (workspaceId, sprintId, projectId, name) => [
+    workspaceId,
+    sprintId,
+    projectId,
+    name,
+    null,
+    null,
+    null,
+    1,
+    1,
+  ];
+  for (let i = 0; i < 55; i++) await store.run("create", createValues("w1", `a${i}`, "p1", "A"));
+  await store.run("create", createValues("w1", "b", "p2", "B"));
+  await store.run("create", createValues("w2", "c", "p1", "C"));
   const scope = { workspaceId: "w1", projectId: "p1" };
   assert.equal((await planning.maintenance.freezeScope(scope)).state, "frozen");
-  await assert.rejects(store.run("create", ["w1", "late", "p1", "late"]), /scope frozen/);
-  await store.run("create", ["w1", "safe", "p2", "safe"]);
+  await assert.rejects(
+    store.run("create", createValues("w1", "late", "p1", "late")),
+    /scope frozen/,
+  );
+  await store.run("create", createValues("w1", "safe", "p2", "safe"));
   const first = await planning.maintenance.purgeScope(scope);
   assert.equal(first.state, "purging");
   assert(first.remaining > 0 && first.remaining < 55);
@@ -85,7 +99,10 @@ test("Planning freezes delayed writes and purges one project in bounded chunks",
     await scalar(db, "SELECT count(*) n FROM planning_sprints WHERE workspace_id='w2'"),
     1,
   );
-  await assert.rejects(store.run("create", ["w1", "still_late", "p1", "late"]), /scope frozen/);
+  await assert.rejects(
+    store.run("create", createValues("w1", "still_late", "p1", "late")),
+    /scope frozen/,
+  );
 });
 
 test("Insights protects projection writes and keeps other projects", async () => {

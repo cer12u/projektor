@@ -463,6 +463,8 @@
         ],
         "objects": [
           "assets_target",
+          "assets_check_blobs_insert",
+          "assets_check_blobs_update",
           "assets_events_project",
           "assets_receipts_project",
           "assets_blobs_freeze_insert",
@@ -511,6 +513,9 @@
         ],
         "objects": [
           "planning_open_issue",
+          "planning_one_active_sprint",
+          "planning_check_sprints_insert",
+          "planning_check_sprints_update",
           "planning_events_freeze_insert",
           "planning_events_freeze_update",
           "planning_events_project",

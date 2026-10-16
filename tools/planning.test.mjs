@@ -155,6 +155,102 @@ const create = (op = "create") => ({
   projectId: "p1",
   name: "Next",
 });
+test("sprint details, transitions, retry, CAS, active uniqueness and tenant lookup", async () => {
+  const f = await fixture();
+  const a = f.scope("w1");
+  const b = f.scope("w2");
+  await f.api.createSprint(a, { ...create(), goal: "Ship", startDate: 100, endDate: 200 });
+  const initial = await f.api.getSprint(a, "s1");
+  assert.equal(initial.goal, "Ship");
+  assert.equal(initial.status, "planned");
+  assert.equal(initial.createdAt, 123);
+  await assert.rejects(
+    f.api.updateSprint(a, {
+      operationId: "bad",
+      sprintId: "s1",
+      expectedVersion: 1,
+      status: "completed",
+    }),
+    code("validation"),
+  );
+  const start = { operationId: "start", sprintId: "s1", expectedVersion: 1, status: "active" };
+  assert.deepEqual(await f.api.updateSprint(a, start), { id: "s1", version: 2 });
+  assert.deepEqual(await f.api.updateSprint(a, start), { id: "s1", version: 2 });
+  await assert.rejects(f.api.updateSprint(a, { ...start, operationId: "stale" }), code("conflict"));
+  await f.api.createSprint(a, { ...create("second"), sprintId: "s2" });
+  await assert.rejects(
+    f.api.updateSprint(a, {
+      operationId: "second-start",
+      sprintId: "s2",
+      expectedVersion: 1,
+      status: "active",
+    }),
+    code("conflict"),
+  );
+  await f.api.scheduleIssue(a, {
+    operationId: "schedule",
+    sprintId: "s1",
+    issueId: "i1",
+    expectedVersion: 2,
+  });
+  assert.deepEqual(await f.api.sprintsForIssues(a, ["i1"]), { i1: "s1" });
+  assert.deepEqual(await f.api.sprintsForIssues(b, ["i1"]), { i1: null });
+  await f.api.updateSprint(a, {
+    operationId: "complete",
+    sprintId: "s1",
+    expectedVersion: 3,
+    status: "completed",
+  });
+  assert.equal((await f.api.getSprint(a, "s1")).closed, true);
+  await assert.rejects(
+    f.api.updateSprint(a, {
+      operationId: "reopen",
+      sprintId: "s1",
+      expectedVersion: 4,
+      status: "active",
+    }),
+    code("validation"),
+  );
+});
+test("sprint details migration skips frozen history backfill", async () => {
+  const db = await mf.getD1Database(`PLAN${serial++}`);
+  for (const migration of p.catalogs.planning.migrations.filter(
+    (m) => Number(m.version.slice(0, 4)) <= 3,
+  ))
+    await db.batch(migration.statements.map((sql) => db.prepare(sql)));
+  await db
+    .prepare(
+      "INSERT INTO planning_sprints(workspace_id,id,project_id,name,version,closed) VALUES('w1','frozen','p1','Frozen',1,1),('w1','open','p2','Open',1,0)",
+    )
+    .run();
+  await db
+    .prepare(
+      "INSERT INTO planning_history(workspace_id,sprint_id,project_id,version,action,actor_id,occurred_at) VALUES('w1','frozen','p1',1,'create','a',10),('w1','open','p2',1,'create','a',20)",
+    )
+    .run();
+  await db
+    .prepare(
+      "INSERT INTO planning_maintenance(workspace_id,project_id,state) VALUES('w1','p1','frozen')",
+    )
+    .run();
+  for (const migration of p.catalogs.planning.migrations.filter(
+    (m) => Number(m.version.slice(0, 4)) >= 4,
+  ))
+    await db.batch(migration.statements.map((sql) => db.prepare(sql)));
+  const frozen = await db
+    .prepare("SELECT status,closed,created_at FROM planning_sprints WHERE id='frozen'")
+    .first();
+  const open = await db
+    .prepare("SELECT status,created_at FROM planning_sprints WHERE id='open'")
+    .first();
+  assert.deepEqual(frozen, { status: "planned", closed: 1, created_at: 0 });
+  assert.deepEqual(open, { status: "planned", created_at: 20 });
+  assert.equal(
+    (await db.prepare("SELECT COUNT(*) n FROM planning_maintenance WHERE project_id='p1'").first())
+      .n,
+    1,
+  );
+});
 test("rules, CAS, retry, membership uniqueness and historical reads", async () => {
   const f = await fixture();
   const { api, editor } = f;

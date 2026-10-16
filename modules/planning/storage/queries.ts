@@ -1,14 +1,20 @@
 export const queries = {
   sprint:
-    "SELECT id,project_id,name,version,closed FROM planning_sprints WHERE workspace_id=? AND id=?",
-  list: "SELECT id,project_id,name,version,closed FROM planning_sprints WHERE workspace_id=? AND project_id=? ORDER BY id",
+    "SELECT id,project_id,name,version,closed,goal,CASE WHEN closed=1 THEN 'completed' ELSE status END AS status,start_date,end_date,created_at,updated_at FROM planning_sprints WHERE workspace_id=? AND id=?",
+  list: "SELECT id,project_id,name,version,closed,goal,CASE WHEN closed=1 THEN 'completed' ELSE status END AS status,start_date,end_date,created_at,updated_at FROM planning_sprints WHERE workspace_id=? AND project_id=? ORDER BY created_at,id",
+  activeSprint:
+    "SELECT id FROM planning_sprints WHERE workspace_id=? AND project_id=? AND id<>? AND status='active' LIMIT 1",
+  issueSprint:
+    "SELECT issue_id,sprint_id FROM planning_items WHERE workspace_id=? AND issue_id=? AND present=1 ORDER BY sprint_id LIMIT 1",
   items:
     "SELECT issue_id FROM planning_items WHERE workspace_id=? AND sprint_id=? AND present=1 AND issue_id>? ORDER BY issue_id LIMIT ?",
   create:
-    "INSERT INTO planning_sprints(workspace_id,id,project_id,name,version,closed) VALUES(?,?,?,?,1,0)",
+    "INSERT INTO planning_sprints(workspace_id,id,project_id,name,goal,start_date,end_date,created_at,updated_at,version,closed,status) VALUES(?,?,?,?,?,?,?,?,?,1,0,'planned')",
+  updateDetails:
+    "UPDATE planning_sprints SET name=?,goal=?,status=?,closed=CASE WHEN ?='completed' THEN 1 ELSE 0 END,start_date=?,end_date=?,updated_at=?,version=version+1 WHERE workspace_id=? AND id=? AND version=?",
   bump: "UPDATE planning_sprints SET version=version+1 WHERE workspace_id=? AND id=? AND version=? AND closed=0",
   close:
-    "UPDATE planning_sprints SET version=version+1,closed=1 WHERE workspace_id=? AND id=? AND version=? AND closed=0",
+    "UPDATE planning_sprints SET version=version+1,closed=1,status='completed' WHERE workspace_id=? AND id=? AND version=? AND closed=0",
   addItem:
     "INSERT INTO planning_items(workspace_id,sprint_id,issue_id,active,present) VALUES(?,?,?,1,1) ON CONFLICT(workspace_id,sprint_id,issue_id) DO UPDATE SET active=1,present=1 WHERE active=0",
   removeItem:

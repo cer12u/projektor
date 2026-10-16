@@ -81,3 +81,15 @@ New outbox events use schemaVersion 2 and `payload.clientId` from RequestScope (
 
 See [Lifecycle](lifecycle.md) for owner-local atomic freeze, bounded purge, retained
 markers, project attribution, REST-only owner access and recovery limits.
+
+## UI restoration C4a
+
+Migration 0005 adds `kind`, `url` and `title` to asset metadata. File uploads
+retain the 10 MiB cap. `createLinkAsset` accepts only HTTP or HTTPS URLs and
+creates a ready asset and target link in one guarded command batch, with no R2
+object. Link downloads redirect after normal target visibility checks; GC
+removes retired link metadata without opening R2. The UI API maps original
+`entityType`/`entityId` multipart and URL link forms to Assets public commands.
+It resolves attachment link IDs through `getLink` before download or unlink, since
+a link ID can differ from its asset ID. It returns `wikiPage: null` for these
+attachment kinds.

@@ -79,7 +79,7 @@ export function buildFilterQueryParams(
 	if (filterStatuses.length) qs.set("statusIds", filterStatuses.join(","));
 	if (filterPriorities.length) qs.set("priorities", filterPriorities.join(","));
 	const projectId = filterProject ? projects.find((p) => p.key === filterProject)?.id : undefined;
-	if (projectId) qs.set("project", projectId);
+	if (projectId && !filterSprintId) qs.set("project", projectId);
 	const typeId = filterType ? taskTypes.find((t) => t.key === filterType)?.id : undefined;
 	if (typeId) qs.set("typeId", typeId);
 	if (filterSprintId) qs.set("sprintId", filterSprintId);

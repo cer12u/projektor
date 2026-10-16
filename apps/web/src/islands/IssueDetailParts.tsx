@@ -1952,6 +1952,41 @@ function PointsField({
 	);
 }
 
+function SprintField({ issue, issueId, workspaceSlug, fetchIssue }: {
+	issue: IssueData;
+	issueId: string;
+	workspaceSlug?: string;
+	fetchIssue: () => Promise<void>;
+}) {
+	const [sprints, setSprints] = useState<Array<{ id: string; name: string; status: string }>>([]);
+	const [saving, setSaving] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	useEffect(() => {
+		apiFetch<{ items: Array<{ id: string; name: string; status: string }> }>(
+			`/api/sprints?projectId=${encodeURIComponent(issue.project_id)}`, { workspaceSlug }
+		).then((result) => setSprints(result.items)).catch(() => setSprints([]));
+	}, [issue.project_id, workspaceSlug]);
+	return <>
+		<select aria-label="Change sprint" value={issue.sprint_id ?? ""} disabled={saving}
+			class="w-full bg-bg text-text-base text-sm border border-border rounded px-2 py-1"
+			onChange={async (event) => {
+				setSaving(true);
+				setError(null);
+				try {
+					await apiFetch(`/api/issues/${issueId}`, { workspaceSlug, method: "PATCH",
+						body: { sprintId: (event.currentTarget as HTMLSelectElement).value || null } });
+					await fetchIssue();
+				} catch (reason) { setError(String(reason)); }
+				finally { setSaving(false); }
+			}}>
+			<option value="">No sprint</option>
+			{sprints.filter((s) => s.status !== "completed" || s.id === issue.sprint_id).map((s) =>
+				<option key={s.id} value={s.id}>{s.name}</option>)}
+		</select>
+		{error && <span role="alert" class="text-danger-text text-xs">{error}</span>}
+	</>;
+}
+
 export function SidebarPanel({
 	issue,
 	issueId,
@@ -2044,6 +2079,10 @@ export function SidebarPanel({
 					) : (
 						<span class="text-sm text-text-base">{issue.assignee_name ?? "—"}</span>
 					)}
+				</SidebarField>
+
+				<SidebarField label="Sprint">
+					<SprintField issue={issue} issueId={issueId} workspaceSlug={workspaceSlug} fetchIssue={fetchIssue} />
 				</SidebarField>
 
 				<SidebarField label="Points">
