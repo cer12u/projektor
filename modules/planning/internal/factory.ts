@@ -28,7 +28,7 @@ interface Dependencies {
   readonly access: Pick<AccessApi, "authorize">;
   readonly issues: Pick<
     IssuesApi,
-    "authorizeIssue" | "getIssueIncludingArchived" | "authorizeIssuesByIds"
+    "authorizeIssue" | "getIssueIncludingArchived" | "authorizeIssuesByIds" | "getIssuesByIds"
   >;
   readonly projects: Pick<ProjectsApi, "authorizeProject" | "getProjectIncludingArchived">;
   readonly clock: Clock;
@@ -338,19 +338,14 @@ export function createPlanning(d: Dependencies): {
       await access.authorize(s, "read");
       const current = await readSprint(s, sprintId);
       const rows = (await store.run("items", [ws(s), current.id, cursor, limit + 1])).rows;
-      const items = await Promise.all(
-        rows.slice(0, limit).map(async (r) => {
-          const issueId = str(r, "issue_id");
-          try {
-            const issue = await issues.getIssueIncludingArchived(s, issueId);
-            return { issueId, issue, archived: issue.archived || current.archived };
-          } catch (e) {
-            if (e instanceof PlatformError && e.code === "not_found")
-              return { issueId, issue: null, archived: true };
-            throw e;
-          }
-        }),
+      const ids = rows.slice(0, limit).map((r) => str(r, "issue_id"));
+      const found = new Map(
+        (await issues.getIssuesByIds(s, ids, true)).map((issue) => [issue.id, issue]),
       );
+      const items = ids.map((issueId) => {
+        const issue = found.get(issueId) ?? null;
+        return { issueId, issue, archived: !issue || issue.archived || current.archived };
+      });
       return {
         sprint: current,
         items,

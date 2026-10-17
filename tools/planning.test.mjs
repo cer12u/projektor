@@ -62,6 +62,19 @@ async function fixture() {
     reads = [],
     writes = [];
   const issues = {
+    async getIssuesByIds(s, ids) {
+      const results = await Promise.all(
+        ids.map(async (id) => {
+          try {
+            return await this.getIssueIncludingArchived(s, id);
+          } catch (error) {
+            if (error instanceof p.PlatformError && error.code === "not_found") return null;
+            throw error;
+          }
+        }),
+      );
+      return results.filter(Boolean);
+    },
     async authorizeIssuesByIds(s, ids) {
       for (const issueId of ids) await this.getIssueIncludingArchived(s, issueId);
     },

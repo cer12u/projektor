@@ -22,6 +22,8 @@ export const queries = {
     "SELECT role, active, version FROM access_memberships WHERE workspace_id=? AND principal_id=?",
   admission:
     "SELECT m.role, m.version FROM access_memberships m JOIN access_workspaces w ON w.workspace_id=m.workspace_id WHERE m.workspace_id=? AND m.principal_id=? AND m.active=1 AND w.archived=0",
+  machineAdmission:
+    "SELECT c.principal_id,c.token_hash,c.scope,c.expires_at,c.revoked,m.role,m.version FROM access_credentials c LEFT JOIN access_memberships m ON m.workspace_id=c.workspace_id AND m.principal_id=c.principal_id AND m.active=1 LEFT JOIN access_workspaces w ON w.workspace_id=c.workspace_id WHERE c.workspace_id=? AND c.id=? AND w.archived=0",
   listWorkspaces:
     "SELECT w.workspace_id, w.name, w.version, m.role FROM access_workspaces w JOIN access_memberships m ON m.workspace_id=w.workspace_id WHERE m.principal_id=? AND m.active=1 AND w.archived=0 AND (? IS NULL OR w.workspace_id=?) ORDER BY w.workspace_id LIMIT 100",
   discoverWorkspaces:

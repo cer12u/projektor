@@ -58,6 +58,12 @@ use one composed Access instance for the duration of a request. Reauthenticate
 after restart. Q1 allows an already admitted operation to finish after revocation;
 new admissions and operation-result reads check current authority.
 
+Machine admission reads the credential and active membership with one catalog
+statement. It checks the stored token hash, principal, revocation, expiry and
+read/write scope on every admission. Direct principal reads such as `me()` still
+check the credential. `getWorkspace(scope)` is an authorized workspace metadata
+read for UI responses that need the workspace name.
+
 ## Commands and minimal roles
 
 All management requires an interactive human. Machines are confined to the

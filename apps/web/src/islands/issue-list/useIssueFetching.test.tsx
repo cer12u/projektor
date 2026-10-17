@@ -85,6 +85,7 @@ describe("issue pagination scope and cancellation", () => {
 		await waitFor(() => expect(result.issues.length).toBe(36));
 		expect(urls.length).toBe(2);
 		expect(urls[0].searchParams.get("limit")).toBe("100");
+		expect(urls.every((url) => url.searchParams.get("fields") === (view === "board" ? "summary" : null))).toBe(true);
 		expect(urls[1].searchParams.get("cursor")).toBe("tail");
 		expect(urls.every((url) => url.searchParams.get("project") === "p1")).toBe(true);
 		expect(getBoardColumnIssues(result.issues, "in_progress").length).toBe(1);

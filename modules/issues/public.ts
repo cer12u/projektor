@@ -283,7 +283,11 @@ export interface IssuesApi {
     scope: RequestScope,
     projectIds: readonly string[],
   ): Promise<readonly { projectId: string; open: number; backlog: number }[]>;
-  getIssuesByIds(scope: RequestScope, ids: readonly string[]): Promise<readonly Issue[]>;
+  getIssuesByIds(
+    scope: RequestScope,
+    ids: readonly string[],
+    includeArchived?: boolean,
+  ): Promise<readonly Issue[]>;
   authorizeIssuesByIds(
     scope: RequestScope,
     ids: readonly string[],

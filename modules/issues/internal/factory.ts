@@ -361,6 +361,7 @@ export function createIssues(deps: Dependencies): {
     includeArchived = false,
   ): Promise<void> {
     if (!Array.isArray(ids) || ids.length > 100) fail("validation", "Invalid IDs");
+    await access.authorize(scope, "read");
     const checked = ids.map(id);
     const rows = (await store.run("parentsByIds", [JSON.stringify(checked), w(scope)])).rows;
     const found = new Map(rows.map((row) => [string(row, "id"), row]));
@@ -2060,13 +2061,34 @@ export function createIssues(deps: Dependencies): {
         backlog: number(row, "backlog_count"),
       }));
     },
-    async getIssuesByIds(scope, ids) {
+    async getIssuesByIds(scope, ids, includeArchived = false) {
       if (!Array.isArray(ids) || ids.length > 100) fail("validation", "Invalid IDs");
+      await access.authorize(scope, "read");
       const checked = ids.map(id);
       const rows = (await store.run("getByIds", [w(scope), JSON.stringify(checked)])).rows;
       const found = new Map<string, Issue>();
+      const visible = new Map<
+        string,
+        Awaited<ReturnType<ProjectsApi["authorizeProject"]>> | null
+      >();
       for (const row of rows) {
-        const project = await projects.authorizeProject(scope, string(row, "project_id"));
+        const projectId = string(row, "project_id");
+        if (!visible.has(projectId)) {
+          try {
+            visible.set(
+              projectId,
+              includeArchived
+                ? await projects.getProjectIncludingArchived(scope, projectId)
+                : await projects.authorizeProject(scope, projectId),
+            );
+          } catch (error) {
+            if (!includeArchived || !(error instanceof PlatformError && error.code === "not_found"))
+              throw error;
+            visible.set(projectId, null);
+          }
+        }
+        const project = visible.get(projectId);
+        if (!project) continue;
         found.set(string(row, "id"), fromRow(row, project.key));
       }
       return checked.flatMap((value) => {

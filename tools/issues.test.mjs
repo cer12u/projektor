@@ -1339,6 +1339,10 @@ test("C2 update, comments, links, filters and tenant isolation", async () => {
   );
   assert.equal((await f.api.queryIssues(f.other, {})).issues.length, 1);
   assert.equal((await f.api.getIssuesByIds(f.human, ["child", "other"])).length, 1);
+  assert.deepEqual(
+    (await f.api.getIssuesByIds(f.human, ["child", "other", "missing"], true)).map((i) => i.id),
+    ["child"],
+  );
   assert.equal((await f.api.childRollups(f.human, ["parent"])).parent.done, 1);
   await f.api.addComment(f.human, {
     operationId: "comment-c2",
@@ -1475,6 +1479,7 @@ test("bulk issue authorization and child rollups preserve tenant, hidden and arc
     operationId: "bulk-archive",
     expectedVersion: 1,
   });
+  assert.equal((await f.api.getIssuesByIds(f.human, ["bulk-a"], true))[0].archived, true);
   await assert.rejects(f.api.childRollups(f.human, ["bulk-a"]), code("not_found"));
   await f.api.authorizeIssuesByIds(f.human, ["bulk-a"], true);
   assert.deepEqual((await f.api.childRollups(f.human, ["bulk-b"]))["bulk-b"].total, 0);

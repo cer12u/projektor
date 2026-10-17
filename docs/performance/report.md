@@ -1,5 +1,86 @@
 # Cloudflare performance investigation (C8a)
 
+## C8d fixed request cost
+
+Warm Miniflare measurements on the same 2,000-issue fixture, before and after this
+change. Trips are D1 calls across the complete page request set; waves are the
+largest number of nonoverlapping D1 groups in one request. Rows read are lower
+bounds because `first()` has no row metadata. The board probe now sends
+`limit=100&fields=summary` on every cursor page, matching the web client. Its
+corrected C8d baseline is 133 trips over eight requests; the C8b report's 280
+trips used 30-item cursor pages and cannot be compared directly.
+
+| Page or operation | Trips before → after | Longest waves before → after | Rows read before → after |
+|---|---:|---:|---:|
+| projects list | 18 → 18 | 16 → 13 | 2,050 → 2,050 |
+| project landing | 39 → 34 | 14 → 13 | 864 → 858 |
+| issue list | 86 → 80 | 30 → 29 | 8,482 → 8,474 |
+| board | 133 → 124 | 16 → 14 | 8,220 → 8,212 |
+| issue detail | 78 → 68 | 12 → 10 | 385 → 371 |
+| My Issues | 116 → 113 | 31 → 30 | 65,696 → 65,684 |
+| sprint page | 123 → 63 | 17 → 13 | 2,460 → 2,460 |
+| wiki page | 33 → 27 | 16 → 13 | 2,273 → 2,264 |
+| metrics page | 21 → 19 | 21 → 19 | 439 → 437 |
+| issue search | 16 → 14 | 16 → 14 | 6,049 → 6,046 |
+| MCP tools/list | 12 → 8 | 12 → 8 | 16 → 16 |
+| MCP issue read | 17 → 12 | 17 → 12 | 21 → 21 |
+| PATCH issue | 24 → 22 | 24 → 22 | 83 → 80 |
+| add comment | 18 → 16 | 18 → 16 | 41 → 38 |
+| create issue | 18 → 16 | 18 → 16 | 68 → 65 |
+
+The probe maps prepared SQL to the generated owner catalog and stores each page
+set's top statement counts in `baseline.json`. In the issue-list set, the leading
+counts changed from `access.admission=37`, `projects.project=15`,
+`projects.visible=7`, `access.refreshProfile=5`, and
+`access.discoverWorkspaces=5` to `access.admission=40`,
+`projects.project=15`, `projects.visible=7`, and `access.workspace=1`.
+One `/api/issues?limit=30` request was 40 trips / 30 waves / 2,304 rows
+before, with 18 admissions and 10 project reads; it is 39 / 29 / 2,303
+after, with 19 admissions and 10 project reads. The extra admission is the
+explicit check for the bulk parent authorization call, including an empty ID set.
+
+The corrected board set's leading counts changed from
+`access.admission=56`, `projects.project=20`, `access.refreshProfile=8`,
+and `access.discoverWorkspaces=8` to `access.admission=62`,
+`projects.project=20`, and `access.workspace=1`. Its first 100-issue summary
+request was 24 trips / 14 waves / 1,069 rows before, with 10 admissions and
+four project reads; it is 23 / 13 / 1,069 after, with 11 admissions and four
+project reads. Subsequent 100-issue pages remain separately admitted. These
+wave counts approximate remote serial depth; they are not deployed D1 latency.
+
+`scopeFor` now uses `requireMembership` directly when the UI supplies its
+workspace header. Only headerless hostname or single-workspace fallback calls
+`me()`; `/auth/me` retains profile refresh. Two routes that need the workspace
+name use authorized `getWorkspace`. Projects' `getProjectBySlug`
+(`modules/projects/internal/factory.ts:432-436`) reuses its freshly admitted
+scope inside the same public call, removing one duplicate `access.authorize`.
+Planning's `getSprintItems` (`modules/planning/internal/factory.ts:333-348`)
+replaces each per-item Issues public call with one bounded `getIssuesByIds`
+call; that Issues call authorizes itself and each distinct project once
+(`modules/issues/internal/factory.ts:2064-2092`). Missing or hidden IDs still
+produce null sprint items, and archived issues and projects remain readable.
+The sprint gateway performs independent page and metadata reads concurrently.
+Project ID resolution calls the slug path first for non-UUID inputs; UUIDs keep
+the ID-first lookup and slug fallback. The board's existing 100-item summary
+limit is covered by web and UI API tests; other list limits are unchanged.
+
+Machine admission now joins live credential state, active membership, and
+workspace state in one static Access read. Every admission still checks token
+hash, principal, revocation, expiry, role and write scope. Human admission and
+same-scope revocation behavior are unchanged. No migration was required; the
+joined query uses existing keys. The budget ceilings are the measured warm
+trips plus 10%, rounded up.
+
+### Rejected (Q1)
+
+Caching Access admission or project grants per scope, request, or TTL would
+hide a revocation, demotion, or archive from the next public module call. The
+remaining `access.admission` and project-grant reads are therefore retained.
+`/auth/me` still refreshes its profile as specified. Command receipt checks,
+version CAS, guards, history and events remain separate from this read-path
+optimization. Cross-request status, type and member reads were retained because
+their freshness cannot be assumed from an earlier HTTP request.
+
 ## C8b before and after
 
 Local Miniflare warm measurements on the same fixture; D1 rows read are lower bounds because `first()` omits metadata. The budget ceilings add 10% to the measured D1 round trips and round up.

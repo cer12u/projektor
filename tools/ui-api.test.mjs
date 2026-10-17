@@ -190,7 +190,13 @@ test("session, workspace resolution, identity profile and isolation", async () =
   ]);
   assert.equal(ws.body.members[0].email, "alice@example.test");
   assert.equal(ws.body.members[0].joinedAt, 0);
+  const ws2 = await request("/api/workspaces/w2", { workspace: "w2" });
+  assert.equal(ws2.body.id, "w2");
+  assert.equal((await request("/api/workspaces/w1", { workspace: "w2" })).status, 403);
   assert.equal((await request("/api/projects", { token: unjoined, workspace: "w1" })).status, 403);
+  const unknown = await request("/api/projects", { workspace: "unknown" });
+  assert.equal(unknown.status, 403);
+  assert.deepEqual(unknown.body, { error: "Access denied" });
 });
 
 test("foundation endpoints, commands, conflict, and deferred routes", async () => {
@@ -243,6 +249,11 @@ test("foundation endpoints, commands, conflict, and deferred routes", async () =
   const detail = await request(`/api/projects/${created.body.slug}`, { workspace: "w1" });
   assert.equal(detail.status, 200);
   assert.equal(detail.body.id, created.body.id);
+  assert.equal(
+    (await request(`/api/projects/${created.body.id}`, { workspace: "w1" })).body.id,
+    created.body.id,
+  );
+  assert.equal((await request("/api/projects/unknown", { workspace: "w1" })).status, 404);
   assert.equal(detail.body.agentWipLimit, null);
   assert.equal(detail.body.epicAutoClose, false);
   const patch = await request(`/api/projects/${created.body.id}`, {
@@ -445,6 +456,10 @@ test("issue UI API contracts, refs, filters, comments, links and workspace isola
   assert.equal(Object.hasOwn(list.body.items[0], "body"), false);
   const summary = await request("/api/issues?limit=1&fields=summary", { workspace: "w1" });
   assert.equal(summary.status, 200);
+  assert.equal(
+    (await request("/api/issues?limit=100&fields=summary", { workspace: "w1" })).status,
+    200,
+  );
   assert.equal(summary.body.items[0].id, list.body.items[0].id);
   assert.equal(Object.hasOwn(summary.body.items[0], "workspace_id"), false);
   assert.equal(Object.hasOwn(summary.body.items[0], "status_id"), true);
@@ -1243,4 +1258,85 @@ test("C5 flow metrics UI API shape, window validation, viewer access and workspa
     operationId: "flow-project-viewer",
   });
   assert.equal((await request(path, { token: viewer, workspace: "w1" })).status, 200);
+});
+
+test("C8d UI requests observe membership revocation", async () => {
+  const owner = await access.authenticate({ kind: "human", assertion: alice });
+  const ownerScope = await access.requireMembership(owner, "w1", "c8d-revoke", "write");
+  const memberToken = await sign("c8d-member");
+  await access.inviteMember(ownerScope, {
+    issuer,
+    subject: "c8d-member",
+    role: "member",
+    expectedVersion: 0,
+    operationId: "c8d-invite",
+  });
+  const member = await access.authenticate({ kind: "human", assertion: memberToken });
+  const memberId = (await access.me(member)).principal.id;
+  assert.equal(
+    (await request("/api/task-statuses", { token: memberToken, workspace: "w1" })).status,
+    200,
+  );
+  await access.removeMember(ownerScope, {
+    principalId: memberId,
+    expectedVersion: 1,
+    operationId: "c8d-remove",
+  });
+  const denied = await request("/api/task-statuses", { token: memberToken, workspace: "w1" });
+  assert.equal(denied.status, 403);
+});
+
+test("C8d one UI request re-admits for each module call", async () => {
+  let admissions = 0,
+    calls = 0;
+  const baseStore = platform.createModuleStore(db, "access");
+  const countedStore = {
+    ...baseStore,
+    async run(name, values) {
+      if (name === "admission") admissions++;
+      return baseStore.run(name, values);
+    },
+  };
+  const countedAccess = platform.createAccess({
+    store: countedStore,
+    kv: platform.createScopedKV(await mf.getKVNamespace("KV"), "access"),
+    clock: platform.systemClock,
+    ids: platform.randomIds,
+    config: { teamDomain: issuer, audience },
+    fetchJwks: async () => ({ keys: [jwk] }),
+  }).api;
+  const principal = await countedAccess.authenticate({ kind: "human", assertion: alice });
+  const services = {
+    access: {
+      requireMembership: (...args) => countedAccess.requireMembership(...args),
+      authorize: (...args) => countedAccess.authorize(...args),
+      async getWorkspace(s) {
+        calls++;
+        return countedAccess.getWorkspace(s);
+      },
+    },
+    projects: {
+      async listVisibleProjects(s) {
+        calls++;
+        await countedAccess.authorize(s);
+        return { projects: [], nextCursor: null };
+      },
+    },
+    issues: {
+      async countIssuesByProject(s) {
+        calls++;
+        await countedAccess.authorize(s);
+        return [];
+      },
+    },
+  };
+  const response = await platform.handleUi(
+    new Request("http://localhost/api/projects", { headers: { "x-workspace-slug": "w1" } }),
+    services,
+    async () => principal,
+    "c8d-count",
+  );
+  assert.equal(response.status, 200);
+  assert.equal(calls, 2); // No projects means countIssuesByProject is not needed.
+  assert.ok(admissions >= calls + 1);
 });

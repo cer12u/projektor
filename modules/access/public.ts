@@ -123,6 +123,7 @@ export interface AccessApi extends OAuthApi {
   ): Promise<RequestScope>;
   /** Revalidates provenance, credential, workspace and live membership for downstream modules. */
   authorize(scope: RequestScope, permission?: Permission): Promise<RequestScope>;
+  getWorkspace(scope: RequestScope): Promise<Workspace>;
   getPrincipalSummary(scope: RequestScope, principalId: string): Promise<PrincipalSummary>;
   listWorkspaces(principal: AuthenticatedPrincipal): Promise<readonly Workspace[]>;
   me(
