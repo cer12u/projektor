@@ -31,7 +31,14 @@ test("counts direct calls and one multi-statement batch with rows read", async (
       return [{ meta: { rows_read: 3 } }, { meta: { rows_read: 7 } }];
     },
   };
-  const meter = countD1(db, () => now);
+  const meter = countD1(
+    db,
+    () => now,
+    new Map([
+      ["a", "access.admission"],
+      ["d", "issues.issue"],
+    ]),
+  );
   await meter.binding.prepare("a").bind(1).all();
   await meter.binding.prepare("b").first();
   await meter.binding.prepare("c").run();
@@ -42,6 +49,7 @@ test("counts direct calls and one multi-statement batch with rows read", async (
     rowsRead: 16,
     sequentialWaves: 4,
     d1BusyMs: 11,
+    statementsByName: { "access.admission": 1, uncataloged: 3, "issues.issue": 1 },
   });
   meter.reset();
   await meter.binding.prepare("again").all();
@@ -51,5 +59,6 @@ test("counts direct calls and one multi-statement batch with rows read", async (
     rowsRead: 4,
     sequentialWaves: 1,
     d1BusyMs: 2,
+    statementsByName: { uncataloged: 1 },
   });
 });

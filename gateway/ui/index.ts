@@ -69,9 +69,9 @@ async function scopeFor(
   requestId: string,
   mode: "read" | "write" = "read",
 ) {
-  const all = await workspaces(services, principal);
   const url = new URL(request.url);
   const header = request.headers.get("x-workspace-slug");
+  const all = header ? [] : await workspaces(services, principal);
   const label = url.hostname.split(".")[0];
   const workspaceId =
     header || (all.some((w) => w.id === label) ? label : all.length === 1 ? all[0].id : null);
@@ -106,6 +106,8 @@ async function resolveProject(
   scope: RequestScope,
   param: string,
 ): Promise<Project> {
+  const isId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(param);
+  if (!isId) return services.projects.getProjectBySlug(scope, param);
   try {
     return await services.projects.getProject(scope, param);
   } catch (error) {
@@ -521,21 +523,18 @@ export async function handleUi(
     )
       return unsupported();
     const principal = await authenticate(request, services, "rest");
-    const { scope, workspace } = await scopeFor(
+    const { scope } = await scopeFor(
       request,
       services,
       principal,
       requestId,
       request.method === "GET" ? "read" : "write",
     );
-    const admission = Object.freeze({ scope, role: scope.role, workspace });
-    let visibleSnapshot: Promise<readonly Project[]> | undefined;
+    let workspaceSnapshot: Promise<Workspace> | undefined;
+    const requestWorkspace = () => (workspaceSnapshot ??= services.access.getWorkspace(scope));
     let memberSnapshot: Promise<Map<string, MemberItem>> | undefined;
-    const requestProjects = () =>
-      (visibleSnapshot ??= visibleProjects(services, admission.scope).then((items) =>
-        Object.freeze(items),
-      ));
-    const requestMembers = () => (memberSnapshot ??= members(services, admission.scope));
+    const requestProjects = () => visibleProjects(services, scope);
+    const requestMembers = () => (memberSnapshot ??= members(services, scope));
     const settings = path.match(
       /^\/api\/workspaces\/([^/]+)\/(tokens|connectors|mcp-info)(?:\/([^/]+))?$/,
     );
@@ -1095,14 +1094,15 @@ export async function handleUi(
       } while (cursor);
       return json({
         id: scope.workspaceId,
-        name: workspace?.name ?? scope.workspaceId,
+        name: (await requestWorkspace()).name,
         slug: scope.workspaceId,
         members,
         currentUserRole: scope.role,
       });
     }
     if (path === "/api/projects" && request.method === "GET") {
-      const projects = await requestProjects();
+      const [projects, workspace] = await Promise.all([requestProjects(), requestWorkspace()]);
+      const workspaceName = workspace.name;
       const counts = new Map<string, { open: number; backlog: number }>();
       for (let i = 0; i < projects.length; i += 100) {
         for (const item of await services.issues.countIssuesByProject(
@@ -1119,7 +1119,7 @@ export async function handleUi(
           slug: p.slug,
           description: p.description || null,
           workspace_id: scope.workspaceId,
-          workspace_name: workspace?.name ?? scope.workspaceId,
+          workspace_name: workspaceName,
           workspace_slug: scope.workspaceId,
           open_issue_count: counts.get(p.id)?.open ?? 0,
           backlog_issue_count: counts.get(p.id)?.backlog ?? 0,
@@ -1249,14 +1249,16 @@ export async function handleUi(
           return unsupported();
         const sprintId = q.get("sprintId");
         if (!sprintId) bad("Invalid sprintId");
-        const page = await services.planning.getSprintItems(scope, sprintId as string, {
-          cursor: q.get("cursor") ?? undefined,
-          limit: Number(q.get("limit") ?? 30),
-        });
-        const projects = await requestProjects();
-        const people = await requestMembers();
-        const statuses = await services.issues.listTaskStatuses(scope);
-        const types = await services.issues.listTaskTypes(scope);
+        const [page, projects, people, statuses, types] = await Promise.all([
+          services.planning.getSprintItems(scope, sprintId as string, {
+            cursor: q.get("cursor") ?? undefined,
+            limit: Number(q.get("limit") ?? 30),
+          }),
+          requestProjects(),
+          requestMembers(),
+          services.issues.listTaskStatuses(scope),
+          services.issues.listTaskTypes(scope),
+        ]);
         return json({
           items: page.items
             .filter((item) => item.issue !== null)

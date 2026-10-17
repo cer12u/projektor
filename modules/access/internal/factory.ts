@@ -113,17 +113,30 @@ export function createAccess(deps: Dependencies): {
     permission(mode);
     identifier(w);
     textValue(requestId);
-    await live(p);
+    if (p.kind === "machine") {
+      if (p.expiresAt <= clock.now()) deny();
+    } else await live(p);
     if (p.workspaceId !== undefined && p.workspaceId !== w) deny();
-    const member = await one("admission", [w, p.id]);
-    if (!member) deny();
+    const member =
+      p.kind === "machine"
+        ? await one("machineAdmission", [w, p.credentialId ?? ""])
+        : await one("admission", [w, p.id]);
+    if (
+      p.kind === "machine" &&
+      (!member ||
+        member.revoked !== 0 ||
+        num(member, "expires_at") <= clock.now() ||
+        member.token_hash !== p.tokenHash ||
+        member.principal_id !== p.id)
+    )
+      deny();
+    if (!member || member.role === null) deny();
     const memberRole = role(member.role);
     if (mode === "write") {
       if (p.clientId && p.oauthScope !== "write") throw new OAuthInsufficientScope();
       if (memberRole === "viewer") deny();
       if (p.kind === "machine") {
-        const c = await one("credential", [w, p.credentialId ?? ""]);
-        if (c?.scope !== "write" || c.revoked !== 0 || num(c, "expires_at") <= clock.now()) deny();
+        if (member.scope !== "write") deny();
       }
     }
     const scope = Object.freeze({
@@ -366,6 +379,17 @@ export function createAccess(deps: Dependencies): {
       return admit(identity(principal), w, requestId, mode);
     },
     authorize,
+    async getWorkspace(scope) {
+      const s = await authorize(scope);
+      const row = await one("workspace", [s.workspaceId]);
+      if (!row || row.archived !== 0) deny();
+      return {
+        id: str(row, "workspace_id"),
+        name: str(row, "name"),
+        version: num(row, "version"),
+        role: s.role,
+      };
+    },
     async listWorkspaces(principal) {
       const p = identity(principal);
       await live(p);

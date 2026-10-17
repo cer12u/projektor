@@ -138,7 +138,10 @@ chain, and assignee at admission. `queryIssues` searches all visible projects wh
 absent, supports the tracker filters, and pages by `(created_at DESC, id DESC)`. Its JSON array
 filters use static recursive CTEs with `json_extract`: the schema ownership checker currently
 rejects `json_each` as an unowned table-valued source. This retains one JSON bind per array and
-does not add dynamic SQL. `getIssuesByIds` accepts at most 100 IDs; `childRollups` reports counts by
+does not add dynamic SQL. `getIssuesByIds` accepts at most 100 IDs and checks
+each distinct project. Its optional archived-project mode supports Planning's
+bounded sprint-item read and omits IDs whose project is no longer visible;
+archived issue rows remain readable for historical sprint display. `childRollups` reports counts by
 category.
 
 Comment edits and deletes bump the issue version, keep the full command receipt and history

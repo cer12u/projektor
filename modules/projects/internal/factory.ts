@@ -433,7 +433,7 @@ export function createProjects(deps: Dependencies): {
       const live = await access.authorize(scope, "read");
       const row = await one("projectBySlug", [workspace(live), slug(projectSlug)]);
       if (!row) missing();
-      return authorizeProject(live, str(row, "id"));
+      return projectRole(live, str(row, "id"));
     },
     async getProjectByKey(scope, projectKey) {
       const live = await access.authorize(scope, "read");

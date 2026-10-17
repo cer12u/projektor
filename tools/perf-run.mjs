@@ -322,7 +322,7 @@ async function measure(name, calls, instance, phase) {
   }
   if (name === "board")
     for (let page = 0; boardCursor != null && page < 50; page++) {
-      const pathname = `/api/issues?project=${p}&fields=summary&cursor=${encodeURIComponent(boardCursor)}`;
+      const pathname = `/api/issues?project=${p}&limit=100&fields=summary&cursor=${encodeURIComponent(boardCursor)}`;
       const result = await request(pathname, "GET", undefined, instance);
       rows.push({ path: pathname, method: "GET", status: result.status, ...result.metric });
       boardCursor = result.value.nextCursor;
@@ -346,6 +346,15 @@ async function measure(name, calls, instance, phase) {
     wallMs: Math.round(Math.max(...rows.map((r) => r.wallMs)) * 10) / 10,
     cpuApproxMs: Math.round(rows.reduce((n, r) => n + r.cpuApproxMs, 0) * 10) / 10,
     calls: rows,
+    topStatements: Object.entries(
+      rows.reduce((counts, row) => {
+        for (const [name, count] of Object.entries(row.statementsByName ?? {}))
+          counts[name] = (counts[name] ?? 0) + count;
+        return counts;
+      }, {}),
+    )
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 12),
   };
   results.push(aggregate);
   return aggregate;
@@ -439,4 +448,8 @@ console.table(
     }),
   ),
 );
+for (const result of results.filter((item) => item.phase === "warm"))
+  console.log(
+    `${result.name}: ${result.topStatements.map(([name, count]) => `${name}=${count}`).join(", ")}`,
+  );
 if (!reuse) fs.rmSync(temp, { recursive: true, force: true });
